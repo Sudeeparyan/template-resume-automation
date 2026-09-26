@@ -1,0 +1,9 @@
+#!/bin/sh
+# One command for every AI app on macOS, Linux and Git Bash: ./career <command> ... (or: sh career ...).
+# See AGENTS.md; "./career help" lists the commands.
+ROOT="$(cd "$(dirname "$0")" && pwd)"
+CLI="$ROOT/career-dashboard/backend/scripts/career_cli.py"
+for PY in "$ROOT/career-dashboard/backend/.venv/bin/python" "$ROOT/career-dashboard/backend/.venv/Scripts/python.exe"; do
+  if [ -x "$PY" ]; then exec "$PY" "$CLI" "$@"; fi
+done
+exec python3 "$CLI" "$@"

@@ -1,0 +1,119 @@
+# Country pack: Ireland (the Republic of Ireland).
+#
+# Northern Ireland is part of the United Kingdom: an Irish work permission (for
+# example Stamp 1G) does not cover it, so Belfast or Derry never counts as Ireland.
+
+name: Ireland
+names: [Republic of Ireland, IE, Éire, Eire]
+adjective: Irish
+timezone: Europe/Dublin
+currency: EUR
+paper: a4
+paper_label: A4
+resume_word: CV
+spelling: Irish/UK English spelling (modelling, specialising, analyse, organisation)
+# No public employer index is bundled for Ireland yet, so sponsorship tiers are
+# A (the posting offers a permit) or C (silent); nothing is excluded for lack of history.
+sponsor_index:
+
+messages:
+  location_screen: "An Irish location is not established by this posting; only roles in Ireland are pursued."
+  location_blocker: "Location is not in Ireland (or Ireland-remote). Only roles in Ireland are pursued."
+  location_label: "Ireland location"
+  default_location: "Ireland"
+  market: "roles in Ireland"
+  gate_rule: "a posting that refuses to support a work permit, or requires Irish or EU/EEA citizenship, Stamp 4/5 or a security clearance, is excluded"
+
+location:
+  strong: ['republic\s+of\s+ireland', 'ireland', 'éire', 'eire']
+  # Removed before matching: Northern Ireland is the UK.
+  strip_before_match: ['northern\s+ireland']
+  places:
+    - dublin
+    - cork
+    - galway
+    - limerick
+    - waterford
+    - kilkenny
+    - athlone
+    - sligo
+    - drogheda
+    - dundalk
+    - letterkenny
+    - shannon
+    - ennis
+    - tralee
+    - killarney
+    - carlow
+    - naas
+    - newbridge
+    - maynooth
+    - leixlip
+    - celbridge
+    - swords
+    - blanchardstown
+    - sandyford
+    - tallaght
+    - 'd[uú]n\s+laoghaire'
+    - bray
+    - wexford
+    - wicklow
+    - navan
+    - mullingar
+    - portlaoise
+    - tullamore
+    - castlebar
+    - cavan
+    - monaghan
+    - longford
+    - roscommon
+    - clonmel
+    - cobh
+    - mallow
+    - midleton
+    - ballincollig
+    - carrigaline
+    - 'co\.?\s+(?:carlow|cavan|clare|cork|donegal|dublin|galway|kerry|kildare|kilkenny|laois|leitrim|limerick|longford|louth|mayo|meath|monaghan|offaly|roscommon|sligo|tipperary|waterford|westmeath|wexford|wicklow)'
+    - 'county\s+(?:carlow|cavan|clare|cork|donegal|dublin|galway|kerry|kildare|kilkenny|laois|leitrim|limerick|longford|louth|mayo|meath|monaghan|offaly|roscommon|sligo|tipperary|waterford|westmeath|wexford|wicklow)'
+  remote: ['remote[-\s,(]*ie\b']
+  # A bare city named with the US beside it is the American namesake (Dublin, USA).
+  # Other countries beside it ("Dublin or London") mean a multi-country posting that
+  # includes Ireland, which counts.
+  foreign:
+    - 'united\s+states'
+    - 'usa'
+    - 'u\.s\.a?'
+  # Dublin, OH / Waterford, MI / Galway, NY: a US state or ZIP code after the city.
+  twin_markers:
+    - ',\s*(?:AL|AK|AZ|AR|CA|CO|CT|DE|FL|GA|HI|ID|IL|IN|IA|KS|KY|LA|ME|MD|MA|MI|MN|MS|MO|MT|NE|NV|NH|NJ|NM|NY|NC|ND|OH|OK|OR|PA|RI|SC|SD|TN|TX|UT|VT|VA|WA|WV|WI|WY|DC)\b'
+    - '\b\d{5}(?:-\d{4})?\b'
+  # Not a refusal: checked at research time, earns no location points.
+  open_remote:
+    - '\s*remote\s*'
+    - '\s*remote\s*[-,(]*\s*(?:emea|europe|eu|eea)\s*\)?\s*'
+    - '\s*(?:emea|europe|eu)\s*[-,(]*\s*remote\s*\)?\s*'
+
+discovery:
+  scope: >-
+    Locations in the Republic of Ireland, or explicitly Ireland-remote, only; never Northern Ireland or
+    elsewhere in the UK, the United States, India or "remote (US/APAC)". A role open across Europe that
+    names Ireland as an allowed location counts.
+  authorization_topics: >-
+    work permits and employment permits (Critical Skills or General Employment Permit), Stamp 1G/Stamp 4
+    or other immigration stamps, EU/EEA citizenship, security vetting or clearance
+  authorized_phrase: must be eligible to work in Ireland
+  refusal_examples: >-
+    "we are unable to sponsor employment permits", "applicants must have the right to work in Ireland
+    without a permit now or in the future", "EU/EEA citizens only", "Stamp 4 required"
+  cannot_hire: Irish or EU/EEA citizenship, Stamp 4 or Stamp 5 status, or a security clearance
+  employer_types: >-
+    Set employer_type to university, hospital, nonprofit_research or government when the employer is one,
+    otherwise company.
+  legal_presence: >-
+    For an employer you think is small or unfamiliar, run one more search before you finish, for example
+    `"<company>" site:core.cro.ie OR site:solocheck.ie OR site:linkedin.com/company`; these searches are
+    in addition to the budget above. Accepted records: a Companies Registration Office (CRO, core.cro.ie)
+    entry, a Solocheck or Vision-net company record, a LinkedIn company page (linkedin.com/company/...)
+    or a Crunchbase profile. A well-known multinational with an Irish office passes on its LinkedIn page.
+  legal_presence_example: The CRO lists Acme Analytics Limited, company number 123456, registered in Cork
+  boards: Greenhouse, Lever, Ashby, Workday, SmartRecruiters, IrishJobs.ie, Jobs.ie, LinkedIn Jobs (Ireland)

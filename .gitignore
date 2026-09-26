@@ -1,0 +1,60 @@
+# Local people, imports, historical work, and developer scratch files.
+.local-reference/
+.agents/
+.venv/
+backup/
+pytest-of-*/
+PLAN.md
+WORKSPACE-STATE.md
+Resume.code-workspace
+*.ipynb
+
+# Runtime state and secrets never belong in the shared template.
+**/.venv/
+**/.runtime/
+**/__pycache__/
+**/.pytest_cache/
+**/node_modules/
+**/dist/
+**/.env
+**/.env.*
+!**/.env.example
+**/keys.txt
+**/*.db
+**/*.db-*
+**/*.sqlite*
+**/*.log
+**/*.pid
+**/*.aux
+**/*.synctex.gz
+**/*.tsbuildinfo
+.DS_Store
+.Rhistory
+.RData
+
+# Profile folders include private source documents, jobs, chats, and outputs.
+career-dashboard/profiles/
+career-dashboard/output/
+career-dashboard/career-dashboard/
+career-dashboard/CLAUDE.md
+career-dashboard/DATA_CONTRACT.md
+career-dashboard/docs/
+career-dashboard/tests/*
+!career-dashboard/tests/portable/
+!career-dashboard/tests/portable/**
+
+# The public USCIS CSV lives in backend/countries/us/; app data is local.
+career-dashboard/data/
+
+# Keep generic scheduler code, not any person's run history or brief.
+daily-job-search/20*/
+daily-job-search/logs/
+daily-job-search/history.csv
+daily-job-search/DAILY_BRIEF.md
+daily-job-search/README.md
+daily-job-search/.gitignore
+
+# Legacy compatibility shortcut and local AI usage-limit state.
+resume-builder-main/
+**/.ai-plan-health.json
+**/.ai-plan-health.json.saving

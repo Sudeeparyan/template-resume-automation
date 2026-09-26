@@ -1,0 +1,155 @@
+# ============================================================
+# Region pack — United States only.
+#
+# This workspace targets the US market exclusively. A role outside
+# the US is not searched for, not ranked, and not listed as skipped.
+#
+# These are GENERIC MARKET FACTS. Candidate-specific values come from
+# system/config/profile.yml and context/.
+# ============================================================
+
+default_region: "united-states"
+
+regions:
+
+  united-states:
+    display_name: "United States"
+    country_code: "US"
+    currency: "USD"
+    language: "English (US)"
+
+    work_authorisation:
+      # NOTE: the key stays British-spelled — system/scripts/init_profile.py maps
+      # `work_authorisation` -> {{WORK_AUTH}}. Renaming it breaks that silently.
+      candidate_status: "{{WORK_AUTH}}"
+
+      notes: >-
+        Routes for a non-US-citizen graduate of a US university, in the order they apply:
+
+        1. F-1 OPT — 12 months of post-completion work authorization. NO employer sponsorship
+           needed. The candidate can start immediately at any employer.
+        2. STEM OPT extension — +24 months (36 total) for STEM degrees. Computer Engineering
+           qualifies. NO sponsorship needed, but the EMPLOYER MUST BE ENROLLED IN E-VERIFY.
+        3. H-1B — employer-sponsored specialty occupation. Cap-subject employers enter an annual
+           lottery; FY2026 saw roughly 339,000 eligible registrations for 85,000 slots (~25%).
+        4. H-1B cap-EXEMPT — universities, nonprofit research organizations affiliated with
+           universities, nonprofit research orgs, and government research bodies. These file
+           ANY TIME OF YEAR WITH NO LOTTERY. Structurally the strongest route.
+        5. O-1 (extraordinary ability) — no lottery. Peer-reviewed publications strengthen it.
+        6. Green card — PERM / EB-2 / EB-3, employer-initiated, long timeline.
+
+        IMPORTANT for screening: "must be authorized to work in the United States" does NOT
+        disqualify a candidate on active OPT — they ARE authorized. Only an explicit refusal to
+        sponsor ("without sponsorship now or in the future", "we do not sponsor") disqualifies.
+        See system/config/sponsorship.yml for the exact patterns.
+
+      sponsorship_routes:
+        - "F-1 OPT (12 months) — no sponsorship needed, works immediately"
+        - "STEM OPT extension (24 months) — no sponsorship needed; employer must be E-Verify enrolled"
+        - "H-1B cap-exempt — universities, nonprofits, research orgs; no lottery, any time of year"
+        - "H-1B cap-subject — annual lottery, ~25% selection rate"
+        - "O-1 extraordinary ability — no lottery; publications strengthen the case"
+        - "PERM / EB-2 / EB-3 green card — employer-initiated, multi-year"
+
+      hours_limit: "Full-time; employment must relate to the degree field under OPT/STEM OPT"
+
+    # Cap-exempt employer categories — ranked first by the job hunter.
+    cap_exempt_categories:
+      - "Universities and colleges (any H-1B, year-round, no lottery)"
+      - "Nonprofit organizations affiliated with a university"
+      - "Nonprofit research organizations"
+      - "Government research organizations (national labs, NIH, NASA centers)"
+      - "Academic medical centers and university hospitals"
+
+    job_boards:
+      - name: "Indeed (via the Indeed MCP connector — PRIMARY, structured, returns full JD text)"
+        method: "mcp"
+        tool: "mcp__claude_ai_Indeed__search_jobs"
+        notes: "country_code: US. Use get_job_details for the full JD, which feeds both the sponsorship screen and the tailoring step."
+      - name: "Greenhouse public job board API"
+        method: "api"
+        query_pattern: "https://boards-api.greenhouse.io/v1/boards/{board_token}/jobs?content=true"
+        notes: "No auth, no pagination — returns every job in one response."
+      - name: "Lever public postings API"
+        method: "api"
+        query_pattern: "https://api.lever.co/v0/postings/{company}?mode=json"
+        notes: "No auth. Supports team, location, commitment, level, skip, limit."
+      - name: "Ashby public job board API"
+        method: "api"
+        query_pattern: "https://api.ashbyhq.com/posting-api/job-board/{company}?includeCompensation=true"
+      - name: "LinkedIn Jobs (US)"
+        method: "search"
+        query_pattern: 'site:linkedin.com/jobs "{{TARGET_ROLE_1}}" "United States"'
+      - name: "ATS platforms (broad search)"
+        method: "search"
+        query_pattern: '("{{TARGET_ROLE_1}}") ("Remote" OR "United States") (site:lever.co OR site:greenhouse.io OR site:jobs.ashbyhq.com OR site:apply.workable.com OR site:myworkdayjobs.com OR site:smartrecruiters.com)'
+      - name: "Built In (tech hub boards)"
+        method: "search"
+        query_pattern: 'site:builtin.com "{{TARGET_ROLE_1}}"'
+      - name: "Wellfound (startups)"
+        method: "search"
+        query_pattern: 'site:wellfound.com "United States" "{{TARGET_ROLE_1}}"'
+      - name: "HigherEdJobs (CAP-EXEMPT — universities)"
+        method: "search"
+        query_pattern: 'site:higheredjobs.com "{{TARGET_ROLE_1}}"'
+      - name: "University and national-lab careers pages (CAP-EXEMPT)"
+        method: "search"
+        query_pattern: '"{{TARGET_ROLE_1}}" (site:*.edu OR site:*.org) careers'
+
+    # Sponsorship evidence lookups — RANKING signals, never filters.
+    sponsorship_lookups:
+      - name: "USCIS H-1B Employer Data Hub (bulk CSV, FY2009-FY2023)"
+        url_pattern: "https://www.uscis.gov/sites/default/files/document/data/h1b_datahubexport-{year}.csv"
+        notes: "Verified: FY2023 = 2.2MB. FY2024+ bulk exports are not published. Cached locally by sponsor_data_refresh.py."
+      - name: "USCIS H-1B Employer Data Hub (interactive, through FY2026 Q3)"
+        url: "https://www.uscis.gov/tools/reports-and-studies/h-1b-employer-data-hub"
+      - name: "DOL LCA disclosure data (FY2026 Q3, current through June 2026)"
+        url: "https://www.dol.gov/media/LCA_Disclosure_Data_FY2026_Q3.xlsx"
+        notes: "252MB xlsx. Opt-in deep refresh only."
+      - name: "E-Verify employer search (needed for STEM OPT; no bulk download exists)"
+        url: "https://www.e-verify.gov/about-e-verify/e-verify-data/how-to-find-participating-employers"
+        notes: "Search-only, updated daily. Checked per finalist."
+      - name: "H1BGrader"
+        url_pattern: "https://h1bgrader.com/h1b-sponsors/{company-slug}"
+      - name: "MyVisaJobs"
+        url: "https://www.myvisajobs.com/employers/search.aspx"
+
+    hubs:
+      - city: "Remote (US)"
+        notes: "Many data/AI roles are remote-within-US. Remote does not remove the sponsorship question."
+      - city: "San Francisco Bay Area, CA"
+        notes: "Largest tech hub; most H-1B filings, also the most competitive."
+      - city: "Seattle, WA"
+        notes: "Big tech plus strong cloud/data engineering. No state income tax."
+      - city: "Austin, TX"
+        notes: "Fast-growing; medtech and semiconductor presence. No state income tax."
+      - city: "New York, NY"
+        notes: "Fintech, ad tech, enterprise software, healthcare/insurance tech."
+      - city: "Boston, MA"
+        notes: "Biotech/medtech cluster plus dense academic and research employers — many cap-exempt."
+      - city: "Chicago, IL"
+        notes: "InsOps is here; insurance and logistics tech."
+      - city: "Raleigh-Durham, NC"
+        notes: "Research Triangle — biotech, data infrastructure, three research universities."
+      - city: "Minneapolis, MN"
+        notes: "Medical-device capital (Medtronic HQ). Direct match for her medical-device history."
+
+    salary_bands:
+      junior: "USD 75k-105k (new grad / 0-2 yrs)"
+      mid: "USD 105k-150k (2-5 yrs)"
+      senior: "USD 150k-210k+ (5+ yrs / lead)"
+
+    cv_conventions:
+      pages: 1
+      photo: false
+      date_of_birth: false
+      phone_format: "(XXX) XXX-XXXX"
+      notes: >-
+        US English spelling. No photo, no date of birth, no marital status, no nationality.
+        ONE PAGE — this is a hard requirement for this candidate, not a preference, and it holds
+        even with a master's plus research experience. Include a GitHub URL; her background is
+        project-heavy and it matters more than in most markets. Use full URLs rather than
+        hyperlinked words so ATS text extraction keeps them.
+        Work authorization is NOT stated by default (see Q10 in context/QUESTIONS-FOR-YOU.md).
+
+    summary_file: "output/SUMMARY.md"
