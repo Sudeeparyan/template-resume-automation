@@ -33,7 +33,7 @@ RUNNABLE_AGENTS = {
     "study_plan": "Interview study plan from the honest gaps; never touches the resume",
 }
 JOB_STATUSES = ("saved", "prepared", "applied", "interview", "offer", "rejected", "withdrawn", "ghosted")
-DISCOVERY_PRESETS = ("default", "balanced_five", "portals")
+DISCOVERY_PRESETS = ("default", "balanced_five", "portals", "feeds")
 POLICY_FILE = "AGENTS.md"
 QUESTIONS_FILE = "data/context/QUESTIONS-FOR-YOU.md"
 MAX_WAIT_SECONDS = 240
@@ -119,12 +119,13 @@ def resume_card(job, draft, fitted=None) -> dict:
 
 
 class Toolbox:
-    def __init__(self, service, studio, runner, quality, chats=None, pipeline=None):
+    def __init__(self, service, studio, runner, quality, chats=None, pipeline=None, hunt=None):
         from backend.chat_changes import ChatChangeService
 
         self.s, self.w, self.studio, self.runner, self.quality = service, service.w, studio, runner, quality
         self.chats = chats or ChatChangeService(service, studio)
         self.pipeline = pipeline  # the Daily Search pipeline (services/pipeline.py), when the app has one
+        self.hunt = hunt  # the overnight hunt (services/hunt.py), when the app has one
         self.tools: dict[str, Tool] = {}
         self._register()
 
@@ -245,6 +246,18 @@ class Toolbox:
                     return f"Dismiss {what}"
                 j = job() if arguments.get("job_id") else None
                 return f"Confirm {what} as evidence" + (f" for **{j['company']} — {j['title']}**" if j else "") + (", recording the application from it" if arguments.get("create_application") else "")
+            if name == "update_search_plan":
+                parts = []
+                if arguments.get("add_titles"):
+                    parts.append("also search for " + ", ".join(f"*{t}*" for t in arguments["add_titles"]))
+                if arguments.get("remove_titles"):
+                    parts.append("stop searching for " + ", ".join(f"*{t}*" for t in arguments["remove_titles"]))
+                if arguments.get("exclude_titles"):
+                    parts.append("never pursue titles with " + ", ".join(f"*{t}*" for t in arguments["exclude_titles"]))
+                if arguments.get("track_company"):
+                    parts.append(f"track **{arguments['track_company']}**'s careers feed")
+                return "Change what your searches look for: " + ("; ".join(parts) or "no change") + \
+                    ". This changes where to look, never your experience"
         except (ValueError, KeyError, TypeError):
             pass
         tool = self.get(name)
@@ -416,6 +429,46 @@ class Toolbox:
         add("stop_search_pipeline", "Stopping the Daily Search pipeline",
             "Stop the running Daily Search pipeline after its current step. Jobs and files already saved stay.",
             self.stop_search_pipeline, writes=True, group="Search", agent="discovery")
+
+        # -- The overnight hunt and the search plan --------------------------------
+        add("start_hunt", "Starting the overnight hunt",
+            "Start a goal-driven search that keeps going until it has saved `target` jobs that fit at `min_fit` or better, "
+            "or `hours` run out: employer career feeds and job boards first (no AI), then focused AI web searches per "
+            "role and site group (company ATS pages, " + ("gradireland, jobs.ie, IrishJobs, LinkedIn, publicjobs.ie" if pack.code == "ie"
+                                                           else "LinkedIn and US boards") + "). "
+            "When the free AI plans reach their usage limits it waits for the reset instead of failing, and it never uses a "
+            "paid AI unless allow_paid. Then it prepares each job (research, tailored resume, study plan, PDF) and writes "
+            "HUNT-REPORT.md. Use it when the candidate wants many or better jobs, or a search 'overnight'. Returns at once.",
+            self.start_hunt, {
+                "target": {"type": "integer", "description": "Jobs to save, 1-40 (default: the last hunt's, else 10)"},
+                "hours": {"type": "number", "description": "How long it may run, 0.25-12 (default 8)"},
+                "min_fit": {"type": "integer", "description": "Fit bar 50-95 (default 70); higher = fewer, closer matches"},
+                "sources": S("all (default), feeds (no AI searching) or ai", enum=["all", "feeds", "ai"]),
+                "steps": {"type": "array", "description": "Helpers per saved job: any of research, tailor, study_plan, pdf"},
+                "allow_paid": {"type": "boolean", "description": "Allow a paid AI when every free plan rests (default false)"}},
+            writes=True, group="Search", agent="discovery")
+        add("hunt_status", "Reading the overnight hunt",
+            "The running (or last) hunt: target and jobs saved so far, each pass with what it looked at and saved, "
+            "whether it is waiting for an AI plan to reset (and until when), and the report path when done.",
+            self.hunt_status, group="Search", agent="discovery")
+        add("stop_hunt", "Stopping the overnight hunt",
+            "Stop the running hunt at its next step. Jobs it already saved stay saved.",
+            self.stop_hunt, writes=True, group="Search", agent="discovery")
+        add("search_plan", "Reading the search plan",
+            "What every search looks for and where: the target roles, the related titles employers use for the same work, "
+            "excluded titles, cities, board keywords and each hunt pass with its exact queries.",
+            self.search_plan, group="Search", agent="discovery")
+        add("update_search_plan", "Changing what the searches look for",
+            "Add or remove related job titles (other names employers use for the candidate's target roles), titles never to "
+            "pursue, or a company to track (its careers link on Greenhouse, Lever, Ashby, Workday or SmartRecruiters). "
+            "This changes where to look, never the candidate's experience.",
+            self.update_search_plan, {
+                "add_titles": {"type": "array", "description": "Related titles to also search for"},
+                "remove_titles": {"type": "array", "description": "Related titles to stop searching for"},
+                "exclude_titles": {"type": "array", "description": "Title words never to pursue, e.g. sales"},
+                "track_company": S("Company name to track"),
+                "careers_url": S("That company's careers or ATS link")},
+            confirm=True, writes=True, group="Search", agent="discovery")
 
         # -- Resume ----------------------------------------------------------------
         add("build_resume", f"Building the {shape} resume",
@@ -756,6 +809,140 @@ class Toolbox:
             return {"summary": "Nothing is running", "stopped": False}
         pipeline.stop(current["id"])
         return {"summary": "Stopping after the current step", "stopped": True, "pipeline_run_id": current["id"]}
+
+    # ---- The overnight hunt and the search plan --------------------------------
+    def _hunt(self):
+        if self.hunt is None:
+            raise ValueError("The overnight hunt is not available here; use run_search_pipeline")
+        return self.hunt
+
+    def hunt_brief(self) -> dict | None:
+        """The running or last hunt in a few fields, for the agent's snapshot."""
+        if self.hunt is None:
+            return None
+        try:
+            status = self.hunt.status()
+        except Exception:  # noqa: BLE001 - the snapshot must never fail on a side panel
+            return None
+        run = status.get("current") or status.get("last")
+        if not run:
+            return {"state": "never_run"}
+        progress, config = run.get("progress") or {}, run.get("config") or {}
+        passes = progress.get("passes") or []
+        return {"hunt_id": run["id"], "state": run["state"], "stage": progress.get("stage"),
+                "target": config.get("target"), "min_fit": config.get("min_fit"),
+                "saved": [f"{j['company']} — {j['title']} (fit {j.get('fit')})" for j in progress.get("saved") or []],
+                "passes_done": sum(p.get("state") == "done" for p in passes), "passes": len(passes),
+                "waiting": progress.get("waiting"), "report": progress.get("report"), "error": run.get("error"),
+                "finished_at": run.get("finished_at")}
+
+    def start_hunt(self, target=None, hours=None, min_fit=None, sources=None, steps=None, allow_paid=None) -> dict:
+        from backend.services.pipeline import STEP_IDS
+
+        hunt = self._hunt()
+        values = {"target": target, "hours": hours, "min_fit": min_fit, "sources": sources, "allow_paid": allow_paid}
+        if steps is not None:
+            unknown = [step for step in steps if step not in STEP_IDS]
+            if unknown:
+                raise ValueError("Unknown helper(s): " + ", ".join(unknown) + "; choose from " + ", ".join(STEP_IDS))
+            values["steps"] = {step: step in steps for step in STEP_IDS}
+        run = hunt.start({k: v for k, v in values.items() if v is not None})
+        config = run["config"]
+        helpers = [step for step, on in config["steps"].items() if on]
+        return {"summary": f"Hunt started: {config['target']} job(s) at fit {config['min_fit']}+ within {config['hours']:g} h",
+                "hunt_id": run["id"], "config": config, "helpers": helpers,
+                "note": "It runs in the background (the app must stay open) and waits out AI usage limits. "
+                        "Tell the candidate they can follow it on Daily Search or ask for the hunt status; "
+                        "the report lands in daily-job-search/<date>/HUNT-REPORT.md."}
+
+    def hunt_status(self) -> dict:
+        brief = self.hunt_brief() or {}
+        if not brief or brief.get("state") == "never_run":
+            return {"summary": "No hunt has run yet", "hunt": brief}
+        run = self._hunt().get(brief["hunt_id"]) or {}
+        passes = [{k: p.get(k) for k in ("label", "state", "looked", "saved", "turned_away", "held", "error", "note")}
+                  for p in (run.get("progress") or {}).get("passes") or []][-12:]
+        waiting = brief.get("waiting") or {}
+        return {"summary": f"{brief['state']} · {len(brief['saved'])} of {brief['target']} saved"
+                           + (f" · waiting until {waiting.get('until_text')}" if waiting else ""),
+                "hunt": brief, "recent_passes": passes}
+
+    def stop_hunt(self) -> dict:
+        hunt = self._hunt()
+        current = hunt.status().get("current")
+        if not current:
+            return {"summary": "No hunt is running", "stopped": False}
+        hunt.stop(current["id"])
+        return {"summary": "Stopping the hunt at its next step", "stopped": True, "hunt_id": current["id"]}
+
+    def search_plan(self) -> dict:
+        from backend.services.search_plan import describe
+
+        plan = describe(self.w.root)
+        return {"summary": f"{len(plan['roles'])} target role(s), {len(plan['related_titles'])} related titles, "
+                           f"{len(plan['strategies'])} passes per hunt cycle",
+                **{k: plan[k] for k in ("roles", "related_titles", "excluded_titles", "markets", "cities",
+                                        "board_keywords", "early_career")},
+                "passes": plan["strategies"][:24]}
+
+    def update_search_plan(self, add_titles=None, remove_titles=None, exclude_titles=None, track_company=None,
+                           careers_url=None) -> dict:
+        import yaml
+
+        from career import atomic_write
+        from backend.services.profile_sync import yaml_set
+
+        changes = []
+        profile_path = self.w.root / "data/config/profile.yml"
+        text = profile_path.read_text(encoding="utf-8")
+        data = yaml.safe_load(text) or {}
+        targets = dict(data.get("target_roles") or {})
+        clean = lambda values: [" ".join(str(v).split()) for v in values or [] if str(v).strip()]  # noqa: E731
+        related = clean(targets.get("related_titles"))
+        suppressed = clean(targets.get("suppressed_related"))
+        excluded = clean(targets.get("excluded_titles"))
+        for title in clean(add_titles):
+            if title.casefold() not in {t.casefold() for t in related}:
+                related.append(title)
+                changes.append(f"search for {title}")
+            suppressed = [t for t in suppressed if t.casefold() != title.casefold()]
+        for title in clean(remove_titles):
+            related = [t for t in related if t.casefold() != title.casefold()]
+            if title.casefold() not in {t.casefold() for t in suppressed}:
+                suppressed.append(title)
+            changes.append(f"stop searching for {title}")
+        for title in clean(exclude_titles):
+            if title.casefold() not in {t.casefold() for t in excluded}:
+                excluded.append(title)
+                changes.append(f"never pursue '{title}' titles")
+        if add_titles or remove_titles or exclude_titles:
+            targets.update(related_titles=related, suppressed_related=suppressed, excluded_titles=excluded)
+            try:
+                for key in ("related_titles", "suppressed_related", "excluded_titles"):
+                    text = yaml_set(text, ["target_roles", key], targets[key])
+            except ValueError:
+                text = yaml_set(text, ["target_roles"], targets)
+            atomic_write(profile_path, text if text.endswith("\n") else text + "\n")
+        if track_company:
+            from backend.services.job_sources import tracked_row
+
+            if not careers_url:
+                raise ValueError("Give the company's careers or ATS link to track it")
+            row = tracked_row(track_company, careers_url)
+            portals_path = self.w.root / "data/config/portals.yml"
+            portals_text = portals_path.read_text(encoding="utf-8") if portals_path.exists() else ""
+            rows = list((yaml.safe_load(portals_text) or {}).get("tracked_companies") or [])
+            if any(str(r.get("name", "")).casefold() == row["name"].casefold() for r in rows if isinstance(r, dict)):
+                raise ValueError(f"{row['name']} is already tracked")
+            rows.append(row)
+            atomic_write(portals_path, yaml_set(portals_text, ["tracked_companies"], rows).rstrip("\n") + "\n")
+            changes.append(f"track {row['name']} ({row['ats']})")
+        if not changes:
+            raise ValueError("Say which titles to add, remove or exclude, or which company to track")
+        with self.w.connect() as db:
+            self.w.record_event(db, "search_plan_updated", changes=changes)
+        return {"summary": "Search plan updated: " + "; ".join(changes), "changes": changes,
+                "plan": self.search_plan()}
 
     # ---- Resume ----------------------------------------------------------------
     def resume_assurance(self, job_id) -> dict:

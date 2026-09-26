@@ -26,7 +26,22 @@ ATS_DOMAINS = {
     "smartrecruiters.com",
     "teamtailor.com",
     "workable.com",
+    # More applicant-tracking systems that host employers' own postings (Rezoomo is Irish).
+    "rezoomo.com",
+    "personio.de",
+    "personio.com",
+    "icims.com",
+    "taleo.net",
+    "successfactors.com",
+    "successfactors.eu",
+    "jobvite.com",
+    "breezy.hr",
+    "pinpointhq.com",
+    "oraclecloud.com",
 }
+# Irish job boards that publish the hiring employer with each posting (schema.org
+# hiringOrganization). A posting read there still needs its employer's legal presence.
+EMPLOYER_BOARDS = {"gradireland.com", "jobs.ie", "irishjobs.ie", "publicjobs.ie", "jobsireland.ie"}
 # US states, abbreviations, big hubs and "remote (US)". Anything else is not pursued.
 _STATES = (
     "alabama|alaska|arizona|arkansas|california|colorado|connecticut|delaware|florida|georgia|hawaii|idaho|illinois|"
@@ -125,21 +140,44 @@ def _load_profile(root=None) -> dict:
         return {}
 
 
-def _track_regexes(profile: dict | None = None):
-    """Title regex per track (A-D), built from profile.yml role_tracks signals + target titles."""
+def _track_regexes(profile: dict | None = None, extra_excluded: list | None = None):
+    """The title matcher for profile.yml's target roles, role_tracks signals and related titles.
+
+    ``search(title)`` is truthy when a title names a target role in any common wording
+    (backend/role_titles.py). ``target_roles.related_titles`` adds titles the candidate
+    chose; ``target_roles.excluded_titles`` (and portals.yml exclude_title_words) removes some.
+    """
+    from backend.role_titles import RoleMatcher, related_titles
+
     profile = _load_profile() if profile is None else profile
-    titles = [str(t) for group in ("primary", "secondary") for t in (profile.get("target_roles", {}) or {}).get(group, [])]
+    targets = profile.get("target_roles", {}) or {}
+    titles = [str(t) for group in ("primary", "secondary") for t in targets.get(group, []) or []]
     signals = [str(sig) for track in profile.get("role_tracks", []) or [] for sig in track.get("signals", [])]
     # An unfinished profile has no role constraint. Never inject another person's
     # target families into a new workspace.
-    words = titles + signals
-    if not words:
-        return re.compile(r"\S")
-    return re.compile(r"(?i)\b(?:" + "|".join(re.escape(w) for w in sorted(set(words), key=len, reverse=True)) + r")\b")
+    roles = list(dict.fromkeys(titles + signals))
+    related = [str(t) for t in targets.get("related_titles") or []]
+    if roles and targets.get("expand_related", True):
+        related += [t for t in related_titles(roles) if t not in related]
+    # Built-in related titles the candidate asked the search to drop.
+    suppressed = {str(t).casefold() for t in targets.get("suppressed_related") or []}
+    related = [t for t in related if t.casefold() not in suppressed]
+    excluded = [str(t) for t in (targets.get("excluded_titles") or []) + list(extra_excluded or [])]
+    return RoleMatcher(roles, related, excluded)
 
 
 # Compatibility export; profile-aware callers use ProfileRules.of(root).
 SUPPORTED_ROLES = _track_regexes()
+
+
+def _excluded_title_words(portals: Path) -> list:
+    """portals.yml filters.exclude_title_words: titles this profile never pursues."""
+    try:
+        import yaml
+        data = yaml.safe_load(portals.read_text(encoding="utf-8")) or {}
+    except Exception:  # noqa: BLE001 - a missing file excludes nothing
+        return []
+    return [str(w) for w in ((data.get("filters") or {}).get("exclude_title_words") or []) if str(w).strip()]
 
 
 class ProfileRules:
@@ -147,8 +185,8 @@ class ProfileRules:
 
     _cache: dict[str, tuple[int, "ProfileRules"]] = {}
 
-    def __init__(self, profile: dict):
-        self.roles = _track_regexes(profile)
+    def __init__(self, profile: dict, excluded_titles: list | None = None):
+        self.roles = _track_regexes(profile, excluded_titles)
         targets = profile.get("target_roles") or {}
         self.max_years = int(targets.get("max_years_required") or 0)
         scoring = profile.get("scoring") or {}
@@ -166,13 +204,17 @@ class ProfileRules:
     @classmethod
     def of(cls, root) -> "ProfileRules":
         path = Path(root) / "data/config/profile.yml"
-        try:
-            stamp = path.stat().st_mtime_ns
-        except OSError:
-            stamp = 0
+        portals = Path(root) / "data/config/portals.yml"
+        stamps = []
+        for file in (path, portals):
+            try:
+                stamps.append(file.stat().st_mtime_ns)
+            except OSError:
+                stamps.append(0)
+        stamp = tuple(stamps)
         cached = cls._cache.get(str(path))
         if not cached or cached[0] != stamp:
-            cached = (stamp, cls(_load_profile(root)))
+            cached = (stamp, cls(_load_profile(root), _excluded_title_words(portals)))
             cls._cache[str(path)] = cached
         return cached[1]
 CLOSED = re.compile(
@@ -198,7 +240,7 @@ def company_id(name: str) -> str:
 
 def _host_matches_company(url: str, company: str) -> bool:
     host = (urlsplit(url).hostname or "").casefold().removeprefix("www.")
-    if any(host == ats or host.endswith("." + ats) for ats in ATS_DOMAINS):
+    if any(host == ats or host.endswith("." + ats) for ats in ATS_DOMAINS | EMPLOYER_BOARDS):
         return True
     words = [w for w in re.findall(r"[a-z0-9]+", company.casefold()) if len(w) > 2]
     return bool(words) and any(word in host.replace("-", "") for word in words)

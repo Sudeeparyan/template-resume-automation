@@ -116,4 +116,6 @@ discovery:
     entry, a Solocheck or Vision-net company record, a LinkedIn company page (linkedin.com/company/...)
     or a Crunchbase profile. A well-known multinational with an Irish office passes on its LinkedIn page.
   legal_presence_example: The CRO lists Acme Analytics Limited, company number 123456, registered in Cork
-  boards: Greenhouse, Lever, Ashby, Workday, SmartRecruiters, IrishJobs.ie, Jobs.ie, LinkedIn Jobs (Ireland)
+  boards: >-
+    Greenhouse, Lever, Ashby, Workday, SmartRecruiters, gradireland.com, IrishJobs.ie, Jobs.ie,
+    publicjobs.ie, JobsIreland.ie, the askmanavi graduate tracker, LinkedIn Jobs (Ireland), Indeed Ireland

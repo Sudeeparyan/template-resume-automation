@@ -9,7 +9,10 @@ the US are selected, cover both and report any shortfall by market. Use the actu
 location to identify its market. Bare "Remote" without a country is not a verified location.
 
 Prioritize current employer or authorized ATS postings. Read the full requirements, actual
-location and application route. Check work authorization against the facts supplied for that
+location and application route. Job boards and aggregators (for Ireland: gradireland, IrishJobs,
+Jobs.ie, publicjobs.ie, JobsIreland, LinkedIn, Indeed) are good places to find roles; when the
+same role is on the employer's own careers page or ATS, return that direct URL. Search with the
+titles employers really use for the candidate's target roles, not only the exact wording. Check work authorization against the facts supplied for that
 market and quote any restriction sentence verbatim in restriction_quote. If authorization is
 unknown, record the uncertainty; do not infer eligibility. Exclude repeats, inactive pages and
 jobs already supported by email_application_evidence unless a distinct requisition is proven.

@@ -20,6 +20,7 @@ import {
   Play,
   Plus,
   Route,
+  Rss,
   Shuffle,
   SkipForward,
   Square,
@@ -45,6 +46,7 @@ const SOURCE_ICON: Record<string, ReactNode> = {
   default: <Globe size={20} />,
   balanced_five: <Shuffle size={20} />,
   portals: <Building2 size={20} />,
+  feeds: <Rss size={20} />,
 };
 const COUNT_CHIPS = [1, 3, 5, 10, 15];
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;

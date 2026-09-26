@@ -62,6 +62,14 @@ MAIL_PROFILE_SCHEMA = object_schema({
 
 
 RUN_KINDS = {"research", "resume_advisor", "email", "discovery", "resume_build", "resume_match", "instruction_interpret", "study_plan"}
+# Where a search looks: the AI's web search, a size-balanced AI mix, the profile's tracked
+# career pages, or every feed and Irish job board the app reads itself (services/job_sources.py).
+DISCOVERY_PRESETS = ("default", "balanced_five", "portals", "feeds")
+# Sources the "feeds" preset reads when a pass names none.
+DEFAULT_FEED_SOURCES = ("tracked", "directory", "gradireland", "jobs_ie", "askmanavi")
+# A posting whose rules-only fit is at least this is kept for an AI requirement check
+# when a pass requires one and no free plan is free; below it the rules decide.
+HOLD_FLOOR = 40
 # A search saves this many jobs unless the Daily Search page asks for another count.
 DEFAULT_DISCOVERY_JOBS = 5
 MAX_DISCOVERY_JOBS = 15
@@ -172,34 +180,54 @@ def role_payload(job):
 _PARTIAL_POSTING = re.compile(
     r"partially? verified|only .{0,55}(?:section|snippet)|"
     r"(?:full|complete) (?:posting|job description|jd|duties|requirements).{0,65}(?:not|could not|unreadable)|"
-    r"(?:posting|job description|jd|duties|requirements).{0,65}(?:not readable|could not be read|unreadable)",
+    r"(?:posting|job description|jd|duties|requirements).{0,65}(?:not readable|could not be read|unreadable)|"
+    # How a model says it saw less than the posting ("could not read the full posting", "metadata only").
+    r"(?:could ?n[o']t|unable to|did not|didn't|cannot|can't) (?:open|read|access|retrieve|load|verify)\b.{0,60}"
+    r"(?:posting|description|jd|page|requirements|listing)|"
+    r"\b(?:snippet|metadata only|title only|preview only|login wall|http 40[13]|blocked)\b",
     re.I,
 )
+# An AI lead the application could not re-read must still carry a whole posting's worth of text.
+MIN_UNVERIFIED_DESCRIPTION = 600
+
+
+VERIFIED_BY = {
+    "ats_feed": "Exact requisition text and location checked against the employer's public ATS feed.",
+    "workday_feed": "Exact requisition text and location read from the employer's Workday careers feed.",
+    "smartrecruiters_feed": "Exact requisition text and location read from the employer's SmartRecruiters feed.",
+    "structured_data": "Full text and location read from the posting page's own schema.org JobPosting data.",
+}
 
 
 def verify_discovery_source(job: dict, *, preset: str = "default") -> str:
-    """Replace an AI lead with the employer's own ATS facts, or explain why it is held.
+    """Replace an AI lead with the posting's own published facts, or explain why it is held.
 
-    The caller then checks the selected market against the returned location. An
-    AI-supplied country cannot upgrade an ATS location that only says "Remote".
+    Greenhouse, Lever, Ashby, Workday and SmartRecruiters postings are read from their
+    feeds; any other page from its schema.org JobPosting data (job boards and most
+    career sites publish it). The caller then checks the selected market against the
+    returned location. An AI-supplied country cannot upgrade an ATS location that only
+    says "Remote".
     """
-    if preset == "portals":
-        return ""  # Already read directly from the board JSON feed.
-    from backend.services import portals
+    if preset in ("portals", "feeds"):
+        return ""  # Already read directly from the employer's feed or the board's own page.
+    from backend.services import job_sources, portals
 
-    official = portals.official_posting(job.get("url", ""))
-    if official:
+    url = job.get("url", "")
+    official = job_sources.read_posting(url)
+    if official and official.get("description"):
         job["description"] = official["description"]
-        job["location"] = official["location"]
-        job["verification"] = (
-            str(job.get("verification") or "")
-            + " Exact requisition text and location checked against the employer's public ATS feed."
-        ).strip()
+        # A structured page may leave the place out; then the AI's reading stands until the market gate.
+        if official.get("location") or official.get("method") != "structured_data":
+            job["location"] = official.get("location") or ""
+        job["verification"] = (str(job.get("verification") or "") + " "
+                               + VERIFIED_BY.get(official.get("method"), VERIFIED_BY["ats_feed"])).strip()
         return ""
-    if portals.is_public_ats(job.get("url", "")):
+    if portals.is_public_ats(url) or job_sources.workday_parts(url) or job_sources.smartrecruiters_parts(url):
         return "Exact posting could not be read from the employer's ATS feed"
     if _PARTIAL_POSTING.search(str(job.get("verification") or "")):
         return "Full posting is not verifiable from the cited page"
+    if len(str(job.get("description") or "").strip()) < MIN_UNVERIFIED_DESCRIPTION:
+        return "Only part of the posting was read, and its page publishes no structured posting to check it against"
     return ""
 
 
@@ -296,6 +324,9 @@ class AgentRunner:
         self.current_provider = None
         self.current_model = None
         self.current_action = "document_review"
+        # Runs an unattended search started without permission to use a paid AI: Auto keeps
+        # them on the free plans (backend/ai/providers.py RouterProvider).
+        self.free_only_runs: set[str] = set()
         # What the Agents tab shows: each stage a run enters and each AI call it
         # makes, with timings. Recorded only for runs on this worker thread.
         self.trace = threading.local()
@@ -379,7 +410,12 @@ class AgentRunner:
                 (self.s.now(),),
             )
 
-    def enqueue(self, kind, job_id=None, provider=None, model=None, preset="default", count=None):
+    def enqueue(self, kind, job_id=None, provider=None, model=None, preset="default", count=None, focus=None,
+                free_only=False):
+        """Queue one run. ``focus`` (discovery only) narrows a pass: the sources or searches it
+        covers, a higher fit bar, and whether to hold postings for an AI requirement check.
+        A focus marked ``hunt`` belongs to a goal-driven search (services/hunt.py), which sets
+        its own target instead of today's plan."""
         if kind not in RUN_KINDS:
             raise ValueError("Unknown agent action")
         if not self.s.agent_enabled(kind):
@@ -391,7 +427,11 @@ class AgentRunner:
             raise ValueError(MAIL_NOT_CONNECTED)
         if count is not None and (kind != "discovery" or not isinstance(count, int) or not 1 <= count <= MAX_DISCOVERY_JOBS):
             raise ValueError(f"Choose between 1 and {MAX_DISCOVERY_JOBS} jobs for a search")
-        if kind == "discovery" and self.s.goals()["remaining_today"] == 0:
+        if focus is not None and (kind != "discovery" or not isinstance(focus, dict)):
+            raise ValueError("Only a job search takes a focus")
+        if kind == "discovery" and preset not in DISCOVERY_PRESETS:
+            raise ValueError("Choose where to look: " + ", ".join(DISCOVERY_PRESETS))
+        if kind == "discovery" and not (focus or {}).get("hunt") and self.s.goals()["remaining_today"] == 0:
             raise ValueError(
                 "Your daily application target is complete. You can still save individual postings manually."
             )
@@ -430,6 +470,8 @@ class AgentRunner:
             payload = document_input if document_input is not None else (role_payload(job) if job else {})
             if count is not None:
                 payload = {"count": count}
+            if focus:
+                payload = {**payload, "focus": focus}
             db.execute(
                 """INSERT INTO agent_runs(id,kind,job_id,state,input,result,error,created_at,updated_at,provider,model,preset)
                 VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""",
@@ -448,6 +490,8 @@ class AgentRunner:
                     preset,
                 ),
             )
+        if free_only:
+            self.free_only_runs.add(id)  # before the worker can pick it up
         self.pool.submit(self.run, id)
         return {"id": id, "state": "queued"}
 
@@ -600,11 +644,19 @@ class AgentRunner:
         return observed
 
     def run(self, id):
+        from backend.ai import router
+
         self.trace.run_id, self.trace.stage = id, None
+        auto = self.gateway.providers.get(router.ID)
+        if auto is not None:
+            auto.local.free_only = id in self.free_only_runs
         try:
             self._run(id)
         finally:
             self.trace.run_id = self.trace.stage = None
+            if auto is not None:
+                auto.local.free_only = False
+            self.free_only_runs.discard(id)
 
     def _run(self, id):
         try:
@@ -916,7 +968,9 @@ class AgentRunner:
                     and m["kind"] in {"applied", "interview", "offer", "rejected"}
                     and m["state"] != "dismissed"
                 ]
-                requested = (json.loads(row.get("input") or "{}") or {}).get("count") or DEFAULT_DISCOVERY_JOBS
+                run_input = json.loads(row.get("input") or "{}") or {}
+                requested = run_input.get("count") or DEFAULT_DISCOVERY_JOBS
+                focus = run_input.get("focus") if isinstance(run_input.get("focus"), dict) else {}
                 from backend.countries import load_pack, target_markets_for
                 selected_markets = target_markets_for(self.w.root)
                 candidate_profile = self.w.profile()
@@ -975,9 +1029,19 @@ class AgentRunner:
                         "jobs": postings,
                         "rejected_leads": [],
                     }
+                elif row.get("preset") == "feeds":
+                    # No AI for the search itself: employer feeds and Irish job boards read directly
+                    # (services/job_sources.py), then the same gates as every other lead.
+                    output = self._harvest(id, focus)
                 else:
+                    prompt = self.guide("job-discovery.md")
+                    if focus.get("queries"):
+                        from backend.services.search_plan import focus_instructions
+                        prompt += "\n\n" + focus_instructions(focus)
+                        payload["focus"] = {k: focus[k] for k in ("label", "queries", "sites", "max_age_days") if k in focus}
+                        payload["skip_urls"] = self._recent_urls(limit=150)
                     output = self.cached(
-                        self.guide("job-discovery.md") + "\nINPUT:\n" + json.dumps(payload),
+                        prompt + "\nINPUT:\n" + json.dumps(payload),
                         DISCOVERY_SCHEMA, cacheable=False,
                     )
                     if output.get("search_worked") is False and not output.get("jobs"):
@@ -1003,7 +1067,8 @@ class AgentRunner:
                         )
                     except (ValueError, KeyError):
                         continue
-                limit = min(requested, self.s.goals()["remaining_today"])
+                # A hunt sets its own target; every other search stops at today's plan.
+                limit = requested if focus.get("hunt") else min(requested, self.s.goals()["remaining_today"])
                 normalize = lambda value: re.sub(r"[^a-z0-9]+", "", value.casefold())
                 applied_roles = {
                     (normalize(m["company"]), normalize(m["role"])) for m in mail_roles
@@ -1030,6 +1095,25 @@ class AgentRunner:
                 verdicts = {}  # url -> Verdict; kept out of the JSON-serialised run result
                 evaluated = []
                 rejected_records = []  # structured copy of rejected_leads, persisted to the DB
+                from backend.services import search_memory
+                remembered = 0
+                incoming = []
+                seen_urls = set()
+                for job in output["jobs"]:
+                    if not isinstance(job, dict) or not job.get("url") or job["url"] in seen_urls:
+                        continue
+                    seen_urls.add(job["url"])
+                    # A hunt pass skips what an earlier pass already decided (search_memory.py).
+                    if focus.get("hunt") and job.get("source") != "held":
+                        with self.w.connect() as db:
+                            if search_memory.decided(db, job, catalogue["hash"]):
+                                remembered += 1
+                                continue
+                    incoming.append(job)
+                output["jobs"] = incoming
+                if remembered:
+                    output["summary"] = str(output.get("summary") or "") + (
+                        f"\n\nSkipped {remembered} postings an earlier search already decided.")
                 for job in output["jobs"]:
                     # An AI location or abbreviated JD is only a lead. For public ATS
                     # links, the employer's exact requisition must still be available
@@ -1094,10 +1178,24 @@ class AgentRunner:
                     vouched = (
                         f"Tracked employer: {job['company']} is listed in data/config/portals.yml and this posting "
                         f"was read from its own careers feed ({urlsplit(job['url']).hostname or 'ATS'})."
-                        if row.get("preset") == "portals" else ""
+                        if row.get("preset") == "portals" else
+                        # The feeds preset says per posting why its employer needs no web search:
+                        # its own careers feed, the verified directory, or an established job board.
+                        str(job.get("vouched") or "") if row.get("preset") == "feeds" else ""
                     )
                     sources = job.get("company_sources", []) + job.get("sponsorship_evidence", [])
                     findings = [job.get("legal_presence", ""), job.get("verification", ""), "Sponsorship evidence: " + json.dumps(job.get("sponsorship_evidence", []))]
+                    if job.get("source_kind") == "job_board":
+                        from backend.job_quality import FRAUD
+                        from backend.services.job_sources import is_agency
+                        # A board posting's own text is the only fraud evidence there is; read it.
+                        fraud = FRAUD.search(str(job.get("description") or ""))
+                        if fraud:
+                            job["red_flags"] = list(job.get("red_flags") or []) + [
+                                f"The posting asks for something a real employer does not: “{fraud.group(0)}”"]
+                        if is_agency(job["company"], job.get("market") or "ie"):
+                            job["verification"] = (str(job.get("verification") or "")
+                                                   + " Advertised by a recruitment agency; the hiring employer may be unnamed.").strip()
                     # The USCIS H-1B Employer Data Hub (data/sponsors) is a federal record of a
                     # registered US employer, so it establishes legal presence even when the AI's
                     # web search found no registry page.
@@ -1149,7 +1247,7 @@ class AgentRunner:
                 # 4. The requirement matrix on a shortlist only: best rules fit first, a few more
                 # than the day needs, checked by AI on a free plan (never a paid key) and verified
                 # against the registry. A career-page feed of hundreds never means hundreds of calls.
-                unique = self._fit_shortlist(unique, limit, row.get("preset"), output, rejected_records)
+                unique = self._fit_shortlist(unique, limit, row.get("preset"), output, rejected_records, focus)
                 if row.get("preset") == "balanced_five":
                     balanced = quality.balanced_five(unique, total=requested)
                     labels = {"startup": "startup", "mid": "mid-sized", "large": "large"}
@@ -1174,6 +1272,8 @@ class AgentRunner:
                     # order, and even the AI's shortlist deserves the deterministic score's say.
                     unique.sort(key=lambda job: job["relevance"]["score"], reverse=True)
                     candidates = unique[:limit]
+                saved_urls = {}
+                duplicate_urls = {d for d in duplicates if isinstance(d, str) and d.startswith("http")}
                 for job in candidates:
                     result = self.s.add_posting(job, source="discovery", verdict=verdicts.get(job["url"]))
                     if result.get("excluded") or result.get("blocked"):
@@ -1183,8 +1283,10 @@ class AgentRunner:
                         continue
                     if result["duplicate"]:
                         duplicates.append(result["job"]["id"])
+                        duplicate_urls.add(job["url"])
                     else:
                         added.append(result["job"]["id"])
+                        saved_urls[job["url"]] = (job.get("relevance") or {}).get("score")
                         self.w.track_search_job(result["job"]["id"])
                         analysis = (job.get("relevance") or {}).get("fit")
                         if analysis:
@@ -1217,6 +1319,8 @@ class AgentRunner:
                                 "INSERT INTO rejected_leads(run_id,company,title,url,stage,reason,created_at) VALUES(?,?,?,?,?,?,?)",
                                 (id, record["company"], record["title"], record.get("url", ""), record["stage"], record["reason"], self.s.now()),
                             )
+                if focus.get("hunt"):
+                    self._remember_outcomes(output, rejected_records, saved_urls, duplicate_urls, catalogue["hash"])
                 shortage_note = (
                     "\n\nBalanced mix shortfall:\n" + "\n".join(output["balanced_shortages"])
                     if output.get("balanced_shortages")
@@ -1236,6 +1340,11 @@ class AgentRunner:
                     + "\n\nRejected leads:\n"
                     + "\n".join(output["rejected_leads"]),
                 )
+                output.pop("held_postings", None)
+                if row.get("preset") == "feeds":
+                    # A feed read returns hundreds of full postings; the run row keeps what each one was.
+                    output["jobs"] = [{k: job.get(k) for k in ("company", "title", "location", "url", "source")}
+                                      for job in output["jobs"]]
                 output = {
                     **output,
                     "added_job_ids": added,
@@ -1255,16 +1364,82 @@ class AgentRunner:
             self.update(id, "failed", error=str(exc)[:2000])
             self.s.export_state()
 
-    def _fit_shortlist(self, unique, limit, preset, output, rejected_records):
+    def _harvest(self, run_id, focus):
+        """The "feeds" preset: postings read straight from employer feeds and job boards, no AI."""
+        from backend.countries import load_pack, target_markets_for
+        from backend.job_quality import ProfileRules
+        from backend.services import job_sources, search_memory
+        from backend.services.search_plan import plan_for
+
+        plan = plan_for(self.w.root)
+        rules = ProfileRules.of(self.w.root)
+        packs = [load_pack(market) for market in target_markets_for(self.w.root)]
+        sources = [s for s in (focus.get("sources") or DEFAULT_FEED_SOURCES) if s in job_sources.SOURCE_LABELS]
+        held = []
+        if "held" in sources:
+            with self.w.connect() as db:
+                held = search_memory.held(db)
+        self.update(run_id, "running", {"stage": "Reading " + ", ".join(job_sources.SOURCE_LABELS[s] for s in sources)})
+        postings, coverage = job_sources.harvest(
+            self.w.root, sources, title_ok=lambda title: bool(rules.roles.search(title)),
+            place_ok=lambda place: any(pack.location_ok(place) for pack in packs),
+            keywords=plan["board_keywords"], tz=self.w.timezone, held=held,
+            seconds=float(focus.get("seconds") or 900))
+        return {"summary": "Employer feeds and job boards read directly (no AI call for the search).\n" + "\n".join(coverage),
+                "jobs": postings, "rejected_leads": [], "coverage": coverage}
+
+    def _recent_urls(self, limit=150):
+        """URLs recent searches already decided, so an AI pass does not spend its budget on them again."""
+        from backend.services import search_memory
+
+        with self.w.connect() as db:
+            search_memory.ensure(db)
+            rows = db.execute("SELECT DISTINCT url FROM search_memory WHERE outcome IN ('saved','rejected','excluded','duplicate') "
+                              "ORDER BY last_seen DESC LIMIT ?", (limit,)).fetchall()
+        return [row[0] for row in rows if row[0]]
+
+    def _remember_outcomes(self, output, rejected_records, saved_urls, duplicate_urls, evidence_hash):
+        """Write what this pass decided about each posting into the search memory."""
+        from backend.services import search_memory
+
+        rejected = {r.get("url"): r for r in rejected_records if r.get("url")}
+        excluded = {e.get("url") for e in output.get("excluded") or []}
+        held = {p["url"]: p for p in output.pop("held_postings", []) or []}
+        with self.w.connect() as db:
+            for job in output.get("jobs") or []:
+                url = job.get("url")
+                if url in saved_urls:
+                    search_memory.remember(db, job, "saved", fit_score=saved_urls[url], evidence_hash=evidence_hash)
+                elif url in held:
+                    search_memory.remember(db, held[url], "held", stage="fit", reason="Waiting for a free AI plan",
+                                           evidence_hash=evidence_hash, keep_posting=True)
+                elif url in excluded:
+                    search_memory.remember(db, job, "excluded", stage="sponsorship", evidence_hash=evidence_hash)
+                elif url in duplicate_urls:
+                    search_memory.remember(db, job, "duplicate", stage="duplicate", evidence_hash=evidence_hash)
+                elif url in rejected:
+                    record = rejected[url]
+                    score = re.search(r"Fit (\d+)/100", record.get("reason") or "")
+                    search_memory.remember(db, job, "rejected", stage=record.get("stage", ""), reason=record.get("reason", ""),
+                                           fit_score=int(score.group(1)) if score else None, evidence_hash=evidence_hash)
+                elif job.get("source") == "held":
+                    # Re-checked but not chosen this time (the day was full): still waiting.
+                    search_memory.remember(db, job, "held", stage="fit", reason="Checked; waiting for room in the target",
+                                           evidence_hash=evidence_hash, keep_posting=True)
+
+    def _fit_shortlist(self, unique, limit, preset, output, rejected_records, focus=None):
         """The best-ranked postings checked against the requirement matrix.
 
         Ranked by the rules fit, then checked a few more than the day needs at a time by the
         fit analyst on a free plan (services/fit.py), until the day is covered, the list runs
-        out or three rounds have run. Without a free plan the rules fit decides.
+        out or three rounds have run (a hunt's focus may allow more, and raise the bar with
+        ``min_fit``). Without a free plan the rules fit decides, unless the focus requires the
+        AI check: then the plausible postings are held for a later pass (search_memory.py).
         """
         from backend.job_quality import JobQualityService
         from backend.services import fit
 
+        focus = focus or {}
         if not unique or not limit:
             return []
         quality = JobQualityService(self.s)
@@ -1272,16 +1447,27 @@ class AgentRunner:
         # A balanced mix picks by company size, so it needs every candidate the search returned.
         balanced = preset == "balanced_five"
         need = len(ranked) if balanced else limit
+        min_fit = int(focus.get("min_fit") or 0)
+        max_rounds = max(1, min(int(focus.get("fit_rounds") or 3), 12))
         team = fit.fit_team(self.s)
+        if team is None and focus.get("require_ai_fit"):
+            return self._hold_for_ai(ranked, output, rejected_records)
         kept, analyses, position, rounds = [], [], 0, 0
-        while len(kept) < need and position < len(ranked) and rounds < 3:
+        unchecked = []  # the AI check failed mid-batch (a plan hit its limit): held, not judged by rules
+        while len(kept) < need and position < len(ranked) and rounds < max_rounds:
             batch = ranked[position: position + (len(ranked) if balanced else need - len(kept) + DISCOVERY_SPARES)]
             position += len(batch)
             rounds += 1
             checked = fit.analyse_many(self.s, batch, team=team) if team else [job["relevance"]["fit"] for job in batch]
             for job, analysis in zip(batch, checked):
+                if team and focus.get("require_ai_fit") and analysis.get("method") != "ai":
+                    unchecked.append(job)
+                    continue
                 analyses.append(analysis)
                 relevance = quality.relevance(job, analysis=analysis)
+                if relevance["eligible"] and relevance["score"] < min_fit:
+                    relevance = {**relevance, "eligible": False,
+                                 "why": f"Fit {relevance['score']}/100 is below this search's bar of {min_fit} ({fit.brief(analysis)})."}
                 if not relevance["eligible"]:
                     output["rejected_leads"].append(job["url"] + ": fit check - " + relevance["why"])
                     rejected_records.append({"company": job["company"], "title": job["title"], "url": job["url"],
@@ -1292,12 +1478,43 @@ class AgentRunner:
         providers = sorted({a["provider_label"] for a in by_ai if a["provider_label"]})
         output["fit_check"] = {"checked": len(analyses), "by_ai": len(by_ai), "providers": providers,
                                "ai_errors": sorted({a["ai_error"] for a in analyses if a["ai_error"]})[:3]}
+        if unchecked:
+            output["held_postings"] = [{k: v for k, v in job.items() if k != "relevance"} for job in unchecked]
+            output["held"] = len(unchecked)
+            output["fit_check"]["held"] = len(unchecked)
+            output["summary"] = str(output.get("summary") or "") + (
+                f"\n\n{len(unchecked)} postings are held for their AI requirement check: the free plan stopped "
+                "answering part-way (usually its usage limit), and this search does not judge them by rules.")
         output["summary"] = str(output.get("summary") or "") + (
             f"\n\nFit check: {len(by_ai)} of {len(analyses)} shortlisted jobs were checked by AI ({', '.join(providers)}) "
             "against your registered evidence; the rest by rules." if by_ai else
             f"\n\nFit check: {len(analyses)} shortlisted jobs were checked by rules against your registered skills "
             "(no free AI plan was free, and the check never uses a paid one).")
         return kept
+
+    def _hold_for_ai(self, ranked, output, rejected_records):
+        """No free AI plan right now, and this pass wants the AI check: keep the plausible postings.
+
+        A rules-only fit reads tool names, not the work, so it is only trusted to rule out a
+        posting that shares almost nothing with the candidate's evidence (below HOLD_FLOOR).
+        """
+        held = []
+        for job in ranked:
+            score = job["relevance"]["score"]
+            if score >= HOLD_FLOOR:
+                held.append({k: v for k, v in job.items() if k != "relevance"})
+                continue
+            why = f"Fit {score}/100 by rules is far below the bar (no free AI plan was free to check it further)."
+            output["rejected_leads"].append(job["url"] + ": fit check - " + why)
+            rejected_records.append({"company": job["company"], "title": job["title"], "url": job["url"],
+                                     "stage": "fit", "reason": why})
+        output["held_postings"] = held
+        output["held"] = len(held)
+        output["fit_check"] = {"checked": 0, "by_ai": 0, "providers": [], "ai_errors": [], "held": len(held)}
+        output["summary"] = str(output.get("summary") or "") + (
+            f"\n\nFit check: no free AI plan was free, so {len(held)} plausible postings are held for an AI "
+            "requirement check on a later pass instead of being judged by rules.")
+        return []
 
     def sweep_postings(self):
         """Re-check postings that are due, at most once an hour.

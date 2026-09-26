@@ -36,6 +36,10 @@ SOURCES = [
     {"id": "portals", "label": "My company list", "ai": False,
      "what": "Checks only the career pages of companies on your list. The search itself uses no AI; only the best "
              "matches get their must-haves checked, on a free plan."},
+    {"id": "feeds", "label": "Job boards + employer feeds", "ai": False,
+     "what": "Reads your company list, a verified list of employers hiring in your market and, for Ireland, "
+             "gradireland, jobs.ie and the askmanavi graduate tracker, with the full posting text. The search itself "
+             "uses no AI; the best matches get their requirements checked on a free plan."},
 ]
 SOURCE_IDS = [source["id"] for source in SOURCES]
 
@@ -57,6 +61,7 @@ def sources_for(root) -> list[dict]:
 FIND = {
     "find_ai": {"minutes": 5.0, "minutes_per_job": 0.5, "tokens": 40000, "tokens_per_job": 6000, "budget_calls": 1},
     "find_pages": {"minutes": 1.0, "minutes_per_job": 0.1, "tokens": 0, "tokens_per_job": 0, "budget_calls": 0},
+    "find_feeds": {"minutes": 8.0, "minutes_per_job": 0.5, "tokens": 0, "tokens_per_job": 0, "budget_calls": 0},
 }
 
 # The helpers that run once per job, in the order they run. ``budget_calls`` are
@@ -146,6 +151,8 @@ def local_models(provider_id: str) -> list:
 
 
 def find_key(source: str) -> str:
+    if source == "feeds":
+        return "find_feeds"
     return "find_ai" if next(s for s in SOURCES if s["id"] == source)["ai"] else "find_pages"
 
 
@@ -153,17 +160,29 @@ def find_seconds(key: str, jobs: int) -> float:
     return (FIND[key]["minutes"] + FIND[key]["minutes_per_job"] * jobs) * 60
 
 
+def hunt_active(workspace) -> bool:
+    """True while an overnight hunt (services/hunt.py) is queued, running or waiting for a plan to reset."""
+    try:
+        with workspace.connect() as db:
+            table = db.execute("SELECT 1 FROM sqlite_master WHERE name='hunt_runs'").fetchone()
+            return bool(table and db.execute(
+                "SELECT 1 FROM hunt_runs WHERE state IN ('queued','running','waiting') LIMIT 1").fetchone())
+    except Exception:
+        return False
+
+
 def busy(workspace) -> bool:
-    """True while a pipeline or any agent run is queued or running (the launcher will not restart then)."""
+    """True while a pipeline, a hunt or any agent run is queued or running (the launcher will not restart then)."""
     try:
         with workspace.connect() as db:
             if db.execute("SELECT 1 FROM agent_runs WHERE state IN ('queued','running') LIMIT 1").fetchone():
                 return True
             table = db.execute("SELECT 1 FROM sqlite_master WHERE name='pipeline_runs'").fetchone()
-            return bool(table and db.execute(
-                "SELECT 1 FROM pipeline_runs WHERE state IN ('queued','running') LIMIT 1").fetchone())
+            if table and db.execute("SELECT 1 FROM pipeline_runs WHERE state IN ('queued','running') LIMIT 1").fetchone():
+                return True
     except Exception:
         return False
+    return hunt_active(workspace)
 
 
 class Stopped(Exception):
@@ -278,9 +297,9 @@ class Pipeline:
                 key = provider["id"] + ":" + model["id"]
                 base = default_speed(provider["id"], model["id"])
                 speeds[key] = {}
-                for step in ("find_ai", "find_pages", *STEP_IDS):
+                for step in (*FIND, *STEP_IDS):
                     ratios = learned.get((key, step))
-                    ai = step not in ("find_pages", "pdf")
+                    ai = step not in ("find_pages", "find_feeds", "pdf")
                     speeds[key][step] = (
                         {"factor": round(statistics.median(ratios), 2), "learned": True, "runs": len(ratios)}
                         if ratios else {"factor": base if ai else 1.0, "learned": False, "runs": 0}
@@ -387,7 +406,7 @@ class Pipeline:
             raise ValueError(f"Choose between 1 and {MAX_DISCOVERY_JOBS} jobs.")
         source = values.get("source") or "default"
         if source not in SOURCE_IDS:
-            raise ValueError("Choose where to look: web search, balanced mix or your company list.")
+            raise ValueError("Choose where to look: web search, balanced mix, your company list or job boards + employer feeds.")
         providers = {p["id"]: p for p in self.providers()}
         if not values.get("provider"):
             # No AI named: the one chosen in Settings does the work.
@@ -426,6 +445,8 @@ class Pipeline:
         with self.lock:
             if self._latest(active=True):
                 raise ValueError("A search is already running. Wait for it to finish, or stop it first.")
+            if hunt_active(self.w):
+                raise ValueError("An overnight hunt is running. Stop it on Daily Search, or wait for it to finish.")
             with self.w.connect() as db:
                 if db.execute("SELECT 1 FROM agent_runs WHERE kind='discovery' AND state IN ('queued','running')").fetchone():
                     raise ValueError("A job search started elsewhere is still running. Try again when it finishes.")
@@ -602,7 +623,7 @@ class Pipeline:
         return None, None
 
     def _team(self, config):
-        from backend.ai import _default_model, route_options, usage_recorder
+        from backend.ai import _default_model, route_options, router, usage_recorder
         from backend.ai.agents.graph import AgentTeam
 
         provider, model = config["provider"], config["model"]
@@ -611,11 +632,26 @@ class Pipeline:
         cheap = model if provider in ("codex", "kimi_cli", "auto") else _default_model(provider, "cheap")
         from backend.ai.persona import persona_for
 
+        route = route_options(self.s, "daily_search")
+        if config.get("free_only"):
+            route = {**route, "policy": router.free_only(route.get("policy"))}
         return AgentTeam(self.w.root, {"strong": (provider, model), "cheap": (provider, cheap)}, usage_recorder(self.s),
-                         persona=persona_for(self.w.root), route=route_options(self.s, "daily_search"))
+                         persona=persona_for(self.w.root), route=route)
 
-    def _agent(self, kind, job_id, provider, model, preset="default", count=None, timeout_minutes=45) -> dict:
-        queued = self.runner.enqueue(kind, job_id, provider, model, preset, count=count)
+    def run_step(self, step: str, job_id: str, config: dict) -> dict:
+        """One helper (research, tailor, study_plan, pdf) for one saved job, outside a Daily Search run.
+
+        The overnight hunt (services/hunt.py) prepares the jobs it saves through the same
+        helpers, so its resumes get the same research, tailoring and page contract. ``config``
+        needs provider and model; ``free_only`` keeps Auto on the free plans.
+        """
+        if step not in STEP:
+            raise ValueError("Unknown helper: " + step)
+        return getattr(self, "_" + step)(job_id, config)
+
+    def _agent(self, kind, job_id, provider, model, preset="default", count=None, timeout_minutes=45, config=None) -> dict:
+        queued = self.runner.enqueue(kind, job_id, provider, model, preset, count=count,
+                                     free_only=bool((config or {}).get("free_only")))
         deadline = time.monotonic() + timeout_minutes * 60
         while time.monotonic() < deadline:
             with self.w.connect() as db:
@@ -629,7 +665,7 @@ class Pipeline:
 
     def _research(self, job_id, config) -> dict:
         provider, model = self._web_choice(config)
-        record = self._agent("research", job_id, provider, model)
+        record = self._agent("research", job_id, provider, model, config=config)
         # The research run itself saves company-research.md into the application folder.
         if not (record["result"] or {}).get("path"):
             return {"note": "Research finished (no application folder to save it in)."}
@@ -645,7 +681,7 @@ class Pipeline:
 
     def _study_plan(self, job_id, config) -> dict:
         provider, model = self._web_choice(config)
-        self._agent("study_plan", job_id, provider, model)
+        self._agent("study_plan", job_id, provider, model, config=config)
         return {"note": "Saved to study-plan.md"}
 
     def _pdf(self, job_id, config) -> dict:

@@ -403,9 +403,14 @@ class RouterProvider:
             self.local.served = (provider_id, model)  # the last endpoint tried, until one answers
             return self.gateway.providers[provider_id].generate(prompt, schema, model=model, **options)
 
+        policy = router.policy_from(preferences)
+        # A run started by an unattended search (services/hunt.py) never reaches a paid
+        # endpoint unless the person allowed it; AgentRunner sets this for that run's thread.
+        if getattr(self.local, "free_only", False):
+            policy = router.free_only(policy)
         result, served = router.route(
             services.w.root, tier=ACTION_TIER.get(action, "strong"), needs=wanted,
-            policy=router.policy_from(preferences), attempt=attempt,
+            policy=policy, attempt=attempt,
             paid_gate=paid_gate(services), on_switch=switch_recorder(services, action),
         )
         self.local.served = served

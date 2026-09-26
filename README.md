@@ -44,6 +44,21 @@ Settings. Profile facts are grounded in your sources; uncertain details stay fla
 AI calls may use external services when you start those actions. Mail is optional and requires a
 configured connector.
 
+## Finding jobs overnight
+
+Daily Search → **Overnight hunt** (or tell the Assistant *overnight hunt*, or run
+`daily-job-search\night-hunt.cmd --target 10 --hours 8 --min-fit 75`) keeps searching until it has
+saved the number of jobs you asked for at your fit bar, or the time is up. It reads employer career
+feeds (a verified list of about 65 employers hiring in Ireland plus your tracked companies), gradireland,
+jobs.ie and the askmanavi graduate tracker directly, then runs focused AI web searches per role across
+company ATS pages, Irish boards, LinkedIn and publicjobs.ie. Every job passes the same location,
+work-permit, never-re-apply, legitimacy and requirement checks; when your free AI plans reach their
+usage limits it waits for them to reset and never uses a paid AI unless you allow it. It then prepares
+each job (research, tailored resume, study plan, PDF) and writes `HUNT-REPORT.md`. It remembers what it
+has already checked, so the next night looks at new postings. Keep the app open while it runs.
+LinkedIn, Indeed and IrishJobs.ie refuse automated reading, so they are reached only through the AI's
+web search.
+
 ## Checks
 
 Run **Check Workspace.cmd** on Windows or `bash "Check Workspace.command"` on macOS. These run the

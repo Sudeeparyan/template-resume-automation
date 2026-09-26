@@ -23,7 +23,9 @@ export type Estimate = {
   learned: boolean;
 };
 
-export function findKey(info: PipelineInfo, source: string): "find_ai" | "find_pages" {
+export function findKey(info: PipelineInfo, source: string): "find_ai" | "find_pages" | "find_feeds" {
+  // Reading every employer feed and job board takes longer than one company list, still with no AI.
+  if (source === "feeds" && info.find.find_feeds) return "find_feeds";
   return info.sources.find((s) => s.id === source)?.ai === false ? "find_pages" : "find_ai";
 }
 
@@ -34,7 +36,7 @@ const speedOf = (info: PipelineInfo, choice: Pick<PipelineChoice, "provider" | "
 export function stepMinutes(info: PipelineInfo, choice: PipelineChoice, step: string, jobs: number) {
   if (step === "find") {
     const key = findKey(info, choice.source);
-    const cost = info.find[key];
+    const cost = info.find[key]!;
     return (cost.minutes + cost.minutes_per_job * jobs) * speedOf(info, choice, key).factor;
   }
   const spec = info.steps.find((s) => s.id === step);
@@ -44,7 +46,7 @@ export function stepMinutes(info: PipelineInfo, choice: PipelineChoice, step: st
 export function estimatePipeline(choice: PipelineChoice, info: PipelineInfo): Estimate {
   const jobs = Math.max(0, Math.min(choice.count, info.plan.remaining_today));
   const key = findKey(info, choice.source);
-  const cost = info.find[key];
+  const cost = info.find[key]!; // findKey only names find_feeds when the server sent it
   const rows: EstimateRow[] = [
     {
       id: "find",

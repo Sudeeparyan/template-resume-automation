@@ -512,10 +512,91 @@ export type PipelineStatus = {
 };
 export type PipelineInfo = PipelineStatus & {
   sources: PipelineSource[];
-  find: Record<"find_ai" | "find_pages", PipelineFindCost>;
+  find: Record<"find_ai" | "find_pages", PipelineFindCost> & Partial<Record<"find_feeds", PipelineFindCost>>;
   steps: PipelineStepInfo[];
   max_jobs: number;
   providers: PipelineProvider[];
   speeds: Record<string, Record<string, PipelineSpeed>>;
   preferences: PipelineChoice;
+};
+
+// The overnight hunt (backend/services/hunt.py): search until the goal is met or the time is up.
+export type HuntChoice = {
+  target: number;
+  hours: number;
+  min_fit: number;
+  sources: "all" | "feeds" | "ai";
+  allow_paid: boolean;
+  require_ai_fit: boolean;
+  steps: Record<string, boolean>;
+  provider?: string;
+  model?: string;
+};
+export type HuntPass = {
+  id: string;
+  label: string;
+  kind: "feeds" | "ai";
+  state: "running" | "done" | "failed" | "skipped" | "stopped";
+  cycle?: number;
+  looked?: number;
+  saved?: number;
+  turned_away?: number;
+  excluded?: number;
+  held?: number;
+  ai_checked?: number;
+  seconds?: number;
+  error?: string;
+  note?: string;
+};
+export type HuntSaved = {
+  id: string;
+  company: string;
+  title: string;
+  location?: string;
+  fit?: number | null;
+  url?: string;
+  pass?: string;
+};
+export type HuntWaiting = { until: string; until_text: string; why: string };
+export type HuntRun = {
+  id: string;
+  state: "queued" | "running" | "waiting" | "completed" | "failed" | "stopped" | "interrupted";
+  config: HuntChoice;
+  progress: {
+    stage: string;
+    target: number;
+    cycle: number;
+    saved: HuntSaved[];
+    passes: HuntPass[];
+    waiting: HuntWaiting | null;
+    prepare?: { state: string; jobs: PipelineJobProgress[] };
+    report?: string;
+    started_epoch?: number;
+    search_until_epoch?: number;
+    deadline_epoch?: number;
+    finished_epoch?: number;
+    strategy_count?: number;
+    exhausted?: boolean;
+  };
+  error: string | null;
+  stop_requested: boolean;
+  created_at: string;
+  finished_at: string | null;
+};
+export type HuntStatus = { current: HuntRun | null; last: HuntRun | null };
+export type HuntInfo = HuntStatus & {
+  defaults: HuntChoice;
+  limits: { max_target: number; max_hours: number };
+  plan: {
+    roles: string[];
+    related_titles: string[];
+    excluded_titles: string[];
+    markets: string[];
+    board_keywords: string[];
+    early_career: boolean;
+    strategies: { id: string; kind: string; label: string; queries?: string[] }[];
+    error?: string;
+  };
+  memory: { outcomes: Record<string, number>; rejected_by_stage: Record<string, number>; held: number };
+  ai: { ready: boolean; wakes_at: string | null; wakes_text: string | null; note: string };
 };

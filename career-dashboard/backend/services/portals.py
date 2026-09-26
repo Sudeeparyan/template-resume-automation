@@ -76,7 +76,8 @@ def tracked_companies(enabled_only: bool = True, root=None) -> list[dict[str, An
 def board_token(row: dict[str, Any]) -> tuple[str | None, str | None]:
     """(ats, token) from explicit fields, else inferred from the careers URL."""
     ats = (row.get("ats") or "").strip().lower() or None
-    token = (row.get("ats_token") or "").strip() or None
+    # portals.yml documents `token`; older files wrote `ats_token`. Both are read.
+    token = str(row.get("ats_token") or row.get("token") or "").strip() or None
     if ats and token:
         return ats, token
     url = (row.get("careers_url") or "").lower()

@@ -101,6 +101,17 @@ class PipelineInput(BaseModel):
     include_unprepared: bool = False
 
 
+class HuntInput(BaseModel):
+    # Left out: the last hunt's choices (or the defaults) apply.
+    target: Optional[int] = Field(default=None, ge=1, le=40)
+    hours: Optional[float] = Field(default=None, ge=0.25, le=12)
+    min_fit: Optional[int] = Field(default=None, ge=50, le=95)
+    sources: Optional[str] = Field(default=None, max_length=10)
+    allow_paid: Optional[bool] = None
+    require_ai_fit: Optional[bool] = None
+    steps: Optional[dict[str, bool]] = None
+
+
 class TierChoice(BaseModel):
     provider: str = Field(min_length=1, max_length=40)
     model: str = Field(min_length=1, max_length=120)
@@ -201,10 +212,14 @@ def attach(app, workspace, schedule: bool = False):
     from backend.services.pipeline import Pipeline
     pipeline = Pipeline(service, runner, studio)
     app.state.pipeline = pipeline
+    from backend.services.hunt import Hunt
+    hunt = Hunt(service, runner, pipeline)
+    app.state.hunt = hunt
     from backend.services.assistant import Assistant
     from backend.services.assistant_tools import Toolbox
     # The chat reaches the Daily Search pipeline through the same object the page uses.
-    assistant = Assistant(service, studio, runner, quality, tools=Toolbox(service, studio, runner, quality, chats, pipeline))
+    assistant = Assistant(service, studio, runner, quality,
+                          tools=Toolbox(service, studio, runner, quality, chats, pipeline, hunt=hunt))
     app.state.assistant = assistant
     app.state.studio = studio
     app.state.career = service
@@ -480,6 +495,31 @@ def attach(app, workspace, schedule: bool = False):
             raise ValueError("That search run was not found.")
         return stopped
 
+    # The overnight hunt: search until the goal is met or the time is up (services/hunt.py).
+    @router.get("/hunt")
+    def hunt_overview():
+        return hunt.overview()
+
+    @router.get("/hunt/status")
+    def hunt_status():
+        return hunt.status()
+
+    @router.post("/hunt/run", status_code=202)
+    def hunt_run(data: HuntInput):
+        return hunt.start(data.model_dump(exclude_none=True))
+
+    @router.post("/hunt/{run_id}/stop")
+    def hunt_stop(run_id: str):
+        stopped = hunt.stop(run_id)
+        if stopped is None:
+            raise ValueError("That hunt was not found.")
+        return stopped
+
+    @router.get("/search-plan")
+    def search_plan():
+        from backend.services.search_plan import describe
+        return describe(workspace.root)
+
     @router.get("/ai/providers")
     def ai_providers(action: Optional[str] = None):
         return runner.gateway.catalog(action)
@@ -748,6 +788,7 @@ def attach(app, workspace, schedule: bool = False):
     def start_background():
         runner.recover()
         pipeline.recover()
+        hunt.recover()
         # Background work (Gmail sync, posting liveness sweep) reaches the network,
         # so it starts only for a real server run, never for a constructed app.
         if schedule:
@@ -772,6 +813,9 @@ def attach(app, workspace, schedule: bool = False):
             latest = pipeline._latest(active=True)
             if latest:
                 pipeline.stop(latest["id"])
+            running = hunt._latest(active=True)
+            if running:
+                hunt.stop(running["id"])
         runner.stop.set()
         runner.pool.shutdown(wait=False, cancel_futures=True)
         if assistant.pool:

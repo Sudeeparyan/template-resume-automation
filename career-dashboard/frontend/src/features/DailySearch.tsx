@@ -4,6 +4,7 @@ import { api } from "../api";
 import { AskAssistant, Running, Empty } from "../components/UI";
 import { JobList } from "../components/JobList";
 import { PipelineBuilder, PipelineProgress } from "./SearchPipeline";
+import OvernightHunt from "./OvernightHunt";
 import type { PipelineChoice, PipelineInfo, PipelineRun, PipelineStatus, Summary } from "../types";
 /** What a search sends: the AI is left out, so the one chosen in Settings does the work. */
 function searchOnly({ count, source, steps }: PipelineChoice) {
@@ -156,6 +157,7 @@ export default function DailySearch({
               { label: "How is the search going?", text: "How is the Daily Search going right now?" },
               { label: "Why were jobs turned away?", text: "Why did the last search save only the jobs it did? Show me what it turned away and why." },
               { label: "Run a search from the chat", text: "Run the daily search for 2 jobs with research, a tailored resume, the study plan and the PDF", send: false },
+              { label: "Hunt overnight", text: "Hunt overnight for 10 jobs that fit at 75 or better, with a tailored resume and PDF for each", send: false },
             ]}
           />
         </div>
@@ -182,6 +184,7 @@ export default function DailySearch({
         </>
       )}
       {running && !active && <Running run={running} />}
+      <OvernightHunt notify={notify} onJob={onJob} refresh={refresh} pipelineActive={active} />
       {latestDiscovery?.result?.summary && (
         <details className="search-notes">
           <summary>What the last job search tried, and why it stopped</summary>

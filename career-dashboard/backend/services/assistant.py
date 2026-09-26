@@ -65,6 +65,10 @@ ABOUT_COMPANY = re.compile(r"^about\s+(?!the\b|this\b|us\b|you\b)([A-Z][\w&.'’
 LOCATION_LINE = re.compile(
     r"^(?:remote(?: \(us\))?|hybrid|[A-Z][\w.' ]+,\s*[A-Z]{2}(?:\s*\(?(?:remote|hybrid|on-?site)\)?)?)\s*$", re.I | re.M
 )
+HUNT_START = re.compile(
+    r"(?:start |run |begin )?(?:the |an? )?(?:overnight|night|all[- ]night)(?: job)? (?:hunt|search)(?: tonight| now)?\.?"
+    r"|(?:hunt|search|look) (?:for jobs )?(?:overnight|all night|tonight)\.?", re.I)
+HUNT_STATUS = re.compile(r"(?:the )?(?:overnight |night )?hunt (?:status|progress)\??|how is the (?:overnight )?hunt going\??", re.I)
 YES = re.compile(r"(yes|y|yes please|confirm|correct|do it|ok|okay|sure|go ahead|proceed)\.?!?", re.I)
 NO = re.compile(r"(no|n|nope|not yet|skip|cancel|don'?t)\.?", re.I)
 CONJUNCTION = re.compile(r"\b(and|then|also)\b", re.I)
@@ -77,10 +81,14 @@ HELP = (
     "- *which saved jobs still have no resume? build them*\n"
     "- *I finished the AWS Data Engineer course* (goes to your Profile for review)\n"
     "- *change the Acme resume summary to lead with streaming pipelines*\n"
-    "- *what did I apply to this week?* · *set my weekly target to 12*\n\n"
+    "- *what did I apply to this week?* · *set my weekly target to 12*\n"
+    "- *hunt overnight for 15 data analyst jobs with fit 75+* (keeps searching boards, employer feeds and the web "
+    "until it has them, waiting out AI usage limits, then builds each resume)\n"
+    "- *also search for insights analyst roles* · *track Stripe's careers page* (changes where the searches look)\n\n"
     "Anything hard to undo — marking a job applied, changing your profile or goals, removing a job — "
     "waits for your *yes*. Nothing is ever submitted for you.\n"
-    "Shortcuts: **find jobs** · **status** · **open <company>** · **applied to <company> on YYYY-MM-DD** · **excluded**"
+    "Shortcuts: **find jobs** · **overnight hunt** · **hunt status** · **status** · **open <company>** · "
+    "**applied to <company> on YYYY-MM-DD** · **excluded**"
 )
 
 STEP_ORDER = ("Reading the posting", "Work-permit and duplicate checks", "Opening the draft",
@@ -502,6 +510,11 @@ class Assistant:
 
         # Exact shortcuts: instant, no model, and "applied" waits for confirmation.
         # A request with "and"/"then" in it is a task for the agent, not a shortcut.
+        if HUNT_START.fullmatch(low):
+            return self._start_hunt(id)
+        if HUNT_STATUS.fullmatch(low):
+            result = self.tools.hunt_status() if self.tools.hunt else {"summary": "The overnight hunt is not available here."}
+            return "done", self._hunt_text(result), {"intent": "hunt_status", "suggestions": ["stop the hunt"]}
         if re.fullmatch(r"(find|search|look for|discover|hunt)( me)?( some| new| more)? (jobs?|roles?|postings?|openings?)( for (me|my profile|today))?\.?", low) \
                 or re.fullmatch(r"(daily search|run (the )?search|search)\.?", low):
             return self._discover(id)
@@ -733,7 +746,46 @@ class Assistant:
         self._finish_step(id, "done", "Run " + run["id"][:8] + (" was already running" if run.get("existing") else " queued"), run_id=run["id"])
         return "done", ("Job discovery is running with the *" + preset + "* mix. Every lead passes the sponsorship gate and the never-re-apply check "
                         "before it is saved; watch the Agents rail or ask me *status* in a few minutes."), \
-            {"intent": "discovery", "run_id": run["id"], "suggestions": ["status"]}
+            {"intent": "discovery", "run_id": run["id"], "suggestions": ["status", "overnight hunt"]}
+
+    def _start_hunt(self, id):
+        if self.tools.hunt is None:
+            return "done", "The overnight hunt is not available here; try *find jobs*.", {"intent": "hunt_refused"}
+        self._step(id, "Starting the overnight hunt", agent="discovery")
+        try:
+            result = self.tools.start_hunt()
+        except ValueError as error:
+            self._finish_step(id, "failed", str(error))
+            return "done", str(error), {"intent": "hunt_refused", "suggestions": ["hunt status"]}
+        self._finish_step(id, "done", result["summary"])
+        config = result["config"]
+        helpers = ", ".join(result["helpers"]) or "no preparation"
+        text = (f"The overnight hunt is running: it keeps searching until it has saved **{config['target']}** jobs that fit "
+                f"at **{config['min_fit']}+**, or {config['hours']:g} hours pass. It reads employer career feeds and job boards "
+                "first, then runs focused AI searches role by role, and waits out AI usage limits instead of stopping"
+                + ("" if config["allow_paid"] else " (it never uses a paid AI)") + f". Each job it saves gets: {helpers}. "
+                "Keep the app open; follow it on **Daily Search** or ask *hunt status*. Nothing is ever submitted.")
+        return "done", text, {"intent": "hunt", "hunt_id": result["hunt_id"], "suggestions": ["hunt status", "stop the hunt"]}
+
+    @staticmethod
+    def _hunt_text(result: dict) -> str:
+        hunt = result.get("hunt") or {}
+        if not hunt or hunt.get("state") == "never_run":
+            return "No hunt has run yet. Say *overnight hunt* to start one with your saved choices."
+        lines = [f"Hunt **{hunt['state']}**: {len(hunt.get('saved') or [])} of {hunt.get('target')} saved"
+                 f" at fit {hunt.get('min_fit')}+ · {hunt.get('passes_done', 0)} passes done."]
+        if hunt.get("stage"):
+            lines.append("Now: " + hunt["stage"])
+        waiting = hunt.get("waiting") or {}
+        if waiting:
+            lines.append(f"Waiting until {waiting.get('until_text')}: {waiting.get('why')}.")
+        for saved in (hunt.get("saved") or [])[:10]:
+            lines.append(f"- {saved}")
+        if hunt.get("report"):
+            lines.append(f"Report: `{hunt['report']}`")
+        if hunt.get("error"):
+            lines.append("Problem: " + hunt["error"])
+        return "\n".join(lines)
 
     def _status(self):
         summary = self.s.summary()
@@ -892,6 +944,7 @@ class Assistant:
             "counts": summary["counts"],
             "jobs": [job_row(j) for j in summary["jobs"][:40]],
             "daily_search": self.tools.pipeline_brief(),
+            "overnight_hunt": self.tools.hunt_brief(),
             "active_runs": [{"run_id": r["id"], "kind": r["kind"], "job_id": r["job_id"], "stage": (r.get("result") or {}).get("stage")}
                             for r in summary["runs"] if r["state"] in {"queued", "running"}],
             "profile_has_unreviewed_edits": summary["profile_dirty"],
