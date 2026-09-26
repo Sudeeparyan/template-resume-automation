@@ -1,0 +1,7 @@
+# Markdown source notes intentionally preserve hard line breaks and spacing.
+*.md whitespace=-blank-at-eol,-blank-at-eof
+*.cmd text eol=crlf
+*.command text eol=lf
+*.sh text eol=lf
+# The macOS/Linux CLI wrapper has no extension; it must keep Unix line endings to run.
+career text eol=lf

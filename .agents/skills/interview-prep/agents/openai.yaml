@@ -1,0 +1,4 @@
+interface:
+  display_name: "Interview Prep"
+  short_description: "Prepare me for one interview with honest stories and answers"
+  default_prompt: "Use $interview-prep to prepare me for my interview."

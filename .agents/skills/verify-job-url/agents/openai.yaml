@@ -1,0 +1,4 @@
+interface:
+  display_name: "Verify Job URL"
+  short_description: "Check whether job links are still open"
+  default_prompt: "Use $verify-job-url to check the links in today's list."

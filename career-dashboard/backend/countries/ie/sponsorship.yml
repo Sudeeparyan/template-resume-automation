@@ -1,0 +1,151 @@
+# ============================================================
+# THE WORK-PERMIT GATE (Ireland)
+#
+# One hard exclusion on the posting's own words, then ranking.
+#
+#   Posting explicitly will NOT support a work/employment permit -> EXCLUDE
+#   Posting requires Irish/EU/EEA citizenship, Stamp 4/5 or a
+#   security clearance                                           -> EXCLUDE
+#   Posting says NOTHING about permits                           -> SHOW (most postings)
+#   Posting explicitly offers permit sponsorship                 -> SHOW, rank top
+#
+# "Must be eligible to work in Ireland" does not disqualify a candidate who holds
+# a current permission to work (for example Stamp 1G). Garda vetting is a routine
+# background check, never a citizenship requirement.
+# Every exclusion keeps the exact sentence, so a wrong call can be restored.
+# ============================================================
+
+meta:
+  last_updated: "2026-09-23"
+  candidate_status: ""   # filled from the candidate's own documents at intake
+
+# GROUP 1 — explicit refusal to support a permit now or later. EXCLUDE.
+exclude_no_sponsorship:
+  - 'no\s+(visa\s+|work\s+permit\s+|employment\s+permit\s+)?sponsorship'
+  - 'will\s+not\s+(be\s+able\s+to\s+)?sponsor'
+  - 'unable\s+to\s+(provide\s+|offer\s+|support\s+)?((visa|work|employment|immigration)\s+){0,2}(sponsor|permits?)'
+  - 'cannot\s+(provide\s+|offer\s+|support\s+)?((visa|work|employment|immigration)\s+){0,2}(sponsor|permits?)'
+  - 'do(es)?\s+not\s+(offer|provide|support)\s+.{0,25}(sponsor|work\s+permits?|employment\s+permits?|visas?)'
+  - 'sponsorship\s+is\s+not\s+(available|offered|provided)'
+  - 'not\s+able\s+to\s+sponsor'
+  - 'not\s+(in\s+a\s+position|able)\s+to\s+(sponsor|support|obtain|provide)\s+.{0,30}(permit|visa|sponsorship)'
+  - 'without\s+(the\s+need\s+for\s+)?(a\s+|any\s+)?(visa|work\s+permit|employment\s+permit|sponsorship)'
+  - 'now\s+or\s+in\s+the\s+future'
+  - 'must\s+not\s+require\s+(a\s+|any\s+)?(visa|work\s+permit|employment\s+permit|sponsorship)'
+  - '(current|present)\s*(or|and|/)\s*future\s+((visa|employer|employment|immigration|work)\s+){0,2}(sponsorship|permits?)'
+  - 'permits?\s+(will\s+)?not\s+be\s+(provided|offered|sponsored|supported)'
+  - 'candidates\s+(who\s+)?requir(e|ing)\s+(a\s+)?(visa|work\s+permit|employment\s+permit|sponsorship)\s+(will\s+not|cannot|are\s+not)'
+  - 'unrestricted\s+(right|permission|authori[sz]ation)\s+to\s+work'
+  # Added 2026-09-24 (end-to-end test): "not eligible for (visa / work permit) sponsorship" was missed.
+  - 'not\s+eligible\s+for\s+((visa|employment|work|immigration|permit)\s+){0,2}sponsorship'
+
+# GROUP 2 — cannot lawfully be hired whatever the interview outcome. EXCLUDE.
+exclude_cannot_hire:
+  - '(EU|EEA|E\.U\.)(\s*/\s*(EEA|Swiss|UK))*\s+(citizens?|nationals?|passport\s+holders?)\s+only'
+  - 'only\s+(open\s+to\s+)?(EU|EEA|Irish)(\s*/\s*(EEA|Swiss|UK))*\s+(citizens?|nationals?)'
+  - 'must\s+(be|hold)\s+(an?\s+)?(EU|EEA|Irish)(\s*/\s*(EEA|Swiss|UK))*\s+(citizen|national|passport)'
+  - '(Irish|EU|EEA)\s+citizenship\s+(is\s+)?(required|mandatory|essential)'
+  - 'Irish\s+citizens?\s+only'
+  - 'stamp\s*[45]\s+(is\s+)?(required|essential|mandatory)'
+  - 'must\s+(have|hold)\s+(a\s+)?stamp\s*[45]'
+  - 'stamp\s*[45]\s+(holders?\s+)?only'
+  - 'security\s+clearance'
+  - 'active\s+clearance'
+  - 'NATO\s+(secret|clearance)'
+
+# POSITIVE — explicitly offers permit sponsorship. Ranks TOP (tier A).
+positive_sponsorship:
+  - 'sponsor\s+.{0,20}(work|employment)\s+permits?'
+  - 'visa\s+sponsorship\s+(is\s+)?(available|offered|provided)'
+  - '(work|employment)\s+permit\s+sponsorship\s+(is\s+)?(available|offered|provided)'
+  - 'critical\s+skills\s+(employment\s+)?permit\s+(sponsorship\s+)?(is\s+)?(available|provided|supported|offered)'
+  - 'willing\s+to\s+sponsor'
+  - 'sponsorship\s+(is\s+)?available'
+  - 'open\s+to\s+candidates\s+requiring\s+(a\s+)?(sponsorship|work\s+permit|employment\s+permit)'
+  - 'stamp\s*1\s*g\s+(holders?\s+)?(are\s+)?(welcome|considered|accepted|eligible)'
+  - 'relocation\s+and\s+(visa|permit)\s+support'
+
+# No Irish equivalent of E-Verify.
+everify_signals: []
+
+# Never exclude on these alone (documentation for reviewers; the gate needs a
+# Group 1 or Group 2 phrase to exclude).
+do_not_exclude_on:
+  - 'eligible\s+to\s+work\s+in\s+(ireland|the\s+EU)'
+  - 'right\s+to\s+work\s+in\s+ireland'
+  - 'garda\s+vetting'
+  - 'proof\s+of\s+(identity|eligibility)'
+
+# A sentence that NEGATES the requirement can never exclude.
+negation_guards:
+  - '(does|do|will)\s+not\s+require\s+(a\s+|any\s+)?(security\s+)?(clearance|sponsorship|citizenship|work\s+permit|employment\s+permit|visa)'
+  - 'no\s+(security\s+)?clearance\s+(is\s+)?(required|needed|necessary)'
+  - '(clearance|citizenship|permit)\s+(is\s+)?not\s+(required|needed|necessary)'
+  - '\bno\s+[^.;]{0,100}(sponsorship|work[-\s]?(authorization|permit)|citizenship|clearance|stamp)[^.;]{0,60}\b(language|mention|statement|wording|references?)\b'
+  - '(contains?|includes?|mentions?|states?|lists?|makes?)\s+(no|not\s+any)\s+[^.;]{0,100}(sponsorship|permit|citizenship|clearance)\s+(language|mention|statement|wording|references?)'
+  - '(says|mentions|states)\s+nothing\s+about\s+[^.;]{0,60}(sponsorship|permit|citizenship|clearance)'
+  - '\bsilent\s+(on|about|regarding)\s+[^.;]{0,60}(sponsorship|permit|citizenship|clearance)'
+  - '\b(will|do|would)\s+you\s+[^.;]{0,80}(sponsorship|permit|visa)'
+  - '\basks?\s+(about|whether|if|applicants)\s+[^.;]{0,80}(sponsorship|permit|visa)'
+  - '(does|do)\s+not\s+(state|say|specify|indicate)\s+whether'
+  # A researcher's note that it could not see the wording ("the pages ... do not show the precise
+  # sentence regarding work permits (for example, whether applicants must ... now and in future)")
+  # describes an absence; the example it gives is not the posting's words.
+  - '(does|do|did)\s+not\s+(show|include|contain|mention|give|list|quote)\s+[^.;]{0,80}(sentence|wording|language|statement|text)'
+  - '(could\s*n[o'']t|cannot|can''t|unable\s+to)\s+(find|see|confirm|verify|locate|access)\b[^.;]{0,100}(sentence|wording|language|statement|sponsorship|permit|visa)'
+  - '\b(for\s+example|e\.g\.)\s*,?\s*whether\b'
+  - 'garda\s+vetting'
+
+ambiguous_sponsor_noun:
+  - 'event\s+sponsor'
+  - 'executive\s+sponsor'
+  - 'project\s+sponsor'
+  - 'sponsor\s+a\s+(team|event|conference|meetup)'
+  - 'sponsored\s+(content|post|research\s+grant)'
+
+# Wording shown on job cards and in Excluded roles.
+labels:
+  cannot_hire: "Requires Irish/EU citizenship, Stamp 4/5 or a security clearance"
+  no_sponsorship: "Posting explicitly will not support a work permit"
+  explicit_sponsorship: "Posting explicitly offers work-permit sponsorship"
+  silent: "Posting says nothing about work permits; the normal case"
+
+tiers:
+  S:
+    label: "Not used in Ireland"
+    meaning: "There is no permit lottery in Ireland, so no employer is ranked above one that offers sponsorship."
+    rank: 1
+  A:
+    label: "Says yes"
+    meaning: "Posting explicitly offers work-permit sponsorship."
+    rank: 2
+  B:
+    label: "Not used yet"
+    meaning: "Reserved for employers with a public record of permits issued."
+    rank: 3
+  C:
+    label: "Silent"
+    meaning: "No data either way. STILL SHOWN — the normal case and the largest bucket."
+    rank: 4
+  EXCLUDED:
+    label: "Excluded"
+    meaning: "Matched Group 1 or Group 2. Never rendered. The sentence is logged so a wrong call can be restored."
+    rank: 99
+
+tier_labels:
+  S: "Research or public employer"
+  A: "Posting says it sponsors work permits"
+  B: "Known permit sponsor; posting is silent"
+  C: "Posting is silent on work permits; still worth applying"
+  EXCLUDED: "Excluded by the posting's own words"
+
+# The US cap-exempt idea (no H-1B lottery) has no Irish equivalent.
+cap_exempt_signals:
+  enabled: false
+  domains: []
+  known: []
+  name_contains: []
+
+disclaimer: >-
+  Permit history is not tracked for Ireland yet. A silent posting is the normal case and is always shown;
+  only the posting's own words exclude.

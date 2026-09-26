@@ -1,0 +1,15 @@
+.venv/
+__pycache__/
+.pytest_cache/
+.DS_Store
+*.pyc
+*.aux
+*.log
+*.pid
+*.synctex.gz
+.env
+.env.*
+!.env.example
+# Which AI plans are resting after a usage limit (backend/ai/limits.py); this PC's state only.
+.ai-plan-health.json
+.ai-plan-health.json.saving

@@ -1,0 +1,4 @@
+interface:
+  display_name: "US Job Sources"
+  short_description: "Where to find verified US jobs and how to read sponsorship wording"
+  default_prompt: "Use $us-job-sources to search the US for my target roles."

@@ -1,0 +1,52 @@
+# Country pack: United States.
+#
+# Public US market defaults. Each candidate profile supplies its own eligibility
+# and target-role facts.
+
+name: United States
+names: [US, USA, U.S., U.S.A., United States of America, America]
+adjective: US
+timezone: America/Chicago
+currency: USD
+paper: letter
+paper_label: US Letter
+resume_word: resume
+spelling: US English spelling (modeling, specializing, analyze)
+# The USCIS H-1B Employer Data Hub (data/sponsors) ranks employers and proves
+# legal presence. Public data, read-only, shared by every US profile.
+sponsor_index: uscis
+
+messages:
+  location_screen: "US location is not established by this posting; only United States roles are pursued."
+  location_blocker: "Location is not in the United States (or US-remote). Only US roles are pursued."
+  location_label: "US location"
+  default_location: "United States"
+  market: "roles in the United States"
+  gate_rule: "a posting that refuses sponsorship or requires citizenship or a clearance is excluded"
+
+location:
+  # US matching is the tested built-in matcher (backend/job_quality.is_us_location).
+  open_remote: ['\s*remote\s*']
+
+# Wording a new US profile's discovery guide is built from (guides/job-discovery.md).
+discovery:
+  scope: >-
+    United States locations or explicitly US-remote only; never Ireland, the UK, India, Canada or
+    "remote (EMEA/APAC)".
+  authorization_topics: visa sponsorship, work authorization, citizenship, security clearance, ITAR/EAR or US-person status
+  authorized_phrase: must be authorized to work in the US
+  refusal_examples: '"unable to provide visa sponsorship", "without current or future sponsorship"'
+  cannot_hire: US citizenship, permanent residency, a security clearance, ITAR/EAR or US-person status
+  employer_types: >-
+    Set employer_type to university, hospital, national_lab, nonprofit_research or government when the
+    employer is one (these are cap-exempt and file H-1B year-round), otherwise company.
+  legal_presence: >-
+    It checks the federal USCIS H-1B employer list itself, so most established employers pass without
+    your help; never withhold an otherwise verified posting because you found no record, return it and
+    let the application decide. For an employer you think is small or unfamiliar, run one more search
+    before you finish, for example `"<company>" site:linkedin.com/company OR site:opencorporates.com OR
+    site:crunchbase.com`; these searches are in addition to the budget above. Accepted records: a state
+    business registry (secretary of state) or OpenCorporates entry, an SEC/EDGAR filing, a LinkedIn
+    company page (linkedin.com/company/...), a Crunchbase profile or a BBB listing.
+  legal_presence_example: OpenCorporates lists Acme Health, Inc., incorporated in Delaware
+  boards: Greenhouse, Lever, Ashby, Workday, iCIMS

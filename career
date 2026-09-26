@@ -1,0 +1,11 @@
+#!/bin/sh
+# One command for every AI app on macOS, Linux and Git Bash: ./career <command> ... (or: sh career ...).
+# See AGENTS.md; "./career help" lists the commands.
+ROOT="$(cd "$(dirname "$0")" && pwd)"
+CLI="$ROOT/career-dashboard/backend/scripts/career_cli.py"
+# Use the first Python that runs here: a folder shared with another system can hold a .venv built for it.
+for PY in "$ROOT/career-dashboard/backend/.venv/bin/python" "$ROOT/career-dashboard/backend/.venv/Scripts/python.exe" python3.12 python3; do
+  if "$PY" -c "import sys" >/dev/null 2>&1; then exec "$PY" "$CLI" "$@"; fi
+done
+echo "Python 3 was not found. Install Python 3.12 (see README.md), or ask your AI app to work without the app (START-HERE.md)." >&2
+exit 127

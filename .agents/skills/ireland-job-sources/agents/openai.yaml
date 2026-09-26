@@ -1,0 +1,4 @@
+interface:
+  display_name: "Ireland Job Sources"
+  short_description: "Where to find verified jobs in Ireland and how to confirm each one"
+  default_prompt: "Use $ireland-job-sources to search Ireland for my target roles."

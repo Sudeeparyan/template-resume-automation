@@ -1,0 +1,60 @@
+# Local backups, imports and developer scratch files never leave this computer.
+backup/
+.local-reference/
+.venv/
+pytest-of-*/
+PLAN.md
+WORKSPACE-STATE.md
+*.code-workspace
+*.ipynb
+
+# Your resume, answers and job lists (see START-HERE.md). Only the two guides are shared.
+me/*
+!me/README.md
+!me/about-me.example.md
+my-jobs/*
+!my-jobs/README.md
+
+# Per-computer AI app settings (the shared skills in .agents/ and .claude/skills/ are published).
+.claude/settings.local.json
+.claude/scheduled-tasks/
+
+# Runtime state and secrets never belong in the shared template.
+**/.venv/
+**/.runtime/
+**/__pycache__/
+**/.pytest_cache/
+**/node_modules/
+**/dist/
+**/.env
+**/.env.*
+!**/.env.example
+**/keys.txt
+**/*.db
+**/*.db-*
+**/*.sqlite*
+**/*.log
+**/*.pid
+**/*.aux
+**/*.synctex.gz
+**/*.tsbuildinfo
+**/.ai-plan-health.json
+**/.ai-plan-health.json.saving
+.DS_Store
+.Rhistory
+.RData
+
+# Profile folders hold private source documents, jobs, chats and outputs.
+career-dashboard/profiles/
+career-dashboard/output/
+career-dashboard/data/
+career-dashboard/tests/*
+!career-dashboard/tests/portable/
+!career-dashboard/tests/portable/**
+
+# The morning runner's lists, run history and logs belong to the people using this copy.
+daily-job-search/20*/
+daily-job-search/logs/
+daily-job-search/history.csv
+daily-job-search/DAILY_BRIEF.md
+daily-job-search/MORNING-JOBS.md

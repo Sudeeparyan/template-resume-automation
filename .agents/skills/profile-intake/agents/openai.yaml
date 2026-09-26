@@ -1,0 +1,4 @@
+interface:
+  display_name: "Profile Intake"
+  short_description: "Record a new fact about me so future resumes can use it"
+  default_prompt: "Use $profile-intake to add what I just told you to my profile."

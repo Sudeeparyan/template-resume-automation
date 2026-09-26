@@ -1,0 +1,76 @@
+---
+name: tailor-resume
+description: >-
+  Make an honest resume tailored to one job, from the person's own evidence only, in the job
+  country's format (A4 CV for Ireland, US Letter resume for the US), as PDF and DOCX, then audit
+  it like a recruiter. Use for "make a resume for this job", a pasted posting or link, or for each
+  job that find-jobs keeps.
+---
+
+# Tailor a resume
+
+Read `AGENTS.md` first. Then read `references/resume-format.md`, `references/ats-rules.md`,
+`references/recruiter-audit.md` and `references/quality-review.md`. Every resume gets the
+recruiter audit and the quality review before it is handed over; a first draft is never the
+deliverable. Prefer App mode whenever it is available: its gates, evidence registry, page
+contract and validator are stricter than anything done by hand.
+
+## Before writing
+
+1. Have the posting's full text from its own page and its link. A job only pasted as a title is
+   not enough: ask for the link or the text.
+2. Run the checks from `find-jobs` (location, permission to work, never re-apply, legitimate).
+   If one fails, say which and why, quoting the posting, and stop unless the person insists.
+3. Read the person's evidence (App mode: the profile's `data/context/evidence.yml`; AI-only:
+   `me/profile.md` and the files it cites).
+
+## App mode
+
+Run the same steps, in the same order, as the app's overnight hunt:
+
+```text
+career add --file job.json                        only when the job is not saved yet (prints its id)
+career ws fit --job-id <id>                       each requirement and the evidence that meets it
+career ws run --kind research --job-id <id>       public company research (never sees the profile)
+career ws tailor --job-id <id>                    tailored draft + PDF fitted to the page contract
+career ws run --kind resume_match --job-id <id>   independent review of the PDF against the posting
+career ws run --kind study_plan --job-id <id>     study plan for the gaps (never on the resume)
+```
+
+`career add` JSON: `company`, `title`, `location`, `url`, the full `description`. `career ws
+tailor` tailors with the AI app signed in on the computer and uses the research; with no AI ready
+it ranks and fits registered evidence only (`tailored_by_ai` says which, so say so). Report the
+PDF path, pages, coverage, ATS score, gaps and the match review. Suggested items the AI predicted
+wait for the person's decision on the dashboard's Assurance tab; Resume Studio shows the draft.
+
+## AI-only mode
+
+1. **Map the job.** List the posting's must-haves and nice-to-haves. For each, name the line of
+   `me/profile.md` that proves it, or mark it as a gap. Never cover a gap by writing it in.
+2. **Choose what to show.** Keep the person's real roles in date order. Inside each role, order the
+   true bullets by relevance to this job. Pick the 2 or 3 projects that best match. Drop what does
+   not help, but never drop an employer or a date in a way that hides a gap they did not ask to hide.
+3. **Write.** Follow `references/resume-format.md` for the country. Use the posting's words only
+   where they describe something the person really did (same skill, same tool). Keep every title,
+   employer, date, degree and number exactly as in the evidence. When a number would help but the
+   evidence has none, leave it out and ask the person for it afterwards; never estimate one.
+4. **Make the files** in the job's folder (`my-jobs/<date>/NN-company-role/`), named
+   `<First>-<Last>-CV` (Ireland) or `<First>-<Last>-Resume` (US):
+   - a `.docx` (easy for them to edit) and a `.pdf` (to upload). Use your document tools: for
+     example the docx and pdf skills in Claude, Python with python-docx or reportlab, or your
+     app's file export. When you can make only one, make the DOCX and say so. When you cannot
+     create files at all, give the resume as text in your reply.
+5. **Audit it** with `references/recruiter-audit.md` (three passes: score and red flags,
+   rewrite, final scan as software and as a hiring manager) and apply the fixes.
+6. **Check the result** with `references/quality-review.md`: open the PDF, count the pages, make
+   sure the text can be selected and read in order, compare every fact with the evidence, and
+   remove hidden characters and tool metadata. Fix and re-check until it passes.
+7. **Save the notes** in the job's `job.md`: the requirement-to-evidence map, the audit scores
+   before and after, and the gaps. Put any gap worth learning in a short "To learn" list there,
+   never on the resume.
+
+## Report
+
+Per job: the file paths, pages, the fit and the honest gaps, anything you need from them (for
+example a missing number), and a reminder that nothing was submitted. They apply themselves
+through the posting's link.

@@ -1,0 +1,121 @@
+# Employers with a public careers feed and current openings in Ireland.
+#
+# The "feeds" search (backend/services/job_sources.py) reads these boards directly,
+# without AI, and runs every posting through the same market, work-permit, duplicate,
+# legitimacy and requirement checks as any other lead. A profile's own
+# data/config/portals.yml tracked_companies are read first; this list is the
+# country-wide starting set every Ireland profile shares.
+#
+# Each board was checked on 2026-09-26 and listed Irish postings that day.
+# ats: greenhouse | lever | ashby -> token is the board name
+#      smartrecruiters             -> token is the company identifier
+#      workday                     -> host and site of the public careers site
+# sectors are hints for the search plan; they never decide eligibility.
+
+verified_on: "2026-09-26"
+employers:
+  # --- software, internet and fintech (Greenhouse) ---
+  - {name: Stripe, ats: greenhouse, token: stripe, sectors: [tech, fintech]}
+  - {name: MongoDB, ats: greenhouse, token: mongodb, sectors: [tech]}
+  - {name: Intercom, ats: greenhouse, token: intercom, sectors: [tech]}
+  - {name: HubSpot, ats: greenhouse, token: hubspotjobs, sectors: [tech]}
+  - {name: Elastic, ats: greenhouse, token: elastic, sectors: [tech]}
+  - {name: Toast, ats: greenhouse, token: toast, sectors: [tech, fintech]}
+  - {name: Datadog, ats: greenhouse, token: datadog, sectors: [tech]}
+  - {name: SumUp, ats: greenhouse, token: sumup, sectors: [fintech]}
+  - {name: Klaviyo, ats: greenhouse, token: klaviyo, sectors: [tech]}
+  - {name: Okta, ats: greenhouse, token: okta, sectors: [tech, security]}
+  - {name: GitLab, ats: greenhouse, token: gitlab, sectors: [tech]}
+  - {name: Twilio, ats: greenhouse, token: twilio, sectors: [tech]}
+  - {name: Pinterest, ats: greenhouse, token: pinterest, sectors: [tech]}
+  - {name: Squarespace, ats: greenhouse, token: squarespace, sectors: [tech]}
+  - {name: Monzo, ats: greenhouse, token: monzo, sectors: [fintech]}
+  - {name: LearnUpon, ats: greenhouse, token: learnupon, sectors: [tech]}
+  - {name: ZoomInfo, ats: greenhouse, token: zoominfo, sectors: [tech]}
+  - {name: Flipdish, ats: greenhouse, token: flipdish, sectors: [tech]}
+  - {name: Asana, ats: greenhouse, token: asana, sectors: [tech]}
+  - {name: Dropbox, ats: greenhouse, token: dropbox, sectors: [tech]}
+  - {name: Airbnb, ats: greenhouse, token: airbnb, sectors: [tech]}
+  - {name: Coinbase, ats: greenhouse, token: coinbase, sectors: [fintech]}
+  - {name: Databricks, ats: greenhouse, token: databricks, sectors: [tech, data]}
+  - {name: Reddit, ats: greenhouse, token: reddit, sectors: [tech]}
+  - {name: Tripadvisor, ats: greenhouse, token: tripadvisor, sectors: [tech]}
+  - {name: Riot Games, ats: greenhouse, token: riotgames, sectors: [tech, games]}
+  - {name: Rubrik, ats: greenhouse, token: rubrik, sectors: [tech, security]}
+  # --- software and AI (Ashby) ---
+  - {name: OpenAI, ats: ashby, token: openai, sectors: [tech, ai]}
+  - {name: ElevenLabs, ats: ashby, token: elevenlabs, sectors: [tech, ai]}
+  - {name: Snowflake, ats: ashby, token: snowflake, sectors: [tech, data]}
+  - {name: Notion, ats: ashby, token: notion, sectors: [tech]}
+  - {name: Vanta, ats: ashby, token: vanta, sectors: [tech, security]}
+  - {name: Wayflyer, ats: ashby, token: wayflyer, sectors: [fintech]}
+  - {name: Pennylane, ats: ashby, token: pennylane, sectors: [fintech]}
+  # --- consulting, pharma and retail (SmartRecruiters) ---
+  - {name: Version 1, ats: smartrecruiters, token: Version1, sectors: [tech, consulting]}
+  - {name: ServiceNow, ats: smartrecruiters, token: ServiceNow, sectors: [tech]}
+  - {name: AbbVie, ats: smartrecruiters, token: AbbVie, sectors: [pharma]}
+  - {name: Primark, ats: smartrecruiters, token: Primark, sectors: [retail]}
+  # --- multinationals (Workday) ---
+  - {name: Salesforce, ats: workday, host: salesforce.wd12.myworkdayjobs.com, site: External_Career_Site, sectors: [tech]}
+  - {name: Workday, ats: workday, host: workday.wd5.myworkdayjobs.com, site: Workday, sectors: [tech]}
+  - {name: Intel, ats: workday, host: intel.wd1.myworkdayjobs.com, site: External, sectors: [tech, semiconductors]}
+  - {name: Analog Devices, ats: workday, host: analogdevices.wd1.myworkdayjobs.com, site: External, sectors: [semiconductors, engineering]}
+  - {name: Hewlett Packard Enterprise, ats: workday, host: hpe.wd5.myworkdayjobs.com, site: Jobsathpe, sectors: [tech]}
+  - {name: Verizon, ats: workday, host: verizon.wd12.myworkdayjobs.com, site: verizon-careers, sectors: [tech, telecom]}
+  - {name: Autodesk, ats: workday, host: autodesk.wd1.myworkdayjobs.com, site: Ext, sectors: [tech]}
+  - {name: Adobe, ats: workday, host: adobe.wd5.myworkdayjobs.com, site: external_experienced, sectors: [tech]}
+  - {name: Equinix, ats: workday, host: equinix.wd1.myworkdayjobs.com, site: External, sectors: [tech]}
+  - {name: Mastercard, ats: workday, host: mastercard.wd1.myworkdayjobs.com, site: CorporateCareers, sectors: [fintech, finance]}
+  - {name: Citi, ats: workday, host: citi.wd5.myworkdayjobs.com, site: "2", sectors: [finance]}
+  - {name: State Street, ats: workday, host: statestreet.wd1.myworkdayjobs.com, site: Global, sectors: [finance]}
+  - {name: Fidelity Investments, ats: workday, host: fmr.wd1.myworkdayjobs.com, site: FidelityCareers, sectors: [finance, tech]}
+  - {name: BlackRock, ats: workday, host: blackrock.wd1.myworkdayjobs.com, site: BlackRock_Professional, sectors: [finance]}
+  - {name: PayPal, ats: workday, host: paypal.wd1.myworkdayjobs.com, site: jobs, sectors: [fintech]}
+  - {name: Travelers, ats: workday, host: travelers.wd5.myworkdayjobs.com, site: External, sectors: [insurance]}
+  - {name: PwC, ats: workday, host: pwc.wd3.myworkdayjobs.com, site: Global_Experienced_Careers, sectors: [consulting, finance]}
+  - {name: Pfizer, ats: workday, host: pfizer.wd1.myworkdayjobs.com, site: PfizerCareers, sectors: [pharma]}
+  - {name: MSD, ats: workday, host: msd.wd5.myworkdayjobs.com, site: SearchJobs, sectors: [pharma]}
+  - {name: Amgen, ats: workday, host: amgen.wd1.myworkdayjobs.com, site: Careers, sectors: [pharma]}
+  - {name: Gilead Sciences, ats: workday, host: gilead.wd1.myworkdayjobs.com, site: gileadcareers, sectors: [pharma]}
+  - {name: Regeneron, ats: workday, host: regeneron.wd1.myworkdayjobs.com, site: Careers, sectors: [pharma]}
+  - {name: AstraZeneca, ats: workday, host: astrazeneca.wd3.myworkdayjobs.com, site: Careers, sectors: [pharma]}
+  - {name: Johnson & Johnson, ats: workday, host: jj.wd5.myworkdayjobs.com, site: JJ, sectors: [pharma, medtech]}
+  - {name: Thermo Fisher Scientific, ats: workday, host: thermofisher.wd5.myworkdayjobs.com, site: ThermoFisherCareers, sectors: [pharma, science]}
+  - {name: Abbott, ats: workday, host: abbott.wd5.myworkdayjobs.com, site: abbottcareers, sectors: [medtech, healthcare]}
+  - {name: Medtronic, ats: workday, host: medtronic.wd1.myworkdayjobs.com, site: MedtronicCareers, sectors: [medtech]}
+  - {name: Stryker, ats: workday, host: stryker.wd1.myworkdayjobs.com, site: StrykerCareers, sectors: [medtech, engineering]}
+  - {name: Edwards Lifesciences, ats: workday, host: edwards.wd5.myworkdayjobs.com, site: edwardscareers, sectors: [medtech]}
+
+# Recruitment agencies that advertise heavily on Irish boards. Their postings are real
+# roles, but the employer is often unnamed; the search labels them so the candidate
+# can weigh them, and never treats the agency as the hiring company's sponsor.
+agencies:
+  - cpl
+  - hays
+  - morgan mckinley
+  - sigmar
+  - collins mcnicholas
+  - osborne
+  - brightwater
+  - lincoln recruitment
+  - reperio
+  - harvey nash
+  - robert walters
+  - michael page
+  - computer futures
+  - frs recruitment
+  - excel recruitment
+  - prosperity
+  - berkley group
+  - executive edge
+  - abbey
+  - kenny-whelan
+  - hosted
+  - hired.ie
+  - solas recruitment
+  - tandem
+  - stelfox
+  - amoria bond
+  - hunter savage
+  - azon recruitment
+  - talent hub

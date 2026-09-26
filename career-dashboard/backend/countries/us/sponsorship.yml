@@ -1,0 +1,248 @@
+# ============================================================
+# THE SPONSORSHIP GATE
+#
+# One hard exclusion on the posting's own words, then ranking on evidence.
+#
+#   Posting explicitly WILL NOT sponsor          -> EXCLUDE, never shown
+#   Posting says NOTHING about sponsorship       -> SHOW  (this is most postings)
+#   Posting explicitly WILL sponsor              -> SHOW, rank top
+#   Posting requires citizenship/clearance/ITAR  -> EXCLUDE (cannot be hired at all)
+#
+# Sponsorship HISTORY is a RANKING SIGNAL ONLY. A company with no H-1B
+# record is still shown. Absence of evidence is not a refusal.
+# ============================================================
+
+meta:
+  last_updated: "2026-09-18"
+  candidate_status: "Set by each profile's confirmed work authorization."
+
+# ------------------------------------------------------------
+# GROUP 1 — explicit refusal to sponsor. EXCLUDE.
+# Case-insensitive regex, matched against the FULL job description text.
+# ------------------------------------------------------------
+exclude_no_sponsorship:
+  - 'no\s+(visa\s+)?sponsorship'
+  - 'will\s+not\s+(be\s+able\s+to\s+)?sponsor'
+  - 'unable\s+to\s+(provide\s+|offer\s+)?((visa|H-?1B|employment|work|immigration)\s+){0,2}sponsor'
+  - 'do(es)?\s+not\s+(offer|provide|support)\s+.{0,25}sponsor'
+  - 'cannot\s+(provide\s+|offer\s+)?((visa|H-?1B|employment|work|immigration)\s+){0,2}sponsor'
+  # Added 2026-09-23: "We are unable to provide visa sponsorship." (a live Greenhouse posting) was missed.
+  - 'will\s+not\s+(provide|offer)\s+((visa|H-?1B|employment|work|immigration)\s+){0,2}sponsor'
+  - 'sponsorship\s+is\s+not\s+(available|offered|provided)'
+  - 'not\s+able\s+to\s+sponsor'
+  - 'without\s+(the\s+need\s+for\s+)?(visa\s+|employer\s+)?sponsorship'
+  - 'now\s+or\s+in\s+the\s+future'
+  - 'not\s+considering\s+candidates\s+.{0,30}sponsorship'
+  - 'no\s+(C2C|corp\s*to\s*corp|third[- ]party)'   # staffing shorthand that usually means no sponsorship
+  - 'must\s+not\s+require\s+sponsorship'
+  - 'ineligible\s+for\s+.{0,20}sponsorship'
+  # Added 2026-09-18 after testing ten common US phrasings against the list above.
+  - 'will\s+not\s+sponsor\s+(H-?1B|visas?|work\s+visas?|employment\s+visas?)'
+  - 'no\s+visa\s+sponsorship\s+(is\s+)?(provided|available|offered)'
+  - 'do(es)?\s+not\s+sponsor\s+(employment|work|immigration)?\s*visas?'
+  - 'not\s+(able|eligible|in\s+a\s+position)\s+to\s+(obtain|provide|offer)\s+(visa\s+)?sponsorship'
+  - 'sponsorship\s+(will\s+)?not\s+be\s+(provided|offered|available|considered)'
+  - 'candidates\s+(who\s+)?requir(e|ing)\s+(visa\s+)?sponsorship\s+(will\s+not|cannot|are\s+not)'
+  # Added 2026-09-23: "without current or future sponsorship" (a live Greenhouse posting) was missed.
+  - '(current|present)\s*(or|and|/)\s*future\s+((visa|employer|employment|immigration|work|H-?1B)\s+){0,2}sponsorship'
+  # Added 2026-09-24 (end-to-end test): "This position is not eligible for visa sponsorship." was missed.
+  - 'not\s+eligible\s+for\s+((visa|H-?1B|employment|work|immigration)\s+){0,2}sponsorship'
+
+# ------------------------------------------------------------
+# GROUP 2 — cannot lawfully be hired regardless of interview outcome.
+# A different reason from "won't sponsor", same action: EXCLUDE.
+# ------------------------------------------------------------
+exclude_cannot_hire:
+  - 'U\.?S\.?\s+citizen(ship)?\s+(is\s+)?(required|mandatory)'
+  - 'must\s+be\s+a\s+U\.?S\.?\s+citizen'
+  - 'US\s+Citizens?\s+only'
+  - 'security\s+clearance'
+  - 'active\s+clearance'
+  - 'TS\s*/\s*SCI'
+  - 'top\s+secret'
+  - '\bITAR\b'
+  - '\bEAR\b\s+(compliance|controlled)'
+  - 'export\s+control(led)?\s+.{0,30}(citizen|person)'
+  - 'public\s+trust\s+clearance'
+  - 'green\s+card\s+holder'
+  - 'permanent\s+resident.{0,25}(required|only)'
+  - 'U\.?S\.?\s+person\s+(status\s+)?(required|as\s+defined)'
+  - 'U\.?S\.?\s+persons?\s+only'
+  - 'must\s+be\s+(a\s+)?(United\s+States|U\.?S\.?A?\.?)\s+citizen'
+  - '(United\s+States|U\.?S\.?A?\.?)\s+citizenship\s+(is\s+)?required'
+  - 'citizenship\s+required\s+due\s+to'
+  - '(secret|DoD|DOE|government)\s+clearance'
+  # Added 2026-09-23: the verb-first wordings live postings used were missed.
+  - 'requires?\s+(active\s+)?(United\s+States|U\.?S\.?A?\.?)\s+citizenship'
+  - 'only\s+(United\s+States|U\.?S\.?A?\.?)\s+citizens'
+  - 'open\s+only\s+to\s+(United\s+States|U\.?S\.?A?\.?)\s+citizens'
+
+# ------------------------------------------------------------
+# POSITIVE — explicitly offers sponsorship. Ranks TOP (Tier A).
+# ------------------------------------------------------------
+positive_sponsorship:
+  - 'visa\s+sponsorship\s+(is\s+)?(available|offered|provided)'
+  - 'we\s+(will\s+)?sponsor'
+  - 'willing\s+to\s+sponsor'
+  - 'sponsorship\s+(is\s+)?available'
+  - 'we\s+(do\s+)?sponsor\s+.{0,20}(H-?1B|visas?)'
+  - 'open\s+to\s+candidates\s+requiring\s+sponsorship'
+  - 'will\s+consider\s+.{0,30}sponsorship'
+  - 'H-?1B\s+(transfer|sponsorship)\s+(available|welcome)'
+  - 'cap[- ]exempt'
+
+# ------------------------------------------------------------
+# E-VERIFY — tracked separately, because it is not sponsorship.
+#
+# E-Verify enrollment can matter to a candidate who uses a STEM OPT extension.
+# It is recorded separately from sponsorship history and is not an eligibility
+# decision without that candidate's confirmed status.
+#
+# Reported as a flag. Does NOT by itself promote a role to tier A, because
+# participating in E-Verify says nothing about willingness to sponsor.
+# ------------------------------------------------------------
+everify_signals:
+  - 'participat(es|ing|e)\s+in\s+E-?Verify'
+  - 'E-?Verify\s+(enrolled|employer|participant|program)'
+  - 'enrolled\s+in\s+E-?Verify'
+  - 'uses\s+E-?Verify'
+  - '\bE-?Verify\b'
+
+# ------------------------------------------------------------
+# NEVER MATCH ON THESE — the biggest source of wrong exclusions.
+#
+# "Must be authorized to work in the United States" does NOT disqualify
+# an otherwise eligible candidate. Only a confirmed refusal or other applicable
+# eligibility requirement can exclude a posting.
+# ------------------------------------------------------------
+do_not_exclude_on:
+  - 'authorized\s+to\s+work'          # must be checked against this profile
+  - 'work\s+authorization\s+required' # must be checked against this profile
+  - 'eligible\s+to\s+work'            # must be checked against this profile
+  - 'legally\s+authorized'            # must be checked against this profile
+  - 'proof\s+of\s+eligibility'        # standard I-9 language
+  - 'employment\s+eligibility\s+verification'  # I-9 / E-Verify, often a POSITIVE signal
+
+# A sentence that NEGATES the requirement can never exclude, even though it
+# contains a Group 1 / Group 2 phrase. "No security clearance required" and
+# "this role does not require sponsorship" are good news, not refusals.
+negation_guards:
+  - '(does|do|will)\s+not\s+require\s+(a\s+|any\s+)?(security\s+|United\s+States\s+|U\.?S\.?A?\.?\s+)?(clearance|sponsorship|citizenship)'
+  - 'no\s+(security\s+)?clearance\s+(is\s+)?(required|needed|necessary)'
+  - '(clearance|citizenship)\s+(is\s+)?not\s+(required|needed|necessary)'
+  - 'without\s+(the\s+need\s+for\s+)?(a\s+)?(security\s+)?clearance'
+  # Absence claims: the posting (or a researcher's note) says none of the
+  # restrictive language is present. The words "citizenship/clearance/ITAR"
+  # appear only to say they are absent — never a requirement.
+  - '\bno\s+[^.;]{0,100}(sponsorship|work[-\s]?authorization|citizenship|clearance|ITAR|EAR|permanent\s+residency)[^.;]{0,60}\b(language|mention|statement|wording|references?)\b'
+  - '(contains?|includes?|mentions?|states?|lists?|makes?)\s+(no|not\s+any)\s+[^.;]{0,100}(sponsorship|work[-\s]?authorization|citizenship|clearance|ITAR|EAR)\s+(language|mention|statement|wording|references?)'
+  - '\bno\s+(visa|work[-\s]?authorization|citizenship|clearance|sponsorship)[^.;]{0,40}\b(restrictions?|requirements?)\s+(stated|listed|mentioned|present)'
+  - '(says|mentions|states)\s+nothing\s+about\s+[^.;]{0,60}(sponsorship|citizenship|clearance)'
+  - '\bsilent\s+(on|about|regarding)\s+[^.;]{0,60}(sponsorship|citizenship|clearance)'
+  # The application form's standard question, and notes that report it, ask; they do not refuse.
+  - '\b(will|do|would)\s+you\s+[^.;]{0,80}sponsorship'
+  - '\basks?\s+(about|whether|if|applicants)\s+[^.;]{0,80}sponsorship'
+  - '(does|do)\s+not\s+(state|say|specify|indicate)\s+whether'
+
+# Words that look relevant but are innocent — require a refusal verb nearby,
+# never match the bare noun.
+ambiguous_sponsor_noun:
+  - 'event\s+sponsor'
+  - 'executive\s+sponsor'
+  - 'project\s+sponsor'
+  - 'sponsor\s+a\s+(team|event|conference|meetup)'
+  - 'sponsored\s+(content|post|research\s+grant)'
+
+# ------------------------------------------------------------
+# RANKING TIERS — all shown, best first.
+# ------------------------------------------------------------
+tiers:
+  S:
+    label: "Cap-exempt"
+    meaning: "University, nonprofit research org, national lab, government research body, academic medical center. Files H-1B year-round with NO lottery."
+    rank: 1
+  A:
+    label: "Says yes"
+    meaning: "Posting explicitly offers sponsorship."
+    rank: 2
+  B:
+    label: "Proven sponsor, silent posting"
+    meaning: "H-1B petitions on record in USCIS/DOL data; posting does not mention sponsorship."
+    rank: 3
+  C:
+    label: "Silent, no record"
+    meaning: "No data either way. STILL SHOWN — this is the normal case and the largest bucket. Many of these sponsor once a candidate clears interviews."
+    rank: 4
+  EXCLUDED:
+    label: "Excluded"
+    meaning: "Matched Group 1 or Group 2. Never rendered. The triggering sentence is logged in SUMMARY.md so a wrong exclusion is visible."
+    rank: 99
+
+# ------------------------------------------------------------
+# Cap-exempt detection — employer name / domain heuristics.
+# ------------------------------------------------------------
+cap_exempt_signals:
+  domains: [".edu", ".gov"]
+  name_contains:
+    - "University"
+    - "College"
+    - "Institute of Technology"
+    - "National Laboratory"
+    - "National Lab"
+    - "Research Institute"
+    - "Medical Center"
+    - "Health System"
+    - "Children's Hospital"
+    - "Cancer Center"
+    - "Academy of Sciences"
+    - "Foundation"
+  known:
+    - "Oak Ridge National Laboratory"
+    - "Lawrence Livermore National Laboratory"
+    - "Los Alamos National Laboratory"
+    - "Argonne National Laboratory"
+    - "Brookhaven National Laboratory"
+    - "Pacific Northwest National Laboratory"
+    - "Sandia National Laboratories"
+    - "Fermilab"
+    - "Broad Institute"
+    - "Allen Institute"
+    - "Mayo Clinic"
+    - "Cleveland Clinic"
+    - "Kaiser Permanente"
+    - "MITRE"
+    - "RAND Corporation"
+    - "Howard Hughes Medical Institute"
+    - "St. Jude Children's Research Hospital"
+
+# ------------------------------------------------------------
+# Data sources for the evidence layer (ranking only).
+# ------------------------------------------------------------
+data_sources:
+  uscis_bulk:
+    url_pattern: "https://www.uscis.gov/sites/default/files/document/data/h1b_datahubexport-{year}.csv"
+    years: [2021, 2022, 2023]
+    note: "FY2023 verified 2.2MB / HTTP 200. FY2024+ bulk exports are not published."
+    cache: "backend/countries/us/sponsors-uscis.csv"
+  dol_lca:
+    url: "https://www.dol.gov/media/LCA_Disclosure_Data_FY2026_Q3.xlsx"
+    size_bytes: 251850891
+    note: "252MB. Opt-in deep refresh only — not part of the default scan."
+    cache: "system/data/sponsors-lca.csv"
+  everify:
+    url: "https://www.e-verify.gov/about-e-verify/e-verify-data/how-to-find-participating-employers"
+    note: "No bulk download exists. Search-only, updated daily. Checked per finalist. Needed for STEM OPT, never a gate."
+  h1bgrader:
+    url_pattern: "https://h1bgrader.com/h1b-sponsors/{slug}"
+  myvisajobs:
+    url: "https://www.myvisajobs.com/employers/search.aspx"
+
+# ------------------------------------------------------------
+# Honesty line — printed in every batch output.
+# ------------------------------------------------------------
+disclaimer: >-
+  Sponsorship history is evidence that a company HAS sponsored, not a promise that it WILL.
+  Absence of history is not a refusal — most employers say nothing about sponsorship, and many of
+  those do sponsor once a candidate has cleared the interviews. The only hard exclusions are
+  postings that explicitly refuse to sponsor, and postings that require citizenship, a security
+  clearance, ITAR/EAR status, or permanent residency.
