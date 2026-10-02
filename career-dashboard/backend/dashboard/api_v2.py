@@ -63,6 +63,8 @@ class PostingInput(BaseModel):
     url: str = Field(min_length=8, max_length=2500)
     description: str = Field(min_length=80, max_length=100000)
     requisition_id: str = ""
+    raw_salary: Optional[dict[str, Any]] = None
+    valid_through: Optional[str] = Field(default=None, max_length=100)
 
 
 class MailResolution(BaseModel):
@@ -118,7 +120,8 @@ class TierChoice(BaseModel):
 
 
 class AISettingsInput(BaseModel):
-    tiers: dict[str, TierChoice]
+    tiers: dict[str, TierChoice] = Field(default_factory=dict)
+    demo_mode: Optional[bool] = None
 
 
 class ChatPreviewInput(BaseModel):
@@ -229,6 +232,12 @@ def attach(app, workspace, schedule: bool = False):
     @router.get("/summary")
     def summary():
         return service.summary()
+
+    @router.get("/search/coverage")
+    def search_coverage():
+        from backend.services.source_coverage import Coverage
+
+        return Coverage(workspace.root).summary()
 
     @router.get("/goals")
     def goals():
@@ -587,10 +596,18 @@ def attach(app, workspace, schedule: bool = False):
     @router.put("/ai/settings")
     def save_ai_settings(data: AISettingsInput):
         from backend.ai import settings as ai_settings
+        from backend.services.demo import demo_mode
 
-        return ai_settings.save(service, {
-            "tiers": {tier: choice.model_dump() for tier, choice in data.tiers.items()}
-        })
+        if data.demo_mode is not None:
+            service.set_pref("demo_mode", "1" if data.demo_mode else "0")
+            with service.w.connect() as db:
+                service.w.record_event(db, "demo_mode_updated", enabled=bool(data.demo_mode))
+            service.export_state()
+        if data.tiers:
+            return ai_settings.save(service, {
+                "tiers": {tier: choice.model_dump() for tier, choice in data.tiers.items()}
+            })
+        return {"demo_mode": demo_mode(service)}
 
     @router.post("/ai/settings/test")
     def test_ai_settings(data: AITestInput):
@@ -630,6 +647,12 @@ def attach(app, workspace, schedule: bool = False):
     @router.get('/studio/{job_id}/assessment')
     def studio_assessment(job_id: str):
         return studio.assessment(job_id)
+
+    @router.get('/studio/{job_id}/readiness')
+    def studio_readiness(job_id: str):
+        # The same ready-to-submit check the Daily Search pipeline ends with (services/readiness.py).
+        from backend.services import readiness
+        return readiness.check(service, studio, job_id)
 
     @router.get('/studio/{job_id}/download')
     def studio_download(job_id: str, format: str):

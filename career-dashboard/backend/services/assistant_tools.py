@@ -29,6 +29,7 @@ from typing import Callable
 from backend.services.reapply import REMOVAL_REASONS
 
 RUNNABLE_AGENTS = {
+    "salary_research": "Research comparable Ireland pay with retrieved sources; an estimate never confirms the vacancy's salary or permit eligibility",
     "research": "Company research and the independent hiring review (never sees the candidate's profile)",
     "resume_build": "Compile the current draft and score it (no AI)",
     "resume_match": "Independent review of the built PDF against the posting",
@@ -92,6 +93,8 @@ def brief_job(job) -> dict:
         "application_date": job.get("application_date"), "url": job["url"],
         "has_resume_folder": bool(job.get("folder")), "posting_state": job.get("posting_state"),
         "removed": bool(job.get("deleted_at")),
+        "salary_section": (job.get("opportunity") or {}).get("section"),
+        "salary_state": (job.get("opportunity") or {}).get("salary_state"),
     }
 
 
@@ -339,6 +342,7 @@ class Toolbox:
     def _register(self) -> None:
         from backend.countries import pack_for
         from backend.resume_contract import contract_for
+        from backend.services.pipeline import STEP_IDS
 
         add = self._add
         S = lambda description, **extra: {"type": "string", "description": description, **extra}  # noqa: E731
@@ -357,8 +361,11 @@ class Toolbox:
                              "include_removed": {"type": "boolean", "description": "Also list removed jobs"}},
             group="Jobs", agent="resume_tracker")
         add("get_job", "Reading a job",
-            "Everything about one saved job: the posting text, sponsorship evidence, documents, verification and its agent runs.",
+            "Everything about one saved job: the posting text, sponsorship evidence, salary sources and quotes, permit checks, documents, verification and its agent runs. Researched salary is an estimate, not an advertised offer.",
             self.get_job, {"job_id": S("The job ID from list_jobs", required=True)}, group="Jobs", agent="resume_tracker")
+        add("search_coverage", "Reading search coverage",
+            "Recorded source checks, saved crawl progress, partial sources and failures. Coverage is limited to configured sources and is never exhaustive.",
+            self.search_coverage, group="Search", agent="discovery")
         add("job_fit", "Checking the job's requirements",
             "What one saved job asks for and whether the candidate's registered evidence meets each item: met, partial or missing, "
             "with the posting's own sentence and the evidence ids. Checked by AI on a free plan and verified against "
@@ -407,7 +414,8 @@ class Toolbox:
             "Fetch the posting page and record whether it is still live or expired.",
             self.verify_posting, {"job_id": S("The job ID", required=True)}, writes=True, group="Jobs", agent="discovery")
         add("find_jobs", "Starting job discovery",
-            "Queue today's job search through the tracked career pages and portals. Every lead passes the gates before it is saved. Returns a run_id; results take minutes.",
+            "Queue one job-search pass only: it saves the jobs that pass the gates but makes no resumes. For \"find me N jobs\" "
+            "or jobs with resumes, use run_search_pipeline, which also takes each job end to end. Returns a run_id; results take minutes.",
             self.find_jobs, {"preset": S("Search mix", enum=list(DISCOVERY_PRESETS))}, writes=True, group="Jobs", agent="discovery")
         add("search_report", "Reading the last search's report",
             "The latest job search: its summary, the leads it turned away and why (legitimacy, relevance, never re-apply), "
@@ -416,15 +424,16 @@ class Toolbox:
 
         # -- Daily Search pipeline ------------------------------------------------
         add("run_search_pipeline", "Starting the Daily Search pipeline",
-            "Run the Daily Search pipeline: find count new jobs, then for each saved job run the helpers "
-            "(research, tailor, study_plan, pdf) on one AI. Anything left out uses the Daily Search page's saved "
+            "Run the Daily Search pipeline: find count new jobs (searching again while it is short), then take each "
+            "saved job end to end with the helpers (" + ", ".join(STEP_IDS) + ") on one AI, ending with the "
+            "ready-to-submit check. Anything left out uses the Daily Search page's saved "
             "choice; search_pipeline_status lists the AIs and models that are ready. Takes minutes; returns at once. "
             "Nothing is ever submitted.",
             self.run_search_pipeline, {
                 "count": {"type": "integer", "description": "How many new jobs to find, 1-15"},
                 "provider": S("AI id, e.g. azure_openai, codex, claude_code, kimi_cli"),
                 "model": S("A model that AI offers; its first one when omitted"),
-                "steps": {"type": "array", "description": "Helpers to run for each job: any of research, tailor, study_plan, pdf"},
+                "steps": {"type": "array", "description": "Helpers to run for each job: any of " + ", ".join(STEP_IDS)},
                 "source": S("Where to look", enum=list(DISCOVERY_PRESETS))},
             writes=True, group="Search", agent="discovery")
         add("search_pipeline_status", "Reading the Daily Search progress",
@@ -442,14 +451,14 @@ class Toolbox:
             "role and site group (company ATS pages, " + ("gradireland, jobs.ie, IrishJobs, LinkedIn, publicjobs.ie" if pack.code == "ie"
                                                            else "LinkedIn and US boards") + "). "
             "When the free AI plans reach their usage limits it waits for the reset instead of failing, and it never uses a "
-            "paid AI unless allow_paid. Then it prepares each job (research, tailored resume, study plan, PDF) and writes "
+            "paid AI unless allow_paid. Then it takes each job end to end (" + ", ".join(STEP_IDS) + ") and writes "
             "HUNT-REPORT.md. Use it when the candidate wants many or better jobs, or a search 'overnight'. Returns at once.",
             self.start_hunt, {
                 "target": {"type": "integer", "description": "Jobs to save, 1-40 (default: the last hunt's, else 10)"},
                 "hours": {"type": "number", "description": "How long it may run, 0.25-12 (default 8)"},
                 "min_fit": {"type": "integer", "description": "Fit bar 50-95 (default 70); higher = fewer, closer matches"},
                 "sources": S("all (default), feeds (no AI searching) or ai", enum=["all", "feeds", "ai"]),
-                "steps": {"type": "array", "description": "Helpers per saved job: any of research, tailor, study_plan, pdf"},
+                "steps": {"type": "array", "description": "Helpers per saved job: any of " + ", ".join(STEP_IDS)},
                 "allow_paid": {"type": "boolean", "description": "Allow a paid AI when every free plan rests (default false)"}},
             writes=True, group="Search", agent="discovery")
         add("hunt_status", "Reading the overnight hunt",
@@ -592,6 +601,11 @@ class Toolbox:
             self.recent_activity, {"limit": {"type": "integer", "description": "How many, default 20"}}, group="Settings", agent="orchestrator")
 
     # ---- Jobs ------------------------------------------------------------------
+    def search_coverage(self) -> dict:
+        from backend.services.source_coverage import Coverage
+        result = Coverage(self.w.root).summary()
+        return {"summary": f"{len(result['sources'])} recorded source checks; {result['scope']}", **result}
+
     def list_jobs(self, status=None, query=None, include_removed=False) -> dict:
         jobs = self.w.jobs(include_deleted=bool(include_removed))
         if status:
@@ -617,6 +631,7 @@ class Toolbox:
             "sponsor_evidence": evidence_dict(job), "description": (job.get("description") or "")[:2500],
             "documents": documents, "runs": runs, "verification": verification,
             "legitimacy_state": job.get("legitimacy_state"), "size_category": job.get("size_category"),
+            "opportunity": job.get("opportunity"),
         }
 
     def job_fit(self, job_id, refresh=False) -> dict:
@@ -978,7 +993,8 @@ class Toolbox:
                            f" · {counts['pending']} awaiting the candidate's decision",
                 "job": brief_job(job), "counts": counts, "ats_readiness": report.get("score"),
                 "needs_attention": flagged[:25], "note": report.get("note") or
-                "Predicted items are suggestions the candidate keeps or removes in Assurance before applying; missing means no evidence."}
+                "Legacy predicted items require the candidate's own source and profile evidence reconciliation; "
+                "keeping a suggestion does not supply evidence. Missing means no evidence."}
 
     def build_resume(self, job_id) -> dict:
         job = self._job(job_id)

@@ -235,17 +235,18 @@ def yaml_revision(text, revision):
     return new
 
 
-def refresh_contract():
-    """Validators keep the contract derived from the YAML files; rebuild it after a change."""
+def refresh_contract(root):
+    """Refresh validators from the profile that changed, including on a fresh clone."""
     from backend.resume_contract import load_contract
 
     load_contract.cache_clear()
+    root = Path(root)
     contract = None
     for name in ("validate_resume", "validate_batch", "validate_workspace"):
         module = sys.modules.get(name)
         if module is None or not hasattr(module, "CONTRACT"):
             continue
-        contract = contract or load_contract()
+        contract = contract or load_contract(str(root / PROFILE), str(root / EVIDENCE))
         module.CONTRACT = contract
         if hasattr(module, "UNSAFE_PATTERNS"):
             module.UNSAFE_PATTERNS = dict(contract.unsafe_patterns)
@@ -647,4 +648,4 @@ class ProfileSync:
 
     def done(self):
         if self.writes:
-            refresh_contract()
+            refresh_contract(self.root)

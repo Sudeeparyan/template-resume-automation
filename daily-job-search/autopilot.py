@@ -714,15 +714,82 @@ def _shown(path: Path) -> str:
         return path.resolve().as_posix()
 
 
-def _resume(root: Path, job: dict) -> Path | None:
-    folder = job.get("folder")
-    if not folder:
-        return None
-    base = root / folder
-    for candidate in [base / "resume.pdf", *sorted(base.glob("studio/preview-*/resume.pdf"), reverse=True)]:
-        if candidate.is_file():
-            return candidate
-    return None
+def _resume(workspace, job: dict) -> tuple[Path | None, str]:
+    """The current, assessed Studio PDF, never a base draft or an old preview.
+
+    Studio's compile and assessment hashes establish which artifact was checked.
+    This is still a draft for the person's review, not a release approval.
+    """
+    import hashlib
+    from backend.resume_contract import contract_for
+
+    with workspace.connect() as db:
+        if not db.execute("SELECT 1 FROM sqlite_master WHERE name='studio_drafts'").fetchone():
+            return None, "Tailored resume is not prepared yet"
+        row = db.execute("SELECT * FROM studio_drafts WHERE job_id=?", (job["id"],)).fetchone()
+        if not row:
+            return None, "Tailored resume is not prepared yet"
+        draft = dict(row)
+        scores = db.execute("SELECT source_sha256,pdf_sha256,jd_sha256 FROM resume_scores "
+                            "WHERE job_id=? AND revision=?", (job["id"], draft["revision"])).fetchall()
+    try:
+        output = (workspace.root / "data/output").resolve()
+        folder = (workspace.root / draft["folder"]).resolve()
+        if not folder.is_relative_to(output):
+            return None, "Resume folder needs review"
+        preview = json.loads((folder / "preview.json").read_text(encoding="utf-8"))
+        source_hash = hashlib.sha256(draft["source"].encode()).hexdigest()
+        if preview.get("revision") != draft["revision"] or preview.get("source_sha256") != source_hash:
+            return None, "Rebuild the current resume revision in Resume Studio"
+        if draft["profile_revision"] != workspace.evidence()["candidate_revision"]:
+            return None, "Sync the resume with the current profile evidence"
+        pdf = (output / preview["path"] / "resume.pdf").resolve()
+        if not pdf.is_relative_to(folder) or not pdf.is_file():
+            return None, "Current resume PDF is missing"
+        contract = contract_for(workspace.root, job.get("market") or None)
+        if preview.get("page_count") != contract.pages or not (
+                (preview.get("layout") or {}).get("full_pages") or contract.relaxed_min_words):
+            return None, "Fit the resume to the profile's page contract"
+        pdf_hash = hashlib.sha256(pdf.read_bytes()).hexdigest()
+        jd_hash = hashlib.sha256(job["description"].encode()).hexdigest()
+        if not any((r["source_sha256"], r["pdf_sha256"], r["jd_sha256"]) ==
+                   (source_hash, pdf_hash, jd_hash) for r in scores):
+            return None, "Current PDF needs its resume assessment"
+        return pdf, ""
+    except (OSError, ValueError, KeyError, TypeError):
+        return None, "Current resume metadata needs review in Resume Studio"
+
+
+def _readiness(services, job: dict, discovered: set[str], cat: dict, preferences: dict) -> tuple[Path | None, list[str]]:
+    """Use the same final checks as Daily Search; reporting never writes the draft or calls AI."""
+    from backend.job_quality import JobQualityService
+    from backend.services import fit, readiness
+    from backend.services.demo import demo_mode
+    from backend.services.resume_studio import ResumeStudio
+
+    class ReadOnlyStudio(ResumeStudio):
+        def __init__(self):
+            # Existing artifacts already have the Studio schema. A report must
+            # neither create a missing schema nor reconcile source files.
+            self.s, self.w = services, services.w
+
+        def get(self, job_id):
+            return super().get(job_id, write_source=False)
+
+    demo = demo_mode(services)
+    reasons = []
+    reasons.extend(JobQualityService(services).blockers(job))
+    analysis = fit.cached(services, job["id"], cat=cat)
+    if analysis and not demo and preferences.get("require_ai_fit", True) and analysis["method"] != "ai":
+        reasons.append("Waiting for the AI requirement check")
+    pdf, resume_reason = _resume(services.w, job)
+    if resume_reason:
+        reasons.append(resume_reason)
+    if pdf is not None:
+        checked = readiness.check(services, ReadOnlyStudio(), job["id"], fit_bar=preferences.get("min_fit", 70))
+        if checked["verdict"] != "ready":
+            reasons.extend(checked["next"] or [checked["label"]])
+    return (pdf if not reasons else None), list(dict.fromkeys(reasons))
 
 
 def _atomic(path: Path, text: str) -> None:
@@ -741,11 +808,26 @@ def collect(store, profile: dict, journal: Journal, now: datetime, ready_by: str
     sys.path[:0] = [p for p in (str(APP_ROOT), str(SCRIPTS)) if p not in sys.path]
     from career import Workspace
 
-    from backend.services import search_memory
+    from backend.services import fit, search_memory
+    from backend.services.workspace_v2 import CareerServices
 
     pid = profile["id"]
     root = store.root_for(pid)
     workspace = Workspace(root)
+    services = CareerServices(workspace)
+    cat = fit.catalogue(services)
+    preferences = services.pref("hunt_preferences", {}) or {}
+    discovered = set()
+    with workspace.connect() as db:
+        # Both ordinary discovery and the overnight hunt save through the same gates.
+        for row in db.execute("SELECT result FROM agent_runs WHERE kind='discovery' AND state='completed'"):
+            try:
+                discovered.update(json.loads(row["result"] or "{}").get("added_job_ids") or [])
+            except (ValueError, TypeError, AttributeError):
+                continue
+        search_memory.ensure(db)
+        discovered.update(row[0] for row in db.execute(
+            "SELECT j.id FROM jobs j JOIN search_memory m ON m.url=j.url WHERE m.outcome='saved'"))
     morning, _ = morning_of(now, ready_by)
     since = morning - timedelta(hours=MORNING_WINDOW_HOURS)
     if since > now:  # in the evening the next morning's night has not begun: list the latest morning
@@ -755,20 +837,23 @@ def collect(store, profile: dict, journal: Journal, now: datetime, ready_by: str
     everything = workspace.jobs(include_deleted=True)
 
     def brief(job):
-        resume = _resume(root, job)
+        resume, pending = _readiness(services, job, discovered, cat, preferences)
         return {"id": job["id"], "company": job["company"], "title": job["title"], "location": job.get("location") or "",
                 "fit": job.get("fit_score"), "why": " ".join(str(job.get("fit_rationale") or "").split())[:400],
                 "url": job.get("url") or "", "status": job["status"], "saved_at": job.get("created_at"),
                 "resume": _shown(resume) if resume else None, "folder": job.get("folder") or None,
-                "work_permit": (job.get("sponsor_evidence") or {}).get("label") or ""}
+                "work_permit": (job.get("sponsor_evidence") or {}).get("sentence") or
+                               (job.get("sponsor_evidence") or {}).get("label") or "",
+                "pending_reasons": pending, "review_required": True}
 
     def by_fit(job):
         return -(job["fit"] if isinstance(job["fit"], (int, float)) else -1)
 
-    fresh = [brief(j) for j in active if j["status"] in ("saved", "prepared")
-             and (_when(j.get("created_at")) or since) >= since]
-    to_apply = [brief(j) for j in active if j["status"] in ("saved", "prepared")
-                and oldest <= (_when(j.get("created_at")) or oldest) < since]
+    candidates = [brief(j) for j in active if j["status"] in ("saved", "prepared")
+                  and (_when(j.get("created_at")) or oldest) >= oldest]
+    pending = [j for j in candidates if j["pending_reasons"]]
+    fresh = [j for j in candidates if not j["pending_reasons"] and (_when(j["saved_at"]) or since) >= since]
+    to_apply = [j for j in candidates if not j["pending_reasons"] and (_when(j["saved_at"]) or oldest) < since]
     counts = Counter(j["status"] for j in everything if j["status"] in APPLIED)
     held, held_top, hunts = 0, [], []
     with workspace.connect() as db:
@@ -797,6 +882,7 @@ def collect(store, profile: dict, journal: Journal, now: datetime, ready_by: str
         "date": now.date().isoformat(), "updated": now.isoformat(timespec="minutes"),
         "profile": {"id": pid, "name": profile["name"]},
         "new": sorted(fresh, key=by_fit), "to_apply": sorted(to_apply, key=by_fit)[:15],
+        "pending": sorted(pending, key=by_fit),
         "to_apply_total": len(to_apply), "applications": {s: counts.get(s, 0) for s in APPLIED},
         "held": held, "held_top": held_top, "hunts": hunts,
         "fixed": journal.of("fixed", pid), "needs_you": journal.of("needs_you", pid), "notes": journal.of("note", pid),
@@ -815,8 +901,8 @@ def render(data: dict, base_url: str) -> str:
         lines += ["## Needs you", ""] + [f"- {text}" for text in data["needs_you"]] + [""]
     lines += ["## New this morning", ""]
     if not new:
-        lines.append("No new job passed every check this time. The checks only keep verified, eligible postings that "
-                     "fit your profile, so a quiet morning means nothing new was good enough, not that the search broke.")
+        lines.append("No new job has both current checks and a current tailored PDF ready for your review. "
+                     "See pending items and the search notes below for unfinished work or problems.")
         lines.append("")
     for number, job in enumerate(new, 1):
         fit = f"fit {job['fit']}/100" if job["fit"] is not None else "fit not scored yet"
@@ -827,9 +913,14 @@ def render(data: dict, base_url: str) -> str:
             lines.append(f"   - Work permit: {job['work_permit']}")
         if job["url"]:
             lines.append(f"   - Apply: {job['url']}")
-        lines.append(f"   - Tailored resume: `{job['resume']}`" if job["resume"] else
-                     "   - Tailored resume: not ready yet; open the job in the dashboard -> Resume Studio")
+        lines.append(f"   - Tailored resume (review before applying): `{job['resume']}`")
     if new:
+        lines.append("")
+    if data.get("pending"):
+        lines += [f"## Pending checks or resume ({len(data['pending'])})", "",
+                  "These saved jobs are not included in the ready count.", ""]
+        for job in data["pending"]:
+            lines.append(f"- **{job['company']} — {job['title']}**: " + "; ".join(job["pending_reasons"]))
         lines.append("")
     if to_apply:
         lines += ["## Still to apply", "", "| Fit | Company | Role | Saved | Apply |", "|---|---|---|---|---|"]

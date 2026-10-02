@@ -5,10 +5,11 @@ Run it from the repo root as `.\\career.cmd ...` (Windows) or `./career ...` (ma
 both find the app's own Python. The same commands work in Claude Code, Codex, Kimi Code or any other
 AI app opened in this folder. Commands use the selected profile's private database.
 
+  career doctor                 read-only installation and profile-list readiness; works before setup
   career setup --name "Full Name" --market ie|us|both [--work-auth JSON]
                                  setup_profile.py: build a profile from the resume and notes in me/
   career ws <command> ...        workspace.py: summary, goals, fit --job-id, tailor --job-id, run --kind ...,
-                                 sponsor-check, check-reapply,
+                                 coverage, salary --job-id, sponsor-check, check-reapply,
                                  excluded, restore-excluded, age, ai-status, ai-wake, ...
   career check-resume <resume.tex>   validate_resume.py (--compile --output ... --render-dir ... --qa-json ...)
   career batch-check <batch.yml> validate_batch.py
@@ -30,6 +31,7 @@ APP = Path(__file__).resolve().parents[2]
 REPO = APP.parent
 SCRIPTS = APP / "backend" / "scripts"
 TARGETS = {
+    "doctor": REPO / "scripts" / "career_doctor.py",
     "setup": SCRIPTS / "setup_profile.py",
     "ws": SCRIPTS / "workspace.py",
     "check-resume": SCRIPTS / "validate_resume.py",
@@ -44,7 +46,27 @@ def target_for(argv: list[str]) -> tuple[Path, list[str]]:
     """The script a command runs, and the arguments it gets."""
     if argv and argv[0] in TARGETS:
         return TARGETS[argv[0]], argv[1:]
-    return DEFAULT, argv
+    # career.py has subparsers, so its global --profile must precede the command.
+    # Accept the same suffix form as workspace.py and setup_profile.py without
+    # changing the order or values of any command-specific arguments.
+    prefix, rest = [], []
+    index = 0
+    while index < len(argv):
+        value = argv[index]
+        if value == "--":
+            rest.extend(argv[index:])
+            break
+        if value == "--profile":
+            prefix.append(value)
+            if index + 1 < len(argv):
+                index += 1
+                prefix.append(argv[index])
+        elif value.startswith("--profile="):
+            prefix.append(value)
+        else:
+            rest.append(value)
+        index += 1
+    return DEFAULT, prefix + rest
 
 
 def main(argv: list[str] | None = None) -> int:

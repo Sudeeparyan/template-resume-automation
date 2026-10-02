@@ -125,8 +125,14 @@ def usage_recorder(services):
     def record(usage: dict) -> None:
         try:
             import uuid
+            from backend.services.agent_cache import current_call_id
 
             with services.w.connect() as db:
+                reservation = current_call_id(services, usage.get("provider"))
+                if reservation:
+                    db.execute("UPDATE ai_calls SET input_tokens=?,output_tokens=? WHERE id=?",
+                               (usage.get("input_tokens"), usage.get("output_tokens"), reservation))
+                    return
                 db.execute(
                     """INSERT INTO ai_calls(id,cache_key,day,state,created_at,error,provider,model,action,cache_version,input_tokens,output_tokens)
                     VALUES(?,?,?,?,?,NULL,?,?,?,?,?,?)""",
@@ -184,10 +190,12 @@ def switch_recorder(services, action: str = "specialist"):
 def route_options(services, action: str = "specialist") -> dict:
     """The router settings a caller hands to AgentTeam: the saved route, the paid gate, the switch log."""
     from backend.ai import router
+    from backend.services.agent_cache import paid_invocation
 
     preferences = services.pref("ai_preferences", {}) or {}
     return {"policy": router.policy_from(preferences), "paid_gate": paid_gate(services),
-            "on_switch": switch_recorder(services, action)}
+            "on_switch": switch_recorder(services, action),
+            "reserve_call": lambda provider, model, operation: paid_invocation(services, provider, model, operation)}
 
 
 def team_for(services, on_usage=None):

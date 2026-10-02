@@ -1,8 +1,13 @@
-"""The Daily Search pipeline: find jobs, then run enabled helpers for each new job.
+"""The Daily Search pipeline: find jobs, then take each new job end to end.
 
 The Daily Search page lets the candidate choose how many jobs to find, where to look,
-which AI does the work and which helpers run (company research, resume
-tailoring, study plan, contract-compliant PDF). This module checks that choice, runs it
+which AI does the work and which helpers run. Finding keeps going while it is short: after
+the chosen search, focused web-search passes (services/search_plan.py) look again, skipping
+what was already turned away, up to ``MAX_FIND_PASSES``. Then every job goes through the
+same chain, one step after the other: the posting is re-read (a closed one gets nothing
+more), company research with the hiring-manager view and the fit with the profile, the
+tailored resume, the contract-sized PDF, an independent review of that PDF, the study plan
+and the ready-to-submit check (services/readiness.py). This module checks that choice, runs it
 on one background thread and reports progress step by step. Every step goes
 through the same AgentRunner and Resume Studio paths as the rest of the app, so
 the sponsorship gate, duplicate checks, the daily paid-call limit and the
@@ -69,23 +74,59 @@ FIND = {
 # limit only when a paid AI serves them (the tailor's specialists are metered
 # by tokens).
 STEPS = [
-    {"id": "research", "label": "Company research", "ai": True, "web": True,
+    {"id": "posting", "label": "Posting still open", "ai": False, "web": True,
+     "minutes": 0.3, "tokens": 0, "budget_calls": 0,
+     "what": "Re-reads the posting's own page before any work starts. A closed posting gets nothing more. No AI."},
+    {"id": "research", "label": "Research & hiring-manager fit", "ai": True, "web": True,
      "minutes": 4.0, "tokens": 30000, "budget_calls": 3,
-     "what": "Reads about the company and how a hiring manager would see the role. The resume tailor uses it."},
+     "what": "Three agents: public company research, a hiring manager's view of the role (it never sees you), "
+             "then your evidence against both. The resume tailor uses it."},
     {"id": "tailor", "label": "Tailor resume", "ai": True, "web": False,
      "minutes": 3.0, "tokens": 22000, "budget_calls": 0,
-     "what": "Rewrites your Projects and Skills for this job. You keep or remove each suggestion in Assurance."},
-    {"id": "study_plan", "label": "Study plan", "ai": True, "web": False,
-     "minutes": 1.5, "tokens": 8000, "budget_calls": 1,
-     "what": "Lists what to learn before the interview. It never goes on your resume."},
+     "what": "Selects your evidenced Projects and Skills for this job. Learning gaps stay outside the resume."},
     {"id": "pdf", "label": "Resume PDF", "ai": False, "web": False,
      "minutes": 0.5, "tokens": 0, "budget_calls": 0,
      "what": "Builds the PDF and checks it against the profile's page contract. No AI."},
+    {"id": "review", "label": "Independent review", "ai": True, "web": False,
+     "minutes": 1.5, "tokens": 12000, "budget_calls": 1,
+     "what": "A fresh AI reads only the finished PDF and the posting, never your profile, and says what is met, "
+             "partly met or missing."},
+    {"id": "study_plan", "label": "Study plan", "ai": True, "web": False,
+     "minutes": 1.5, "tokens": 8000, "budget_calls": 1,
+     "what": "Lists what to learn before the interview. It never goes on your resume."},
+    {"id": "ready", "label": "Ready-to-submit check", "ai": False, "web": False,
+     "minutes": 0.2, "tokens": 0, "budget_calls": 0,
+     "what": "Checks every gate again (open posting, work permit, fit, page contract, the review, your decisions) "
+             "and gives a readiness score. It is not a prediction of an interview. No AI."},
 ]
 STEP_IDS = [step["id"] for step in STEPS]
 STEP = {step["id"]: step for step in STEPS}
-# The same helpers the optional morning run uses. Research is off by default.
-DEFAULT_STEPS = {"research": False, "tailor": True, "study_plan": True, "pdf": True}
+# Every helper by default: "find 5 jobs" means 5 jobs taken end to end. The morning run uses the same.
+DEFAULT_STEPS = {step: True for step in STEP_IDS}
+# One Daily Search makes at most this many search passes: the chosen one, then focused web
+# passes while it is still short of the jobs asked for.
+MAX_FIND_PASSES = 3
+
+
+class JobStopped(Exception):
+    """A helper found that the job cannot go further (its posting closed); its later helpers are skipped."""
+
+
+def step_entry(done: dict, seconds: float) -> dict:
+    """A helper's return as its progress entry: done, or skipped when it had nothing to work on."""
+    extra = {k: v for k, v in done.items() if k != "skipped"}
+    return {"state": "skipped" if done.get("skipped") else "done", "seconds": seconds, **extra}
+
+
+def open_draft(studio, job_id: str, step: str, opened: bool) -> bool:
+    """Open the application folder and Studio draft before the first helper that writes into them; no AI.
+
+    The posting check comes first, so a closed posting never gets a folder.
+    """
+    if opened or step == "posting":
+        return opened
+    studio.open(job_id)
+    return True
 
 
 def steps_for(root) -> list[dict]:
@@ -299,7 +340,7 @@ class Pipeline:
                 speeds[key] = {}
                 for step in (*FIND, *STEP_IDS):
                     ratios = learned.get((key, step))
-                    ai = step not in ("find_pages", "find_feeds", "pdf")
+                    ai = step == "find_ai" or (step in STEP and STEP[step]["ai"])
                     speeds[key][step] = (
                         {"factor": round(statistics.median(ratios), 2), "learned": True, "runs": len(ratios)}
                         if ratios else {"factor": base if ai else 1.0, "learned": False, "runs": 0}
@@ -341,7 +382,9 @@ class Pipeline:
             found = progress.get("find") or {}
             if found.get("state") == "done" and config.get("source") in SOURCE_IDS:
                 step = find_key(config["source"])
-                add(step, found.get("seconds"), find_seconds(step, progress.get("jobs_target") or config.get("count", 5)))
+                # The estimate is for one pass; later passes of a short search would inflate it.
+                add(step, found.get("first_pass_seconds") or found.get("seconds"),
+                    find_seconds(step, progress.get("jobs_target") or config.get("count", 5)))
             for job in progress.get("jobs") or []:
                 for step, state in (job.get("steps") or {}).items():
                     if step in STEP and state.get("state") == "done" and not state.get("quick"):
@@ -478,10 +521,16 @@ class Pipeline:
         return self.get(id)
 
     def recover(self) -> None:
+        from backend.services.task_execution import TaskRepository
+        TaskRepository(self.s).recover_expired()
         with self.w.connect() as db:
-            db.execute(
-                "UPDATE pipeline_runs SET state='failed', error=?, updated_at=?, finished_at=? WHERE state IN ('queued','running')",
-                ("The app stopped during this run. Start the search again.", self.s.now(), self.s.now()))
+            rows = db.execute("SELECT id FROM pipeline_runs WHERE state IN ('queued','running') ORDER BY created_at").fetchall()
+        if rows:
+            def resume():
+                for row in rows:
+                    self._run(row["id"])
+            self.thread = threading.Thread(target=resume, name="career-pipeline-recovery", daemon=True)
+            self.thread.start()
 
     def get(self, id: str) -> dict | None:
         with self.w.connect() as db:
@@ -524,11 +573,15 @@ class Pipeline:
             row = db.execute("SELECT * FROM pipeline_runs WHERE id=?", (id,)).fetchone()
         config, progress = json.loads(row["config"]), json.loads(row["progress"])
         try:
-            self._find(id, config, progress)
+            if (progress.get("find") or {}).get("state") != "done":
+                self._find(id, config, progress)
             steps = [step for step in STEP_IDS if config["steps"].get(step)]
             total = len(progress["jobs"])
             for number, job in enumerate(progress["jobs"], 1):
                 self._job(id, config, progress, job, steps, number, total)
+            verdicts = [(job["steps"].get("ready") or {}).get("verdict") for job in progress["jobs"]]
+            if any(verdicts):
+                progress["ready"] = {key: verdicts.count(key) for key in ("ready", "review", "blocked")}
             stopped = self._stop_requested(id)
             progress["stage"] = "Stopped" if stopped else "Done"
             progress["finished_epoch"] = time.time()
@@ -550,25 +603,68 @@ class Pipeline:
             except Exception:
                 pass
 
+    def _follow_ups(self, config) -> list[dict]:
+        """Focused web passes for a search that came back short; none for the no-AI sources."""
+        if not next(s for s in SOURCES if s["id"] == config["source"])["ai"]:
+            return []  # "My company list" and "Job boards + employer feeds" promise no AI search
+        from backend.services.search_plan import strategies
+
+        try:
+            plan = strategies(self.w.root, sources="ai")
+        except Exception:  # noqa: BLE001 - no target roles yet: the first pass is all there is
+            return []
+        return [{"label": s["label"], "preset": "default",
+                 "focus": {"id": s["id"], "label": s["label"], "queries": s["queries"], "max_age_days": s.get("max_age_days", 30)}}
+                for s in plan[:MAX_FIND_PASSES - 1]]
+
     def _find(self, id, config, progress) -> None:
-        progress["find"] = {"state": "running", "started_epoch": time.time()}
+        progress["find"] = {"state": "running", "started_epoch": time.time(), "passes": []}
         progress["stage"] = "Finding jobs"
         self._save(id, progress)
         provider, model = self._web_choice(config)
+        target = progress["jobs_target"]
         started = time.time()
-        try:
-            record = self._agent("discovery", None, provider, model, preset=config["source"], count=config["count"])
-        except Exception as exc:
-            progress["find"] = {"state": "failed", "seconds": round(time.time() - started, 1), "error": str(exc)[:600]}
+        added, skip = [], []
+        passes = [{"label": "Your search", "preset": config["source"], "focus": None}] + self._follow_ups(config)
+        for number, one in enumerate(passes, 1):
+            if len(added) >= target or (number > 1 and self._stop_requested(id)):
+                break
+            if number > 1:
+                progress["stage"] = f"Finding more jobs ({len(added)} of {target} so far): {one['label']}"
+                self._save(id, progress)
+            # A follow-up pass skips every posting this run already looked at.
+            focus = {**one["focus"], "skip_urls": skip[-150:]} if one["focus"] else None
+            pass_started = time.time()
+            try:
+                record = self._agent("discovery", None, provider, model, preset=one["preset"],
+                                     count=target - len(added), focus=focus)
+            except Exception as exc:
+                if number == 1:
+                    progress["find"] = {"state": "failed", "seconds": round(time.time() - started, 1), "error": str(exc)[:600]}
+                    self._save(id, progress)
+                    raise ValueError("Finding jobs did not finish: " + str(exc)) from None
+                # A later pass failing keeps what the earlier ones found.
+                progress["find"]["passes"].append({"label": one["label"], "state": "failed", "error": str(exc)[:300],
+                                                   "seconds": round(time.time() - pass_started, 1)})
+                break
+            result = record.get("result") or {}
+            new = [job_id for job_id in result.get("added_job_ids") or [] if job_id not in added]
+            added += new
+            skip += [str(job["url"]) for job in result.get("jobs") or [] if isinstance(job, dict) and job.get("url")]
+            skip += [str(line).split(": ", 1)[0] for line in result.get("rejected_leads") or [] if str(line).startswith("http")]
+            progress["find"]["passes"].append({"label": one["label"], "state": "done", "found": len(new),
+                                               "looked": len(result.get("jobs") or []), "run_id": record.get("id"),
+                                               "seconds": round(time.time() - pass_started, 1)})
             self._save(id, progress)
-            raise ValueError("Finding jobs did not finish: " + str(exc)) from None
-        result = record.get("result") or {}
-        added = result.get("added_job_ids") or []
+        runs = progress["find"]["passes"]
         note = f"Found {len(added)} new job{'s' if len(added) != 1 else ''}"
-        if len(added) < progress["jobs_target"]:
-            note += f" (asked for {progress['jobs_target']}; only jobs that pass every check are saved)"
-        progress["find"] = {"state": "done", "seconds": round(time.time() - started, 1), "found": len(added),
-                            "note": note, "run_id": record.get("id")}
+        if len(runs) > 1:
+            note += f" in {len(runs)} searches"
+        if len(added) < target:
+            note += f" (asked for {target}; only jobs that pass every check are saved)"
+        progress["find"] = {"state": "done", "seconds": round(time.time() - started, 1),
+                            "first_pass_seconds": runs[0].get("seconds"), "found": len(added),
+                            "note": note, "run_id": runs[-1].get("run_id") or runs[0].get("run_id"), "passes": runs}
         ids = list(added)
         if config.get("include_unprepared"):
             # Saved jobs an earlier run found but never prepared (it stopped midway) join this one.
@@ -579,38 +675,43 @@ class Pipeline:
         jobs = []
         for job_id in ids:
             job = self.w.get_job(job_id)
-            jobs.append({"id": job_id, "company": job["company"], "title": job["title"],
+            jobs.append({"id": job_id, "company": job["company"], "title": job["title"], "fit": job.get("fit_score"),
                          "steps": {step: {"state": "waiting"} for step in STEP_IDS if config["steps"].get(step)}})
+        # Ranked: the best fit is prepared first, whichever pass found it.
+        jobs.sort(key=lambda job: -(job["fit"] if isinstance(job["fit"], (int, float)) else -1))
         progress["jobs"] = jobs
         self._save(id, progress)
 
     def _job(self, id, config, progress, job, steps, number, total) -> None:
-        if not steps:
-            return
-        if self._stop_requested(id):
-            for step in steps:
-                job["steps"][step] = {"state": "skipped"}
-            self._save(id, progress)
-            return
-        try:
-            # The application folder and Studio draft every helper writes into; no AI.
-            self.studio.open(job["id"])
-        except Exception as exc:
-            for step in steps:
-                job["steps"][step] = {"state": "failed", "error": "Could not open this job's resume: " + str(exc)[:500]}
-            self._save(id, progress)
-            return
+        stopped, opened = None, False
         for step in steps:
             if self._stop_requested(id):
                 job["steps"][step] = {"state": "skipped"}
+                continue
+            if stopped:
+                job["steps"][step] = {"state": "skipped", "note": stopped}
+                continue
+            try:
+                from backend.services.opportunities import preparation_issue
+                issue = preparation_issue(self.w.get_job(job["id"]))
+                if step != "posting" and issue:
+                    raise JobStopped(issue)
+                opened = open_draft(self.studio, job["id"], step, opened)
+            except Exception as exc:
+                stopped = "Could not open this job's resume: " + str(exc)[:500]
+                job["steps"][step] = {"state": "failed", "error": stopped}
+                self._save(id, progress)
                 continue
             progress["stage"] = f"{STEP[step]['label']} for {job['company']} (job {number} of {total})"
             job["steps"][step] = {"state": "running", "started_epoch": time.time()}
             self._save(id, progress)
             started = time.time()
             try:
-                done = getattr(self, "_" + step)(job["id"], config)
-                job["steps"][step] = {"state": "done", "seconds": round(time.time() - started, 1), **done}
+                done = self.run_step(step, job["id"], config)
+                job["steps"][step] = step_entry(done, round(time.time() - started, 1))
+            except JobStopped as exc:
+                stopped = str(exc)
+                job["steps"][step] = {"state": "failed", "seconds": round(time.time() - started, 1), "error": stopped}
             except Exception as exc:
                 job["steps"][step] = {"state": "failed", "seconds": round(time.time() - started, 1), "error": str(exc)[:600]}
             self._save(id, progress)
@@ -634,12 +735,19 @@ class Pipeline:
 
         route = route_options(self.s, "daily_search")
         if config.get("free_only"):
-            route = {**route, "policy": router.free_only(route.get("policy"))}
+            paid_gate = route.get("paid_gate")
+
+            def free_gate(provider_id):
+                if router.is_paid(provider_id):
+                    return "Paid AI is disabled for this hunt."
+                return paid_gate(provider_id) if paid_gate else None
+
+            route = {**route, "policy": router.free_only(route.get("policy")), "paid_gate": free_gate}
         return AgentTeam(self.w.root, {"strong": (provider, model), "cheap": (provider, cheap)}, usage_recorder(self.s),
                          persona=persona_for(self.w.root), route=route)
 
     def run_step(self, step: str, job_id: str, config: dict) -> dict:
-        """One helper (research, tailor, study_plan, pdf) for one saved job, outside a Daily Search run.
+        """One helper (any of STEP_IDS) for one saved job, outside a Daily Search run.
 
         The overnight hunt (services/hunt.py) prepares the jobs it saves through the same
         helpers, so its resumes get the same research, tailoring and page contract. ``config``
@@ -647,10 +755,64 @@ class Pipeline:
         """
         if step not in STEP:
             raise ValueError("Unknown helper: " + step)
-        return getattr(self, "_" + step)(job_id, config)
+        from backend.services.opportunities import preparation_issue, digest
+        from backend.services.task_execution import TaskRepository, job_write_slot
+        job = self.w.get_job(job_id)
+        issue = preparation_issue(job)
+        if step != "posting" and issue:
+            raise JobStopped(issue)
+        # Freshness and final checks always read current state; never reuse an old verdict.
+        if step in {"posting", "ready"}:
+            return getattr(self, "_" + step)(job_id, config)
+        evidence = self.w.evidence()
+        inputs = {"version": "preparation-v2", "jd": digest(job.get("description")),
+                  "profile": self.w.profile(), "evidence_revision": evidence.get("candidate_revision"),
+                  "config": {k: config.get(k) for k in ("provider", "model", "free_only")},
+                  "salary": job.get("opportunity")}
+        if step in {"pdf", "review"} and hasattr(self.studio, "get"):
+            draft = self.studio.get(job_id)
+            inputs["draft"] = digest(draft.get("source"))
+            if step == "review":
+                inputs["artifact"] = self._artifact(job_id)
+        def execute():
+            if step in {"tailor", "pdf"}:
+                with job_write_slot(self.w.root, job_id):
+                    result = getattr(self, "_" + step)(job_id, config)
+            else:
+                result = getattr(self, "_" + step)(job_id, config)
+            return {"result": result, "artifact": self._artifact(job_id, step)}
+        result = TaskRepository(self.s).run("prepare:" + step, inputs, execute, job_id=job_id,
+            validate_result=lambda saved: saved.get("artifact") == self._artifact(job_id, step),
+            retryable=lambda exc: any(x in str(exc).lower() for x in ("timeout", "connection", "temporar", "rate limit", "usage limit")))
+        return result["result"]
 
-    def _agent(self, kind, job_id, provider, model, preset="default", count=None, timeout_minutes=45, config=None) -> dict:
-        queued = self.runner.enqueue(kind, job_id, provider, model, preset, count=count,
+    def _artifact(self, job_id, step=None):
+        from backend.services.opportunities import digest
+        from career import safe_child
+        job = self.w.get_job(job_id)
+        artifact = {}
+        if hasattr(self.studio, "get"):
+            try:
+                draft = self.studio.get(job_id)
+                if step not in {"research", "study_plan"}:
+                    artifact.update(revision=draft["revision"], source=digest(draft.get("source")))
+                preview = draft.get("preview") or {}
+                if step in {None, "pdf", "review"} and preview.get("path"):
+                    pdf = safe_child(self.w.root / "data/output", str(preview["path"]) + "/resume.pdf")
+                    import hashlib
+                    artifact["pdf"] = hashlib.sha256(pdf.read_bytes()).hexdigest() if pdf.is_file() else None
+            except ValueError:
+                artifact["draft_missing"] = True
+        if step in {"research", "study_plan"} and job.get("folder"):
+            name = "company-research.md" if step == "research" else "study-plan.md"
+            folder = Path(job["folder"]).relative_to("data/output")
+            path = safe_child(self.w.root / "data/output", str(folder / name))
+            artifact["report"] = digest(path.read_text(encoding="utf-8")) if path.is_file() else None
+        return artifact
+
+    def _agent(self, kind, job_id, provider, model, preset="default", count=None, timeout_minutes=45, config=None,
+               focus=None) -> dict:
+        queued = self.runner.enqueue(kind, job_id, provider, model, preset, count=count, focus=focus,
                                      free_only=bool((config or {}).get("free_only")))
         deadline = time.monotonic() + timeout_minutes * 60
         while time.monotonic() < deadline:
@@ -663,6 +825,27 @@ class Pipeline:
             time.sleep(self.poll)
         raise ValueError(f"This step did not finish within {timeout_minutes} minutes.")
 
+    def _posting(self, job_id, config) -> dict:
+        from backend.job_quality import JobQualityService
+
+        if self.w.get_job(job_id).get("record_source") == "gmail":
+            return {"note": "This record has no public posting to check.", "skipped": True}
+        checked = JobQualityService(self.s).verify_posting(job_id)
+        if checked.get("excluded"):
+            raise JobStopped("The posting now refuses your work permit, so it moved to Excluded roles "
+                             "and nothing more was prepared.")
+        if checked["state"] == "expired":
+            raise JobStopped("The posting has closed (" + " ".join(checked["evidence"])[:200]
+                             + "), so nothing more was prepared.")
+        from backend.services.opportunities import preparation_issue
+        issue = preparation_issue(self.w.get_job(job_id))
+        if issue:
+            raise JobStopped(issue)
+        if checked["state"] == "needs_review":
+            return {"note": "The site blocked the automatic check; the other steps still run. "
+                            "Open the link to confirm it is open before applying.", "posting": "needs_review"}
+        return {"note": "Still open.", "posting": "active"}
+
     def _research(self, job_id, config) -> dict:
         provider, model = self._web_choice(config)
         record = self._agent("research", job_id, provider, model, config=config)
@@ -674,8 +857,7 @@ class Pipeline:
     def _tailor(self, job_id, config) -> dict:
         result = self.studio.tailor(job_id, self._team(config))
         items = result.get("items") or {}
-        note = (f"{items.get('verified', 0)} items from your profile + {items.get('predicted', 0)} "
-                "suggestions to keep or remove in Assurance")
+        note = f"{items.get('verified', 0)} items from your profile evidence"
         warnings = result.get("warnings") or []
         return {"note": note + (". " + warnings[0] if warnings else "")}
 
@@ -697,3 +879,38 @@ class Pipeline:
         if pages != contract.pages:
             raise ValueError(f"The PDF came out at {pages} pages. Open Resume Studio and use Fit to {contract.describe_pages()}.")
         return {"note": f"{contract.describe_pages().capitalize()} PDF ready"}
+
+    def _review(self, job_id, config) -> dict:
+        draft = self.studio.get(job_id)
+        preview = draft.get("preview") or {}
+        if not preview.get("current") or preview.get("revision") != draft["revision"]:
+            return {"note": "No current PDF to review: the resume steps did not finish.", "skipped": True}
+        # A fresh AI with the PDF text and the posting only (services/agents.py resume_match); no web.
+        record = self._agent("resume_match", job_id, config["provider"], config["model"], config=config)
+        result = record.get("result")
+        review = result.get("review") if isinstance(result, dict) else None
+        review = review if isinstance(review, dict) else {}
+        summary = " ".join(str(review.get("summary") or "").split())
+        verdict = review.get("verdict")
+        issues = review.get("issues")
+        if (not isinstance(verdict, str) or verdict not in {"pass", "review", "blocked"}
+                or not isinstance(issues, list) or any(not isinstance(issue, str) or not issue.strip() for issue in issues)
+                or verdict != "pass" and not issues):
+            verdict, issues = "review", ["Run a new independent review with a recorded verdict."]
+        elif verdict == "pass" and issues:
+            verdict = "review"
+        label = {"pass": "Independent check passed", "review": "Independent review needs your attention",
+                 "blocked": "Independent review found a blocking issue"}[verdict]
+        return {"note": label + (": " + summary[:300] if summary else "."), "review_verdict": verdict, "issues": issues}
+
+    def _ready(self, job_id, config) -> dict:
+        from backend.services import readiness
+
+        try:
+            self.studio.score(job_id)  # the deterministic assessment of the current PDF; a no-op when it has one
+        except ValueError:
+            pass  # no current PDF: the check below says so
+        result = readiness.check(self.s, self.studio, job_id)
+        head = result["label"] + (f" · readiness {result['score']}/100" if result["score"] is not None else "")
+        return {"note": head + (". Next: " + result["next"][0] if result["next"] else "."),
+                "verdict": result["verdict"], "score": result["score"], "next": result["next"][:3]}

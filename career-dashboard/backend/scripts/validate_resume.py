@@ -236,17 +236,12 @@ CLAIM_LINE_PATTERN = re.compile(
     """
 )
 
-# 60/40 tailoring tags proposed content with its resume_items row id.
-PREDICTED_TAG = re.compile(r"^resume_items:([0-9A-Za-z]+)$")
+# Legacy tailoring tagged proposed content with its review-row id. Review rows
+# are not candidate evidence, regardless of their origin or keep/remove decision.
+PREDICTED_TAG = re.compile(r"^resume_items:([^\s]+)$")
 
-# The review confidence scale is deliberately coarse: registry-grounded wording is
-# full faith, a predicted (per-job proposed) item is a maybe, anything unresolved is none.
-CLAIM_CONFIDENCE = {"verified": 100, "predicted": 60, "missing": 0}
-
-# Proposed Projects/Skills content is stored behind review, so an unresolvable
-# evidence tag in those two sections is a warning; everywhere else it stays a failure.
-REVIEW_SECTIONS = {"Projects", "Technical Skills", "Skills"}
-
+# Keep the legacy report keys; unsupported suggestions have no evidence confidence.
+CLAIM_CONFIDENCE = {"verified": 100, "predicted": 0, "missing": 0}
 
 def _logical_section(macro_name: str | None, current: str | None, skill_section: str) -> str:
     """The section a claim line belongs to. Preamble macro definitions report the
@@ -267,9 +262,8 @@ def _logical_section(macro_name: str | None, current: str | None, skill_section:
 def scan_claims(source: str, evidence: dict[str, Any], predicted: dict[str, str] | None = None) -> list[dict[str, Any]]:
     """One record per candidate-claim line: its EVIDENCE tags and where they resolve.
 
-    `predicted` maps resume_items row ids to their origin. A ``resume_items:<id>``
-    tag matching a predicted row is reported 'predicted'; matching anything else or
-    nothing is 'missing'. Registry-held ids count as missing: known but not usable.
+    `predicted` is retained for report-call compatibility. A ``resume_items:<id>``
+    tag is never registry evidence. Registry-held ids count as missing: known but not usable.
     A line is 'verified' only when every tag resolves in the registry. Each record
     also carries `problems`, the gate's failure texts, so both consumers word the
     same issue the same way.
@@ -281,7 +275,6 @@ def scan_claims(source: str, evidence: dict[str, Any], predicted: dict[str, str]
         for item in evidence.get(group, [])
         if isinstance(item, dict) and item.get("id")
     }
-    predicted = predicted or {}
     claims: list[dict[str, Any]] = []
     pending: list[str] | None = None
     section: str | None = None
@@ -304,30 +297,21 @@ def scan_claims(source: str, evidence: dict[str, Any], predicted: dict[str, str]
         line_section = _logical_section(macro.group(1) if macro else None, section, skill_section)
         evidence_ids = pending or []
         problems: list[str] = []
-        predicted_hit = False
         if not evidence_ids:
             problems.append(f"Candidate content on source line {line_number} lacks an EVIDENCE tag")
         for evidence_id in evidence_ids:
             marker = PREDICTED_TAG.match(evidence_id)
             if marker:
-                origin = predicted.get(marker.group(1))
-                if origin == "predicted":
-                    predicted_hit = True
-                elif origin is None:
-                    problems.append(f"Unknown source EVIDENCE ID on line {line_number}: {evidence_id}")
-                # A verified-origin review row resolves like a registry id.
+                problems.append(f"Review item is not registered candidate evidence on line {line_number}: {evidence_id}")
                 continue
             item = known.get(evidence_id)
             if item is None:
                 problems.append(f"Unknown source EVIDENCE ID on line {line_number}: {evidence_id}")
-            elif item.get("status") == "hold":
-                problems.append(f"Held source EVIDENCE ID on line {line_number}: {evidence_id}")
+            elif item.get("status") in {"hold", "missing"}:
+                problems.append(f"Unavailable source EVIDENCE ID on line {line_number}: {evidence_id}")
         if problems:
             status = "missing"
             note = "; ".join(problems)
-        elif predicted_hit:
-            status = "predicted"
-            note = "Proposed item from per-job tailoring; review before release"
         else:
             status = "verified"
             note = "All evidence ids resolve in the registry"
@@ -354,10 +338,9 @@ def evidence_ids_from_source(
 ) -> set[str]:
     """Require an evidence tag immediately before each candidate-content construct.
 
-    Returns the registry ids actually used. Inside Projects and Skills an
-    unresolvable tag (unknown, held, or an unreviewed resume_items row) or a
-    missing tag is a review warning; everywhere else it is a hard failure.
-    Callers that omit `warnings` keep the historical all-hard behavior.
+    Returns the registry ids actually used. Unknown, held, review-row and missing
+    tags are hard failures in every section. `warnings` remains a compatibility
+    argument; human review cannot replace candidate evidence.
     """
     known = {
         item.get("id"): item
@@ -370,10 +353,9 @@ def evidence_ids_from_source(
         ids_used.update(
             evidence_id
             for evidence_id in claim["evidence_ids"]
-            if evidence_id in known and known[evidence_id].get("status") != "hold"
+            if evidence_id in known and known[evidence_id].get("status") not in {"hold", "missing"}
         )
-        soft = claim["section"] in REVIEW_SECTIONS and warnings is not None
-        (warnings if soft else failures).extend(claim["problems"])
+        failures.extend(claim["problems"])
     return ids_used
 
 

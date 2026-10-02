@@ -14,8 +14,8 @@ Read `AGENTS.md` first. Target roles and work authorization come from the person
 
 Use `find-jobs` / `morning-jobs`: the overnight hunt runs focused searches per role and applies
 the US rules (`career-dashboard/backend/countries/us/`). Save a lead found by hand with
-`career add --file job.json` (it runs the sponsorship gate and never-re-apply check), and check an
-employer with `career ws sponsor-check --company "<name>" --file <posting.txt>`.
+`career add --file job.json --profile <profile-id>` (it runs the sponsorship gate and never-re-apply check), and check an
+employer with `career ws sponsor-check --company "<name>" --file <posting.txt> --profile <profile-id>`.
 
 ## AI-only mode
 

@@ -14,12 +14,12 @@ does. The date an email arrived is not the date they applied.
 
 ## Recording what they tell you
 
-**App mode.** Find the job's exact id with `career jobs` (match company and title; ask when two
-match), then:
+**App mode.** Read `career ws summary --profile <profile-id>`, then find the job's exact ID with
+`career jobs --profile <profile-id>` (match company and title; ask when two match), then:
 
 ```text
-career update <id> --status applied --application-date <YYYY-MM-DD>
-career update <id> --status interview|offer|rejected|withdrawn [--notes "<their words>"]
+career update <job-id> --status applied --application-date <YYYY-MM-DD> --profile <profile-id>
+career update <job-id> --status interview|offer|rejected|withdrawn --profile <profile-id> [--notes "<their words>"]
 ```
 
 `applied` needs the date they applied; ask for it when they did not say ("today" is fine). To

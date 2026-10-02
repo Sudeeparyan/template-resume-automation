@@ -53,6 +53,21 @@ def _facts(record: dict) -> list[str]:
     return [" ".join(str(f).split()) for f in record.get("approved_facts") or [] if str(f).strip()]
 
 
+def _degree_only(claim: dict) -> str:
+    """The degree an ``education_history`` claim records, without its coursework or notes.
+
+    Older builds wrote only ``value`` ("degree; field; grade; dates; modules; notes"); the degree
+    comes first and the field (when there is one) second. Modules never count as the degree.
+    """
+    if claim.get("degree_as_supplied"):
+        return str(claim["degree_as_supplied"])
+    parts = [p.strip() for p in str(claim.get("value") or "").split(";") if p.strip()]
+    head = parts[:1] or [str(claim.get("title") or "")]
+    if len(parts) > 1 and "," not in parts[1] and len(parts[1]) <= 80:
+        head.append(parts[1])
+    return "; ".join(head)
+
+
 def catalogue(services, profile_text: str = "") -> dict:
     """Registered evidence as the analyst sees it: ``{"entries", "never", "hash"}``.
 
@@ -89,6 +104,12 @@ def catalogue(services, profile_text: str = "") -> dict:
             where = ", ".join(x for x in (claim.get("institution"), claim.get("status_text") or claim.get("dates")) if x)
             add({"id": cid, "kind": "education", "text": " ".join(f"{degree} {where}".split()), "terms": [],
                  "name": str(claim.get("institution") or "")})
+        elif category == "education_history":
+            # A degree the build could not tie to an institution: never printed on a resume, but still
+            # the candidate's own reported degree, so it meets a posting's "bachelor's degree" (26 Sep:
+            # without it every degree requirement read as missing and each job fell below the bar).
+            text = " ".join(f"{_degree_only(claim)} {claim.get('dates') or ''}".split())
+            add({"id": cid, "kind": "education", "text": text, "terms": [], "name": ""})
         elif category == "academic_coursework":
             add({"id": cid, "kind": "coursework", "text": ", ".join(facts), "terms": facts, "name": ""})
         elif category == "languages":

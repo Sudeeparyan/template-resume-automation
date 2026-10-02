@@ -401,7 +401,8 @@ class RouterProvider:
 
         def attempt(provider_id, model):
             self.local.served = (provider_id, model)  # the last endpoint tried, until one answers
-            return self.gateway.providers[provider_id].generate(prompt, schema, model=model, **options)
+            return self.gateway.invoke_endpoint(self.gateway.providers[provider_id], model,
+                                                action, prompt, schema, **options)
 
         policy = router.policy_from(preferences)
         # A run started by an unattended search (services/hunt.py) never reaches a paid
@@ -507,13 +508,17 @@ class AIGateway:
 
     def generate(self, action: str, prompt: str, schema: dict, *, provider=None, model=None, **options) -> dict:
         selected, model = self.resolve(action, provider, model)
+        auto = self.providers.get(router.ID)
+        free_only = bool(getattr(getattr(auto, "local", None), "free_only", False))
         if selected.id == router.ID:
             # Auto falls back through its whole route; the single backup below is not needed.
             return selected.route(action, prompt, schema, **options)
-        # A paid provider chosen by name is held to the paid limit by AgentCache, which
-        # reserves the call before it reaches here.
+        if free_only and router.is_paid(selected.id):
+            raise ValueError('This unattended run does not permit paid AI. Choose a free plan or explicitly allow paid AI for the hunt.')
+        # Budget reservations happen at the actual endpoint so Auto and named
+        # fallback calls share the same atomic limit.
         try:
-            return selected.generate(prompt, schema, model=model, **options)
+            return self.invoke_endpoint(selected, model, action, prompt, schema, **options)
         except ValueError as error:
             # Graceful fallback: the Settings page can name a backup provider.
             # One retry, recorded, and the UI surfaces that it happened.
@@ -525,12 +530,14 @@ class AIGateway:
                 backup, backup_model = self.resolve(action, fallback_id, fallback.get("model"))
             except ValueError:
                 raise error from None
+            if free_only and router.is_paid(backup.id):
+                raise error from None  # this run's permission also governs named backups
             from backend.ai import paid_gate
 
             if router.is_paid(backup.id) and paid_gate(self.s)(backup.id):
                 raise error  # today's paid limit is used up: no paid backup either
             try:
-                result = backup.generate(prompt, schema, model=backup_model, **options)
+                result = self.invoke_endpoint(backup, backup_model, action, prompt, schema, **options)
             except ValueError:
                 raise error from None
             with self.s.w.connect() as db:
@@ -540,3 +547,14 @@ class AIGateway:
                     reason=str(error)[:300],
                 )
             return result
+
+    def invoke_endpoint(self, provider, model, action, prompt, schema, **options):
+        from backend.services.agent_cache import paid_invocation
+        from backend.services.task_execution import invocation_slot
+
+        # A named fallback can itself be Auto; let it resolve an actual endpoint.
+        if provider.id == router.ID:
+            return provider.route(action, prompt, schema, **options)
+        with invocation_slot(provider.id):
+            with paid_invocation(self.s, provider.id, model, action):
+                return provider.generate(prompt, schema, model=model, **options)

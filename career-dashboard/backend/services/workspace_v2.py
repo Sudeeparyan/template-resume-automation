@@ -7,6 +7,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from backend.ai_marks import clean_text
+from backend.services.demo import demo_mode
 from backend.services.planning import plan
 from backend.services.postings import canonical_url, posting_key
 
@@ -815,6 +816,8 @@ class CareerServices:
         ]
 
     def profile_dirty(self):
+        if demo_mode(self):
+            return False  # demo mode: pending profile edits never block new drafts
         return any(i["review_state"] == "user_updated" for i in self.knowledge(True))
 
     def goals(self, on=None):
@@ -865,13 +868,14 @@ class CareerServices:
         from backend.countries import market_for_location
         from backend.services import reapply, sponsorship
         title = values.get("title", values.get("role", ""))
-        market = market_for_location(self.w.root, values.get("location", ""), values.get("market"), require_match=True)
+        demo = demo_mode(self)
+        market = market_for_location(self.w.root, values.get("location", ""), values.get("market"), require_match=not demo)
         verdict = verdict or self.gate(
             values["company"], values.get("description", ""), values.get("url", ""), values.get("location", ""),
             extra_sentences=[values.get("restriction_quote", "")] if values.get("restriction_quote") else None,
             employer_type=values.get("employer_type", ""), market=market,
         )
-        if verdict.excluded:
+        if verdict.excluded and not demo:
             record = self.record_excluded(values, verdict, source)
             return {"excluded": True, "job": None, "duplicate": False, "reason": verdict.screen.reason,
                     "reason_label": verdict.screen.reason_label, "sentence": verdict.screen.sentence, "record": record}
@@ -954,6 +958,8 @@ class CareerServices:
                     url=clean,
                 )
             self.w.export_tracking()
+            from backend.services.opportunities import record
+            record(self, job["id"], values)
             return {"job": self.w.get_job(job["id"]), "duplicate": False, "upgraded": True}
         try:
             job = self.w.add_job(
@@ -970,6 +976,8 @@ class CareerServices:
             with self.w.connect() as db:
                 db.execute("UPDATE jobs SET company_id=? WHERE id=?", (cid, job["id"]))
             self.store_sponsorship(job["id"], values["_sponsor"])
+            from backend.services.opportunities import record
+            record(self, job["id"], values)
             if values.get("_reapply_note"):
                 self.w.update_job(job["id"], job["status"], notes=values["_reapply_note"])
             self.w.export_tracking()  # the front page must show the tier that was just stored
@@ -1100,13 +1108,12 @@ class CareerServices:
         return result
 
     def age_applications(self):
-        """Applied and silent for 21 days -> ghosted. Runs from the hourly scheduler."""
-        from backend.services import reapply
-        flipped = []
-        for row in reapply.due_for_ghosting(self.w.jobs(), self.w.profile()):
-            self.w.update_job(row["id"], "ghosted", notes=f"No reply {row['quiet_days']} days after applying; marked ghosted automatically. A confirmed email or a status change reopens it.")
-            flipped.append(row["id"])
-        return flipped
+        """Compatibility hook for the scheduler; silence never changes an outcome.
+
+        The Pipeline view uses ``reapply.quiet_days`` for waiting-time reminders.
+        Only the person's instruction or confirmed mail evidence changes status.
+        """
+        return []
 
     def mail(self):
         with self.w.connect() as db:
@@ -1670,11 +1677,12 @@ class CareerServices:
                     )
             draft = studio.get(job["id"])
             if draft:
-                preview_file = self.w.root / draft["folder"] / "preview.json"
-                if preview_file.exists():
-                    preview = json.loads(preview_file.read_text(encoding="utf-8"))
-                    pdf = self.w.root / "data/output" / preview["path"] / "resume.pdf"
-                    if pdf.exists():
+                from backend.services.resume_studio import read_saved_preview
+
+                preview, pdf, _ = read_saved_preview(self.w.root, self.w.root / draft["folder"],
+                                                    draft["source"], draft["revision"])
+                if preview is not None:
+                    if pdf.is_file():
                         path = str(pdf.relative_to(self.w.root / "data/output"))
                         if not any(item["path"] == path for item in resumes):
                             resumes.insert(

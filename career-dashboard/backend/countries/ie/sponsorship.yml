@@ -30,9 +30,8 @@ exclude_no_sponsorship:
   - 'not\s+able\s+to\s+sponsor'
   - 'not\s+(in\s+a\s+position|able)\s+to\s+(sponsor|support|obtain|provide)\s+.{0,30}(permit|visa|sponsorship)'
   - 'without\s+(the\s+need\s+for\s+)?(a\s+|any\s+)?(visa|work\s+permit|employment\s+permit|sponsorship)'
-  - 'now\s+or\s+in\s+the\s+future'
   - 'must\s+not\s+require\s+(a\s+|any\s+)?(visa|work\s+permit|employment\s+permit|sponsorship)'
-  - '(current|present)\s*(or|and|/)\s*future\s+((visa|employer|employment|immigration|work)\s+){0,2}(sponsorship|permits?)'
+  - '(must\s+not|cannot|can''t|do\s+not|does\s+not)\s+(require|need|provide|offer|support)\s+.{0,35}(current|present)\s*(or|and|/)\s*future\s+((visa|employer|employment|immigration|work)\s+){0,2}(sponsorship|permits?)'
   - 'permits?\s+(will\s+)?not\s+be\s+(provided|offered|sponsored|supported)'
   - 'candidates\s+(who\s+)?requir(e|ing)\s+(a\s+)?(visa|work\s+permit|employment\s+permit|sponsorship)\s+(will\s+not|cannot|are\s+not)'
   - 'unrestricted\s+(right|permission|authori[sz]ation)\s+to\s+work'
@@ -62,7 +61,6 @@ positive_sponsorship:
   - 'willing\s+to\s+sponsor'
   - 'sponsorship\s+(is\s+)?available'
   - 'open\s+to\s+candidates\s+requiring\s+(a\s+)?(sponsorship|work\s+permit|employment\s+permit)'
-  - 'stamp\s*1\s*g\s+(holders?\s+)?(are\s+)?(welcome|considered|accepted|eligible)'
   - 'relocation\s+and\s+(visa|permit)\s+support'
 
 # No Irish equivalent of E-Verify.

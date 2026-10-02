@@ -131,11 +131,9 @@ def write_field(source, name, value):
 # Tailoring rewrites Projects and Skills fields only; every other macro is out of bounds.
 TAILORED_MACRO_NAMES = {'CoreSkills'}
 TAILORED_MACRO_PREFIXES = ('SelectedProject', 'SecondProject', 'Skills')
-# A tailored skills line keeps at least this many of its own entries (or half of them, when
-# that is more), and a predicted skill is a short tool or technology name, never a phrase.
+# A tailored skills line keeps at least this many registered entries (or half of them,
+# when that is more). Saved wording is not evidence for an unregistered skill.
 SKILL_LINE_FLOOR = 3
-PREDICTED_SKILL_MAX_WORDS = 4
-PREDICTED_SKILL_MAX_CHARS = 40
 # At most this many registered skills are added because the role requires them (_top_up_skills).
 TOP_UP_SKILLS = 4
 
@@ -185,6 +183,30 @@ def _set_evidence_tags(source, macro, tags):
     return re.sub(r'(\\newcommand\{\\' + macro + r'\})', lambda match: line + match[1], source, count=1)
 
 
+def read_saved_preview(root, folder, source, revision):
+    """Read optional preview metadata, keeping damaged artifacts recoverable."""
+    preview_file = folder / 'preview.json'
+    if not preview_file.exists():
+        return None, None, False
+    try:
+        saved = json.loads(preview_file.read_text(encoding='utf-8'))
+        if (not isinstance(saved, dict)
+                or type(saved.get('revision')) is not int
+                or type(saved.get('page_count')) is not int
+                or saved['page_count'] < 1
+                or not isinstance(saved.get('path'), str) or not saved['path']
+                or not isinstance(saved.get('source_sha256'), str)
+                or not re.fullmatch(r'[a-f0-9]{64}', saved['source_sha256'])
+                or (saved.get('layout') is not None and not isinstance(saved['layout'], dict))):
+            raise ValueError('Incomplete preview metadata')
+        pdf = safe_child(root / 'data/output', saved['path'] + '/resume.pdf')
+        saved['current'] = (pdf.is_file() and saved['revision'] == revision
+                            and saved['source_sha256'] == hashlib.sha256(source.encode()).hexdigest())
+        return saved, pdf, False
+    except (OSError, UnicodeError, ValueError):
+        return None, None, True
+
+
 class ResumeStudio:
     def __init__(self, service):
         self.s, self.w = service, service.w
@@ -202,6 +224,64 @@ class ResumeStudio:
 
     def contract(self, job_id):
         return contract_for(self.w.root, self.w.get_job(job_id).get('market') or None)
+
+    def resume_evidence_problem(self, job_id, source):
+        """Explain an unsupported model suggestion still present in a saved draft.
+
+        Older versions printed predicted items before review, and a keep decision did
+        not establish a candidate fact. Preserve those drafts for editing and removal,
+        but never compile or export their unsupported claims as a resume.
+        """
+        if re.search(r'\bresume_items:[A-Za-z0-9_-]+', source):
+            return ('This draft contains suggested content without registered candidate evidence. '
+                    'Remove it or record the real completed work in Profile, reconcile its evidence, and tailor again.')
+        macros = {name: plain(value) for name, value in extract_zero_argument_macros(source).items()}
+        skill_names = {part.strip().casefold() for name, value in macros.items()
+                       if name == 'CoreSkills' or name.startswith('Skills')
+                       for part in re.split(r'[,;]', value) if part.strip()}
+        registered_skills = self._verified_skill_pool()
+        registry = project_registry(self.w.evidence())
+        with self.w.connect() as db:
+            rows = db.execute("SELECT * FROM resume_items WHERE job_id=? AND origin='predicted'", (job_id,)).fetchall()
+        for row in rows:
+            if row['section'] == 'skills':
+                key = row['content'].strip().casefold()
+                present = key in skill_names and key not in registered_skills
+            else:
+                try:
+                    title = str(json.loads(row['content']).get('title') or '').strip().casefold()
+                except (ValueError, TypeError, AttributeError):
+                    title = ''
+                present = False
+                for slot in ('SelectedProject', 'SecondProject'):
+                    if not (macros.get(slot + 'ID') == row['id']
+                            or bool(title and macros.get(slot + 'Title', '').casefold() == title)):
+                        continue
+                    registered = registry.get(macros.get(slot + 'ID')) or {}
+                    content = registered.get('resume_content') or {}
+                    bullets = [str(bullet) for bullet in content.get('bullets', [])][:3]
+                    matches_registry = (registered.get('status') not in {'hold', 'missing'}
+                                        and content and macros.get(slot + 'Title') == content.get('title')
+                                        and macros.get(slot + 'Context', '') == content.get('context', '')
+                                        and all(macros.get(slot + 'Bullet' + suffix, '') == bullet
+                                                for suffix, bullet in zip(('One', 'Two', 'Three'), bullets + [''] * (3 - len(bullets)))))
+                    if not matches_registry:
+                        present = True
+                        break
+            if present:
+                return ('This draft still contains a predicted skill or project without registered candidate evidence. '
+                        'A keep decision is not evidence. Remove it or record the real completed work in Profile, '
+                        'reconcile its evidence, and tailor again.')
+        errors = []
+        evidence_ids_from_source(source, self.w.evidence(), errors)
+        if errors:
+            return 'This resume contains claims without usable registered candidate evidence: ' + errors[0]
+        return ''
+
+    def _require_resume_evidence(self, job_id, source):
+        problem = self.resume_evidence_problem(job_id, source)
+        if problem:
+            raise ValueError(problem)
 
     def stale_drafts(self):
         """Drafts whose compiled PDF no longer matches the saved source."""
@@ -270,7 +350,7 @@ class ResumeStudio:
                 self.w.export_tracking()
             return self.get(job_id)
 
-    def get(self, job_id):
+    def get(self, job_id, *, write_source=True):
         contract = self.contract(job_id)
         shape = contract.describe_pages()
         with self.w.connect() as db:
@@ -281,22 +361,22 @@ class ResumeStudio:
             captures = [dict(r) for r in db.execute('SELECT DISTINCT k.id,k.kind,k.title,k.review_state,k.deleted FROM studio_captures c JOIN knowledge k ON k.id=c.knowledge_id WHERE c.job_id=?', (job_id,))]
         result = dict(row)
         folder = safe_child(self.w.root / 'data/output', str(Path(row['folder']).relative_to('data/output')))
-        atomic_write(folder / 'resume.tex', row['source'])
-        preview_file = folder / 'preview.json'
-        preview = json.loads(preview_file.read_text(encoding='utf-8')) if preview_file.exists() else None
-        if preview:
-            preview['current'] = preview['source_sha256'] == hashlib.sha256(row['source'].encode()).hexdigest()
+        if write_source:
+            atomic_write(folder / 'resume.tex', row['source'])
+        preview, preview_pdf, damaged_preview = read_saved_preview(self.w.root, folder, row['source'], row['revision'])
         fields = {k: plain(v) for k, v in extract_zero_argument_macros(row['source']).items()
                   if k in {'ResumeSummary', 'CoreSkills', 'Coursework'}
                   or k.startswith(('Skills', 'SelectedProject', 'SecondProject'))}
         warnings = []
+        if damaged_preview:
+            warnings.append('Saved preview metadata is damaged or incomplete. Rebuild the preview in Resume Studio.')
         if self.s.profile_dirty():
             warnings.append('Profile has unreviewed changes. Reconcile evidence before releasing this resume; this saved draft may contain older wording.')
         if row['profile_revision'] != self.w.evidence()['candidate_revision']:
             warnings.append('This draft was started with an older evidence revision. Review it against the current profile.')
         if contract.required_selected_projects >= 1 and (not fields.get('SelectedProjectTitle') or not fields.get('SelectedProjectBulletOne')):
             warnings.append('Your selected project is missing. Add a project before exporting your application resume.')
-        if preview and preview.get('layout') and not preview['layout']['full_pages']:
+        if preview and preview.get('layout') and not preview['layout'].get('full_pages'):
             warnings.append(f'The preview does not fill exactly {shape}. Use Fit to {shape} to rank supported content and balance the layout.')
         warnings.append(f'Draft only: wording, evidence, {shape} layout and visual review must pass before release.')
         if contract.required_selected_projects >= 2 and (not fields.get('SecondProjectID') or not fields.get('SecondProjectTitle') or not fields.get('SecondProjectBulletOne')):
@@ -305,8 +385,7 @@ class ResumeStudio:
         with self.w.connect() as db:
             score_row = db.execute('SELECT * FROM resume_scores WHERE job_id=? ORDER BY created_at DESC,rowid DESC LIMIT 1', (job_id,)).fetchone()
         match = None
-        preview_pdf = safe_child(self.w.root / 'data/output', preview['path'] + '/resume.pdf') if preview else None
-        current_pdf_hash = hashlib.sha256(preview_pdf.read_bytes()).hexdigest() if preview_pdf and preview_pdf.exists() else None
+        current_pdf_hash = hashlib.sha256(preview_pdf.read_bytes()).hexdigest() if preview_pdf and preview_pdf.is_file() else None
         if score_row:
             match = {**json.loads(score_row['result']), 'revision': score_row['revision'], 'created_at': score_row['created_at'],
                      'current': score_row['source_sha256'] == hashlib.sha256(row['source'].encode()).hexdigest()
@@ -468,6 +547,7 @@ class ResumeStudio:
             draft = self.get(job_id)
             if draft['revision'] != revision:
                 raise ValueError('Save or reload the current resume before compiling.')
+            self._require_resume_evidence(job_id, draft['source'])
             executable = tectonic_executable()
             if not executable:
                 raise ValueError('PDF compiler is unavailable. Your draft is saved; install Tectonic and try again.')
@@ -511,6 +591,7 @@ class ResumeStudio:
             draft = self.get(job_id)
             if draft['revision'] != revision:
                 raise ValueError('This resume changed elsewhere. Reload before fitting the page.')
+            self._require_resume_evidence(job_id, draft['source'])
             if self.s.profile_dirty() or draft['profile_revision'] != self.w.evidence()['candidate_revision']:
                 raise ValueError('Reconcile your Profile edits with the evidence registry before ranking content. You can still edit and preview the saved draft.')
             base_source = draft['source']
@@ -721,6 +802,7 @@ class ResumeStudio:
         if format not in {'pdf', 'tex'}:
             raise ValueError('Choose pdf or tex')
         draft = self.get(job_id)
+        self._require_resume_evidence(job_id, draft['source'])
         job = self.w.get_job(job_id)
         preview = draft.get('preview')
         if format == 'pdf':
@@ -772,11 +854,11 @@ class ResumeStudio:
             return self.get(job_id)
 
     def tailor(self, job_id, team):
-        """Tailor this job's Projects and Skills: verified registry content plus reviewable predicted items.
+        """Tailor this job's Projects and Skills from registered candidate evidence only.
 
         The job_tailor specialist's plan is validated before anything is stored; only
         Projects/Skills macros are rewritten, every item's origin is kept in resume_items
-        for review, and the rendered resume stays one seamless document.
+        for review. Model suggestions never become candidate facts by a keep decision.
         """
         from backend.ai.agents.graph import AgentError
         with self.lock:
@@ -836,7 +918,10 @@ class ResumeStudio:
             with self.w.connect() as db:
                 db.execute('BEGIN IMMEDIATE')
                 revision = db.execute('SELECT revision FROM studio_drafts WHERE job_id=?', (job_id,)).fetchone()[0] + 1
-                db.execute('DELETE FROM resume_items WHERE job_id=?', (job_id,))
+                # Keep legacy suggestions as removed audit records: older untagged
+                # previews still need their claim history after this draft is repaired.
+                db.execute("UPDATE resume_items SET decision='removed',updated_at=? WHERE job_id=? AND origin='predicted'", (stamp, job_id))
+                db.execute("DELETE FROM resume_items WHERE job_id=? AND origin<>'predicted'", (job_id,))
                 for item in items:
                     content = json.dumps(item['content'], ensure_ascii=False) if isinstance(item['content'], dict) else item['content']
                     db.execute('INSERT INTO resume_items(id,job_id,section,content,origin,evidence_id,decision,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)',
@@ -883,7 +968,7 @@ class ResumeStudio:
         """Skill name (case-folded) -> display name and registry claim id."""
         pool = {}
         for claim in self.w.evidence().get('claims', []):
-            if claim.get('status') in {'hold', 'missing'}:
+            if claim.get('status') in {'hold', 'missing'} or claim.get('id') == 'SKILL-NEVER-001':
                 continue
             if 'skill' not in str(claim.get('category', '')) and not str(claim.get('id', '')).startswith('SKILL'):
                 continue
@@ -894,18 +979,6 @@ class ResumeStudio:
                 pool.setdefault(item['title'].casefold(),
                                 {'name': item['title'], 'evidence_id': (item.get('details') or {}).get('evidence_id') or item['id']})
         return pool
-
-    @staticmethod
-    def _predicted_problem(text, contract):
-        """Why a predicted item may not go on a resume, or '' when it may."""
-        for label, pattern in contract.unsafe_patterns.items():
-            if re.search(pattern, text):
-                return 'it used wording that is never allowed on a resume (' + label + ')'
-        if re.search(r'\b(?:19|20)\d{2}\b', text):
-            return 'it named a date, and suggestions never claim dates'
-        if '%' in text:
-            return 'it cited a percentage, and suggestions never invent metrics'
-        return ''
 
     def _check_tailored_projects(self, result, registry, job, contract, left_out):
         if contract.required_selected_projects == 0:
@@ -936,17 +1009,7 @@ class ResumeStudio:
                                  'origin': 'verified', 'evidence_id': entry.evidence_id,
                                  'slot_id': entry.evidence_id, 'evidence_tag': entry.evidence_id})
             else:
-                # A suggestion that breaks a wording rule is left out, never printed; the rest of
-                # the plan is still good. (Verified items above stay strict: they must match the registry.)
-                problem = self._predicted_problem(' '.join([title, context, *bullets]), contract)
-                if problem:
-                    left_out.append("Left out the suggested project '" + title + "': " + problem + '.')
-                    continue
-                row_id = uuid.uuid4().hex
-                projects.append({'row_id': row_id, 'section': 'projects',
-                                 'content': {'title': title, 'context': context, 'bullets': bullets},
-                                 'origin': 'predicted', 'evidence_id': '',
-                                 'slot_id': row_id, 'evidence_tag': 'resume_items:' + row_id})
+                left_out.append("Left out the suggested project '" + title + "': it has no registered candidate evidence.")
         # Repairs rather than failures (23 Sep: one misplaced project failed a whole tailoring run).
         # A verified project listed twice keeps its first place only.
         distinct, seen_ids = [], set()
@@ -978,8 +1041,6 @@ class ResumeStudio:
         if problem:
             lead = next((i for i, p in enumerate(projects) if p['origin'] == 'verified' and not why_not_lead(p)), None)
             if lead is None:
-                lead = next((i for i, p in enumerate(projects) if p['origin'] == 'predicted'), None)
-            if lead is None:
                 raise ValueError(projects[0]['evidence_id'] + ' cannot lead Projects because ' + problem
                                  + ', and no other project in the plan can; the saved draft was left unchanged.')
             moved = projects[0]['content']['title']
@@ -999,7 +1060,6 @@ class ResumeStudio:
             key = name.casefold()
             if not name or key in seen:
                 continue
-            seen.add(key)
             if origin == 'verified':
                 known = pool.get(key)
                 if not known:
@@ -1007,17 +1067,9 @@ class ResumeStudio:
                     continue
                 skills.append({'row_id': uuid.uuid4().hex, 'section': 'skills', 'content': known['name'],
                                'origin': 'verified', 'evidence_id': known['evidence_id']})
+                seen.add(key)
             else:
-                # "REST API design for patient onboarding workflows" describes work; printed on
-                # the Skills line it reads as a mistake. Such an item is left out, not fatal.
-                if len(name) > PREDICTED_SKILL_MAX_CHARS or len(name.split()) > PREDICTED_SKILL_MAX_WORDS:
-                    continue
-                problem = self._predicted_problem(name, contract)
-                if problem:
-                    left_out.append("Left out the suggested skill '" + name + "': " + problem + '.')
-                    continue
-                skills.append({'row_id': uuid.uuid4().hex, 'section': 'skills', 'content': name,
-                               'origin': 'predicted', 'evidence_id': ''})
+                left_out.append("Left out the suggested skill '" + name + "': it has no registered candidate evidence.")
         if not skills:
             raise ValueError('The tailoring came back with no usable skills; the saved draft was left unchanged.')
         return skills
@@ -1065,7 +1117,8 @@ class ResumeStudio:
             tailored = self._write_project_slot(tailored, 'SecondProject', projects[1])
         base_file = self.w.root / 'data/templates/resume-base.tex'
         base = base_file.read_text(encoding='utf-8') if base_file.exists() else None
-        tailored = self._write_tailored_skills(tailored, skills, base)
+        tailored = self._write_tailored_skills(tailored, skills, base, self._verified_skill_pool())
+        self._require_resume_evidence(job['id'], tailored)
         old, new = extract_zero_argument_macros(source), extract_zero_argument_macros(tailored)
         illegal = {name for name in set(old) | set(new) if old.get(name) != new.get(name) and not tailored_macro(name)}
         if illegal:
@@ -1074,6 +1127,8 @@ class ResumeStudio:
 
     @staticmethod
     def _write_project_slot(source, slot, project):
+        if project['origin'] != 'verified' or not project['evidence_id']:
+            raise ValueError('A project requires registered candidate evidence before it can appear on a resume.')
         marker = 'SECOND_PROJECT' if slot == 'SecondProject' else 'SELECTED_PROJECT'
         content = project['content']
         bullets = (content['bullets'] + ['', '', ''])[:3]
@@ -1096,7 +1151,7 @@ class ResumeStudio:
         return re.sub(r'% ' + marker + r'_BLOCK_START[\s\S]*?% ' + marker + r'_BLOCK_END', lambda _: block, source, count=1)
 
     @staticmethod
-    def _write_tailored_skills(source, items, base=None):
+    def _write_tailored_skills(source, items, base=None, verified_pool=None):
         """Replace every skills macro with the tailored list, keeping each macro's category.
 
         A skill goes to the line the base resume (``base``, resume-base.tex) files it under,
@@ -1104,7 +1159,8 @@ class ResumeStudio:
         made-up category. The base, not the current draft, decides: on 23 Sep a draft an
         earlier tailoring had thinned (Data Engineering empty) sent every data tool to
         Cloud and Tools on the next run. A macro that gains items has their evidence tags
-        merged into its EVIDENCE comment, so a predicted skill stays traceable to its review row.
+        rebuilt from the registered claims for the skills it actually displays. Historical
+        draft wording never proves that an unregistered skill is held.
         """
         macros = [match[1] for match in re.finditer(r'\\newcommand\{\\([A-Za-z]+)\}', source)
                   if match[1] == 'CoreSkills' or match[1].startswith('Skills')]
@@ -1113,48 +1169,45 @@ class ResumeStudio:
         reference = extract_zero_argument_macros(base) if base else {}
         wanted, seen = [], set()
         for item in items:
+            if item['origin'] != 'verified' or not item['evidence_id']:
+                continue
             name = item['content']
             key = name.casefold()
             if key not in seen:
                 seen.add(key)
-                tag = item['evidence_id'] if item['origin'] == 'verified' else 'resume_items:' + item['row_id']
+                tag = item['evidence_id']
                 wanted.append((key, name, tag))
+        approved = {key: (name, tag) for key, name, tag in wanted}
+        if verified_pool is not None:
+            approved = {key: (entry['name'], entry['evidence_id']) for key, entry in verified_pool.items()}
         per_macro, used = {}, set()
         for macro in macros:
             span = macro_span(source, macro)
             raw = reference.get(macro) or source[span[0]:span[1]]
             separator = '; ' if '; ' in raw else ', '
-            original = [item.strip() for item in plain(raw).split(separator) if item.strip()]
+            original = [item.strip() for item in plain(raw).split(separator)
+                        if item.strip() and item.strip().casefold() in approved]
             current = {item.casefold() for item in original}
             kept = [display for key, display, _tag in wanted if key in current]
             used |= {key for key, _display, _tag in wanted if key in current}
             # One model keeps forty skills, another five: a line the tailoring all but emptied
-            # keeps its first original entries (the resume's own verified wording, in order), so
+            # keeps its first registered entries (in order), so
             # no heading is ever printed with nothing after it.
             floor = min(len(original), max(SKILL_LINE_FLOOR, len(original) // 2))
             for item in original:
                 if len(kept) >= floor:
                     break
                 if item.casefold() not in {name.casefold() for name in kept}:
-                    kept.append(item)
+                    kept.append(approved[item.casefold()][0])
             per_macro[macro] = (separator, kept)
         leftover = [(display, tag) for key, display, tag in wanted if key not in used]
-        added = {}
         if leftover:
             separator, kept = per_macro[macros[-1]]
             per_macro[macros[-1]] = (separator, kept + [display for display, _tag in leftover])
-            added[macros[-1]] = [tag for _display, tag in leftover]
         for macro, (separator, kept) in per_macro.items():
             source = write_field(source, macro, separator.join(kept))
-            base_tags = _evidence_tags(base, macro) if base else []
-            if base_tags:
-                # Rebuilt, not appended to: re-tailoring piled up duplicate tags and tags of
-                # review rows the next tailoring deleted, and the claim check then called the
-                # whole line unsupported (Color Health, 23 Sep).
-                tags = list(dict.fromkeys(base_tags + added.get(macro, [])))
-                source = _set_evidence_tags(source, macro, tags)
-            elif macro in added:
-                source = _add_evidence_tags(source, macro, added[macro])
+            tags = list(dict.fromkeys(approved[name.casefold()][1] for name in kept))
+            source = _set_evidence_tags(source, macro, tags)
         return source
 
     @staticmethod
@@ -1225,6 +1278,9 @@ class ResumeStudio:
                 row = db.execute('SELECT * FROM resume_items WHERE id=? AND job_id=?', (item_id, job_id)).fetchone()
             if not row:
                 raise ValueError('That tailored item is not part of this job')
+            if decision == 'kept' and row['origin'] != 'verified':
+                raise ValueError('Suggested skills and projects need registered candidate evidence before they can be kept. '
+                                 'Record the real completed work in Profile, reconcile its evidence, and tailor again.')
             source, signature = draft['source'], None
             if decision == 'removed':
                 if row['section'] == 'skills':

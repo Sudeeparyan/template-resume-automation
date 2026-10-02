@@ -228,19 +228,24 @@ p {
 }
 .page-title {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 20px;
+  gap: 16px 24px;
   margin-bottom: 26px;
 }
 .page-title p {
   margin-bottom: 0;
   max-width: 780px;
 }
-/* The words take what is left; the buttons keep one row unless the page is too narrow. */
+/* The words keep a readable width and take what is left; when the buttons do not fit
+   beside them, the buttons move to their own row below instead of squeezing the words. */
 .page-title > :first-child {
-  flex: 1 1 0;
-  min-width: 0;
+  flex: 1 1 380px;
+  min-width: min(100%, 260px);
+}
+.page-title > :not(:first-child) {
+  max-width: 100%;
 }
 .page-title > .actions {
   flex: 0 1 auto;
@@ -510,6 +515,21 @@ p {
   width: 100%;
   min-width: 0;
   background: transparent;
+}
+/* Phones: search on its own row, the two filters sharing the next one. */
+@media (max-width: 640px) {
+  .list-toolbar {
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+  .list-toolbar .search-input {
+    flex: 1 1 100%;
+    max-width: none;
+  }
+  .list-toolbar select {
+    flex: 1 1 0;
+    min-width: 0;
+  }
 }
 .job-row {
   width: 100%;
@@ -1211,6 +1231,17 @@ blockquote {
     flex: none;
     justify-content: flex-start;
   }
+  /* The page's buttons share the full width in even rows instead of leaving one stranded. */
+  .page-title > .actions {
+    width: 100%;
+  }
+  .page-title > .actions > :is(button, .ask-menu) {
+    flex: 1 1 auto;
+  }
+  .page-title > .actions > .ask-menu > summary {
+    width: 100%;
+    justify-content: center;
+  }
   .agent-grid {
     grid-template-columns: 1fr;
   }
@@ -1906,6 +1937,76 @@ blockquote {
   padding: 20px;
   border: 1px solid #e0e7e3;
   border-radius: 12px;
+}
+.readiness .section-title h2 .badge {
+  font-size: 13px !important;
+  padding: 6px 12px;
+}
+.readiness-body {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+.readiness-body p {
+  margin: 0;
+}
+.readiness-parts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.readiness-parts li {
+  display: grid;
+  gap: 2px;
+  padding: 10px 12px;
+  border: 1px solid #e0e7e3;
+  border-radius: 10px;
+}
+.readiness-parts span,
+.readiness-parts small {
+  color: #65766f;
+  font-size: 12px;
+}
+.readiness-parts b {
+  font-size: 22px;
+  color: #174d40;
+}
+.readiness-checks {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.readiness-checks li {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.readiness-checks svg {
+  flex: none;
+  margin-top: 2px;
+}
+.readiness details summary {
+  cursor: pointer;
+  color: #52675e;
+  font-size: 13px;
+}
+.readiness details .readiness-checks {
+  margin-top: 8px;
+}
+@media (max-width: 700px) {
+  .readiness .match-overview {
+    grid-template-columns: 1fr;
+  }
+  .readiness .match-score {
+    min-height: 110px;
+  }
 }
 .match-summary h3 {
   margin-top: 0;
@@ -2868,6 +2969,15 @@ nav button.active .nav-count {
   }
   .pipe-ai {
     flex-wrap: wrap;
+    row-gap: 4px;
+  }
+  /* The words take the row beside the icon; the Settings link goes under them. */
+  .pipe-ai-text {
+    flex-basis: calc(100% - 40px);
+  }
+  .pipe-ai .text-button {
+    margin-left: 25px;
+    padding-left: 7px;
   }
 }
 .search-notes {
@@ -4019,6 +4129,10 @@ nav button.active .nav-count {
 }
 .chat-input textarea::placeholder {
   color: #8a9a93;
+  /* One line: a wrapped hint is cut off by the one-row box on narrow windows. */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .chat-input-buttons {
   display: flex;
@@ -4277,6 +4391,42 @@ nav button.active .nav-count {
   }
 }
 
+/* The chat column sits beside the sources rail, so the bar follows the column's own width. */
+.chat-main {
+  container: chat / inline-size;
+}
+@container chat (max-width: 480px) {
+  .chat-bar-icon {
+    display: none;
+  }
+  .chat-chip.engine {
+    width: 32px;
+    padding: 0;
+    justify-content: center;
+  }
+  .chat-chip.engine .chat-chip-label {
+    display: none;
+  }
+}
+@container chat (max-width: 640px) {
+  .bar-button {
+    width: 36px;
+    padding: 0;
+    justify-content: center;
+  }
+  .bar-button > span {
+    display: none;
+  }
+  .bar-button .bar-count {
+    position: absolute;
+    top: -5px;
+    right: -5px;
+    padding: 0 5px;
+    font-size: 10px;
+    line-height: 15px;
+    border: 1px solid #fff;
+  }
+}
 /* Below 900px the bar's buttons go icon-only */
 @media (max-width: 900px) {
   .bar-button {
@@ -4606,6 +4756,26 @@ nav button.active .nav-count {
   flex-direction: column;
   gap: 6px;
   flex-shrink: 0;
+}
+.claim-row details pre {
+  overflow-wrap: anywhere;
+}
+/* Phones: the claim keeps the full width and Keep / Remove sit side by side under it. */
+@media (max-width: 640px) {
+  .claim-row {
+    flex-direction: column;
+    gap: 10px;
+  }
+  .claim-main {
+    width: 100%;
+  }
+  .claim-actions {
+    flex-direction: row;
+    width: 100%;
+  }
+  .claim-actions > button {
+    flex: 1;
+  }
 }
 .danger-text {
   color: #9a3f3f;
@@ -5648,6 +5818,17 @@ a.secondary {
   color: #a34646;
   overflow-wrap: anywhere;
 }
+.pipe-verdict {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 12px;
+  color: #52675e;
+  overflow-wrap: anywhere;
+}
 .pipe-next {
   margin-top: 16px;
 }
@@ -5728,6 +5909,11 @@ a.secondary {
   border: 1px solid #d4dfda;
   border-radius: 10px;
   box-shadow: 0 10px 28px rgba(25, 62, 52, 0.16);
+}
+/* Set by AskAssistant when the button is too near the left edge for the menu to open leftwards. */
+.ask-menu.open-right > ul {
+  right: auto;
+  left: 0;
 }
 .ask-menu li button {
   width: 100%;

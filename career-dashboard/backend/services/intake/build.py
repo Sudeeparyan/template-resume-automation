@@ -250,8 +250,13 @@ def build_registry(draft: dict, revision: str, sources: dict, banned: list[str])
                                           date_range(edu.get("start"), edu.get("end")),
                                           ", ".join(clean(c) for c in edu.get("coursework") or []),
                                           " ".join(clean(f) for f in edu.get("facts") or [])) if p)
+            degree = clean(edu.get("degree"))
+            if clean(edu.get("field")) and clean(edu["field"]).casefold() not in degree.casefold():
+                degree = f"{degree} in {clean(edu['field'])}".strip()
+            # The degree on its own too, so the requirement check reads it without the modules.
             claim(f"EDU-HISTORY-{n:03d}", "education_history", "Profile context; not printed on resumes.",
-                  refs_for(edu, sources), title=clean(edu.get("degree")) or "Education", value=text)
+                  refs_for(edu, sources), title=clean(edu.get("degree")) or "Education", value=text,
+                  degree_as_supplied=degree, dates=date_range(edu.get("start"), edu.get("end")))
             continue
         cid = f"EDU-{ident(edu.get('degree'), 10)}-{n:03d}"
         degree = clean(edu.get("degree"))

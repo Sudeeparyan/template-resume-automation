@@ -123,6 +123,7 @@ def _routes(gateway) -> list:
 def overview(services, refresh: bool = False, gateway=None) -> dict:
     """Everything the settings screen needs in one call."""
     from backend.services.agents import mail_available
+    from backend.services.demo import demo_mode
 
     root = services.w.root
     providers = []
@@ -163,6 +164,7 @@ def overview(services, refresh: bool = False, gateway=None) -> dict:
             for name, agent in sorted(REGISTRY.items())
         ],
         "preferences": _preferences(services),
+        "demo_mode": demo_mode(services),
     }
 
 
@@ -265,12 +267,11 @@ def test_provider(services, provider_id: str, model: str) -> dict:
 
 
 def team(services, on_usage=None) -> AgentTeam:
-    from backend.ai import usage_recorder
+    from backend.ai import team_for
 
-    from backend.ai.persona import persona_for
-
-    return AgentTeam.from_preferences(services.w.root, _preferences(services), on_usage or usage_recorder(services),
-                                      persona=persona_for(services.w.root))
+    # Keep this older entry point on the same saved route and paid gate as the
+    # chat, dashboard, and scheduled search specialists.
+    return team_for(services, on_usage)
 
 
 def choose_main(services, gateway, provider_id: str, model: str) -> dict:

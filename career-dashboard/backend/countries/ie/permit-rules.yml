@@ -1,0 +1,25 @@
+version: ie-2026-03-v1
+effective_from: '2026-03-01'
+verified_at: '2026-10-02'
+review_after: '2026-11-01'
+# Discovery guidance only. Exceptions, employer facts and occupation classification
+# require confirmation; a salary threshold is never approval to work.
+routes:
+  gep:
+    title: General Employment Permit
+    annual: 36605
+    graduate_annual: 34009
+    graduate_condition: Relevant Irish third-level degree awarded in the previous 12 months
+    url: https://enterprise.gov.ie/en/what-we-do/workplace-and-skills/employment-permits/permit-types/general-employment-permit/
+  csep:
+    title: Critical Skills Employment Permit
+    annual: 40904
+    graduate_annual: 36848
+    graduate_condition: Relevant qualifying degree awarded in the previous 12 months and eligible occupation
+    minimum_contract_months: 24
+    url: https://enterprise.gov.ie/en/what-we-do/workplace-and-skills/employment-permits/permit-types/critical-skills-employment-permit/
+occupation_sources:
+  - title: Critical Skills Occupations List
+    url: https://enterprise.gov.ie/en/what-we-do/workplace-and-skills/employment-permits/employment-permit-eligibility/highly-skilled-eligible-occupations-list/
+  - title: Ineligible List of Occupations
+    url: https://enterprise.gov.ie/en/what-we-do/workplace-and-skills/employment-permits/employment-permit-eligibility/ineligible-categories-of-employment/

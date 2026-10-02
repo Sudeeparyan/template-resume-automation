@@ -2,7 +2,9 @@ import { describe, it, expect } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { assistantOutputEntries, clock, dayLabel, elapsed, exportMarkdown, matches, quickReplies, unfinished, EngineChip, Exchange, HistoryDrawer, MoreMenu, Welcome } from "./Assistant";
 import { RichText } from "../components/UI";
-import type { ApplicationDocuments, AssistantConversation, AssistantEngine, AssistantMessage } from "../types";
+import type { ApplicationDocuments, AssistantConversation, AssistantEngine, AssistantMessage, Job } from "../types";
+import { ProfileContext } from "../profiles";
+import type { ProfileEntry } from "../profiles";
 
 const message = (steps: AssistantMessage["steps"], state: AssistantMessage["state"] = "done"): AssistantMessage => ({
   id: "m1", message: "x", response: "y", state, steps, data: {}, created_at: "", updated_at: "",
@@ -115,6 +117,27 @@ describe("Thread helpers", () => {
 describe("Rendering", () => {
   const names = new Map([["sponsorship", "Sponsorship gate"]]);
   const base = { names, expanded: false, onExpand() {}, onSteps() {}, onJob() {}, onSend() {}, onEdit() {}, now: Date.now() };
+  it("uses each saved job's market in single and multiple resume cards", () => {
+    const current = { id: "example-profile", country: "ie", market: null } as ProfileEntry;
+    const jobs = new Map([
+      ["irish-job", { id: "irish-job", market: "ie", sponsor_tier: "C" } as Job],
+      ["us-job", { id: "us-job", market: "us", sponsor_tier: "C" } as Job],
+    ]);
+    const render = (data: AssistantMessage["data"]) => renderToStaticMarkup(
+      <ProfileContext.Provider value={{ current, profiles: [current], reload: async () => {} }}>
+        <Exchange {...base} jobs={jobs} message={{ ...message([]), data }} />
+      </ProfileContext.Provider>,
+    );
+    const single = render({ intent: "resume_ready", company: "Example Co", title: "Analyst", job_id: "us-job", tier: "C" });
+    expect(single).toContain("H-1B");
+    expect(single).not.toContain("work permits");
+    const multiple = render({ cards: [
+      { job_id: "irish-job", company: "Example Ireland", title: "Analyst", tier: "C" },
+      { job_id: "us-job", company: "Example US", title: "Analyst", tier: "C" },
+    ] });
+    expect(multiple).toContain('title="Posting is silent on work permits; still worth applying"');
+    expect(multiple).toContain('title="Posting is silent, no H-1B record; still worth applying"');
+  });
   it("renders a finished exchange with its tools, card and suggestions", () => {
     const html = renderToStaticMarkup(
       <Exchange

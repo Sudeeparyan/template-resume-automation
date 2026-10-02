@@ -26,9 +26,11 @@ import sqlite3
 import subprocess
 import sys
 import threading
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
+from zoneinfo import ZoneInfo
 
 from fastapi import Request
 from pydantic import BaseModel, Field
@@ -102,13 +104,20 @@ def _legacy_preferences(profiles) -> dict:
 def team_factory(profiles):
     """An AgentTeam on the machine's AI (the same main choice the backup profile uses).
 
-    Nothing about the intake is recorded in any other profile's database: usage goes
-    to the intake's own state file through `on_usage`.
+    Before the profile has a database, its own intake state holds paid-call
+    reservations and route switches. No other profile's calls are charged.
     """
 
     def make(on_usage):
-        from backend.ai import _default_model, ready_providers, resolve_tiers
+        from backend.ai import _default_model, ready_providers, resolve_tiers, router
         from backend.ai.agents.graph import AgentTeam
+        from backend.services.agent_cache import DEFAULT_LIMIT
+
+        # IntakeJob supplies its bound usage callback from both document reading
+        # and setup chat. It owns the lock and state until the workspace is built.
+        job = getattr(on_usage, "__self__", None)
+        if not isinstance(job, IntakeJob):
+            raise ValueError("Profile setup cannot account for AI calls without an intake job.")
 
         ready = ready_providers(APP_ROOT)
         if not any(ready.values()):
@@ -116,15 +125,73 @@ def team_factory(profiles):
                              "copy career-dashboard/.env.example to career-dashboard/.env and add a provider API key, "
                              "or sign in to a supported Kimi Code, Codex or Claude Code CLI. Restart the launcher "
                              "and try again. Settings opens after the profile is built.")
-        preferences = _legacy_preferences(profiles).get("ai_preferences") or {}
+        saved = _legacy_preferences(profiles)
+        preferences = saved.get("ai_preferences") or {}
         tiers, _moved = resolve_tiers(APP_ROOT, preferences, ready)
         backup = preferences.get("fallback") or {}
         fallback = None
         if backup.get("provider") and ready.get(backup["provider"]):
             fallback = (backup["provider"], backup.get("model") or _default_model(backup["provider"], "strong"))
-        return AgentTeam(APP_ROOT, tiers, on_usage, fallback=fallback)
+
+        limit = int((saved.get("ai_policy") or {}).get("daily_call_limit", DEFAULT_LIMIT))
+
+        def paid_gate(provider):
+            # Reserve before the call, including failed attempts. Document sections
+            # run concurrently, so the profile's intake lock prevents overspending.
+            with job.lock:
+                state = job._read("state.json", {})
+                day = datetime.now().astimezone().date().isoformat()
+                budget = state.get("paid_ai") or {}
+                used = int(budget.get("calls") or 0) if budget.get("day") == day else 0
+                if limit <= 0:
+                    return "paid AI is switched off (the paid limit is 0)"
+                if used >= limit:
+                    return f"today's paid limit ({limit} calls) is used up"
+                reservations = list(budget.get("reservations") or []) if budget.get("day") == day else []
+                reservations.append({"id": uuid.uuid4().hex, "provider": provider,
+                                     "at": datetime.now(timezone.utc).isoformat(timespec="seconds")})
+                state["paid_ai"] = {"day": day, "calls": used + 1, "limit": limit,
+                                    "reservations": reservations}
+                job._write("state.json", state)
+            return None
+
+        def on_switch(event):
+            with job.lock:
+                state = job._read("state.json", {})
+                switches = state.setdefault("provider_fallbacks", [])
+                switches.append({"at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                                 "from_provider": event["from_provider"],
+                                 "to_provider": event["to_provider"],
+                                 "reason": str(event.get("reason") or "")[:300]})
+                state["provider_fallbacks"] = switches[-50:]
+                job._write("state.json", state)
+
+        return AgentTeam(APP_ROOT, tiers, on_usage, fallback=fallback,
+                         route={"policy": router.policy_from(preferences), "paid_gate": paid_gate,
+                                "on_switch": on_switch, "ready": ready})
 
     return make
+
+
+def _carry_intake_paid_calls(job: IntakeJob, service, db) -> None:
+    """Keep today's intake reservations inside the built profile's paid-call cap."""
+    reservations = (job.state().get("paid_ai") or {}).get("reservations") or []
+    today = service.today()
+    zone = ZoneInfo(service.w.timezone)
+    for entry in reservations:
+        try:
+            at = datetime.fromisoformat(entry["at"])
+            day = at.astimezone(zone).date().isoformat()
+            if day != today or not entry.get("id") or not entry.get("provider"):
+                continue
+        except (KeyError, TypeError, ValueError):
+            continue
+        db.execute(
+            """INSERT OR IGNORE INTO ai_calls
+            (id, cache_key, day, state, created_at, provider, model, action, cache_version)
+            VALUES (?, 'intake-paid', ?, 'reserved', ?, ?, 'auto', 'profile_intake', 'intake-v1')""",
+            (entry["id"], day, entry["at"], entry["provider"]),
+        )
 
 
 def review(job: IntakeJob) -> dict:
@@ -350,6 +417,7 @@ def attach_intake(api, profiles, apps) -> dict:
         app = apps.app(profile_id)  # first open seeds the profile database from the new files
         service = app.state.career
         with service.w.connect() as db:
+            _carry_intake_paid_calls(job, service, db)
             service.w.record_event(db, "profile_built_from_documents", files=[f["name"] for f in job.files()],
                                    coverage=(draft.get("coverage") or {}).get("accounted"))
         service.w.export_tracking()

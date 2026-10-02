@@ -47,6 +47,19 @@ def shared_skills() -> list[Path]:
     return sorted(p for p in SKILLS.iterdir() if (p / "SKILL.md").is_file())
 
 
+def test_actionable_skill_commands_always_identify_the_selected_profile():
+    """A pasted instruction must not read or mutate the last-opened person's data."""
+    pattern = re.compile(r"career\s+(?:ws|add|prepare|update|jobs|status|setup)\b[^`\n]*")
+    for skill in shared_skills():
+        text = (skill / "SKILL.md").read_text(encoding="utf-8")
+        for command in pattern.findall(text):
+            # Plain command names in prose are not runnable examples; initial
+            # setup intentionally creates a new profile rather than selecting one.
+            if "--" not in command or command.startswith("career setup --name"):
+                continue
+            assert "--profile" in command, f"{skill.name}: {command} relies on the last-opened profile"
+
+
 def test_every_skill_is_well_formed_and_claude_lists_the_same_one():
     skills = shared_skills()
     assert {p.name for p in skills} >= {"career-setup", "find-jobs", "tailor-resume", "morning-jobs",
@@ -119,6 +132,10 @@ def test_the_shared_layer_passes_the_privacy_scan():
         assert scan.file_errors(path.relative_to(REPO).as_posix()) == []
     # A person's own files in me/ and my-jobs/ are private; only the guides are shared.
     assert scan.private_path("me/resume.pdf") and scan.private_path("my-jobs/tracker.csv")
+    scratch = "career-dashboard/.test-source-audit/example/data/config/profile.yml"
+    assert scan.private_path(scratch)
+    assert scan.file_errors(scratch) == [f"{scratch}: private path is staged or otherwise publishable"]
+    assert scan.ignore_errors() == []
     assert not scan.private_path("me/about-me.example.md") and not scan.private_path(".agents/skills/find-jobs/SKILL.md")
 
 

@@ -5,10 +5,46 @@ import { AskAssistant, Running, Empty } from "../components/UI";
 import { JobList } from "../components/JobList";
 import { PipelineBuilder, PipelineProgress } from "./SearchPipeline";
 import OvernightHunt from "./OvernightHunt";
-import type { PipelineChoice, PipelineInfo, PipelineRun, PipelineStatus, Summary } from "../types";
+import Coverage from "./Coverage";
+import type { Job, PipelineChoice, PipelineInfo, PipelineRun, PipelineStatus, Summary } from "../types";
 /** What a search sends: the AI is left out, so the one chosen in Settings does the work. */
 function searchOnly({ count, source, steps }: PipelineChoice) {
   return { count, source, steps };
+}
+
+/** Salary sections never hide a recorded application or promote a researched estimate to an offer. */
+export function opportunityGroups(jobs: Job[]) {
+  const groups: Record<"salary_matches" | "researched_leads" | "needs_research" | "below_floor" | "applications" | "other", Job[]> = {
+    salary_matches: [], researched_leads: [], needs_research: [], below_floor: [], applications: [], other: [],
+  };
+  for (const job of jobs) {
+    const opportunity = job.opportunity;
+    if (job.application_date || !["saved", "prepared"].includes(job.status)) groups.applications.push(job);
+    else if (!opportunity) groups[job.market === "ie" ? "needs_research" : "other"].push(job);
+    else if (opportunity.salary_state === "below_floor" || opportunity.section === "below_floor") groups.below_floor.push(job);
+    else if (opportunity.salary.kind === "advertised" && opportunity.salary_state === "meets_floor" && opportunity.section === "salary_matches") groups.salary_matches.push(job);
+    else if (opportunity.salary.kind === "researched" && opportunity.section === "researched_leads" && opportunity.salary_state === "meets_floor") groups.researched_leads.push(job);
+    else groups.needs_research.push(job);
+  }
+  return groups;
+}
+
+export function OpportunityLists({ jobs, onJob }: { jobs: Job[]; onJob: (id: string) => void }) {
+  const groups = opportunityGroups(jobs);
+  const sections = [
+    ["salary_matches", "Advertised salary matches", "The advertised salary meets your floor. Review permit checks and application readiness separately."],
+    ["researched_leads", "Researched salary leads", "Salary estimates from cited research. Confirm the actual offer with the employer before treating it as a salary match."],
+    ["needs_research", "Salary needs confirmation", "Salary is missing, unverified, or the range does not confirm your floor. These roles are outside the salary shortlist."],
+    ["below_floor", "Below your salary floor", "Saved for reference and kept outside the salary shortlist."],
+    ["applications", "Tracked applications", "Your application history stays visible regardless of salary evidence."],
+    ["other", "Other saved jobs", "These jobs do not have an Ireland salary assessment."],
+  ] as const;
+  if (!jobs.length) return <Empty title="No jobs in this view">New discoveries will appear here with their salary evidence.</Empty>;
+  return <>{sections.map(([key, title, note]) => groups[key].length > 0 && <section className="spaced" key={key} aria-label={title}>
+    <h2>{title} · {groups[key].length}</h2>
+    <p className="small muted">{note}</p>
+    <JobList jobs={groups[key]} onSelect={onJob} filters={false} />
+  </section>)}</>;
 }
 
 export default function DailySearch({
@@ -185,6 +221,7 @@ export default function DailySearch({
       )}
       {running && !active && <Running run={running} />}
       <OvernightHunt notify={notify} onJob={onJob} refresh={refresh} pipelineActive={active} />
+      <Coverage refreshKey={data.runs.slice(0, 5).map((run) => `${run.id}:${run.state}:${run.updated_at}`).join("|")} />
       {latestDiscovery?.result?.summary && (
         <details className="search-notes">
           <summary>What the last job search tried, and why it stopped</summary>
@@ -245,9 +282,9 @@ export default function DailySearch({
             ＋ Save posting
           </button>
         </div>
-        <JobList
+        <OpportunityLists
           jobs={all ? data.jobs : data.jobs.filter((j) => ids.has(j.id))}
-          onSelect={onJob}
+          onJob={onJob}
         />
       </section>
       <section className="card spaced">

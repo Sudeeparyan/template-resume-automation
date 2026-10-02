@@ -12,9 +12,17 @@ description: >-
 Goal: after one short conversation the person has a profile you can trust and knows what to ask
 next. Read `AGENTS.md` first for the two modes and the rules.
 
+Run `career doctor` before collecting facts. In App mode, zero profiles is the normal first
+run. If this person's profile already exists, use `--profile <id>` to resume or rebuild it;
+do not create another profile after a failed build. Resolve multiple profiles before reading
+sources. The shared `me/` inbox should contain only the selected person's files.
+
 ## 1. Find their documents
 
 - Look in `me/` for a resume or CV (PDF, DOCX, TXT or MD) and for `me/about-me.md`.
+- If the person supplied an attachment or selected a file in a connected Drive, save that
+  document in `me/` first using the available file tool. A chat attachment or cloud connection
+  alone does not add a source to the app. Ask for a local copy when no download tool exists.
 - Nothing there: ask them to put their resume in the `me` folder of this workspace, or to paste
   its text in the chat (save pasted text as `me/resume.md`). Wait for it.
 - `me/about-me.md` missing: copy `me/about-me.example.md` to `me/about-me.md`.
@@ -49,17 +57,28 @@ The JSON is keyed by market: `{"ie": {"status": "...", "citizenship": "...",
 
 | They said | status | citizenship |
 |---|---|---|
-| citizen (Ireland: Irish or EU/EEA; US: citizen or green card) | `authorized` | `citizen` |
+| citizen (Ireland: Irish or EU/EEA; US: citizen) | `authorized` | `citizen` |
+| US green-card holder | `authorized` | `noncitizen` |
 | a current permission or visa that lets them work | `authorized` | `noncitizen` |
 | an employer must get them a permit or sponsor them | `needs_sponsorship` | `noncitizen` |
 
+A green card must not be recorded as citizenship. Preserve the person's exact permission
+wording in their source notes and confirm their future-sponsorship answer separately.
+
 `needs_sponsorship_later` is `yes` or `no`. Leave out any field they are unsure of; it stays
-unknown and blocks job searches until answered. The build reads every file in `me/` (except the
-guides and `profile.md`), takes a few minutes and prints JSON. When it reports that no AI app is
-signed in on this computer or that Tectonic is missing, tell them exactly that (the fix is in
-`README.md`) and carry on in AI-only mode for now. After a good build, compare `target_roles.primary`
+unknown and blocks job searches until answered. On Windows, save the JSON in a private file
+such as `me/work-authorization.json` and pass `--work-auth me/work-authorization.json` to avoid
+shell quoting problems. The build reads supported documents in `me/` (except the guides and
+`profile.md`), takes a few minutes and prints JSON. When it reports missing AI sign-in or
+Tectonic, explain the specific fix from `README.md`, retain the returned profile ID, and resume
+with `--profile <id>` after it is fixed. Do not claim setup is complete or start a parallel
+AI-only profile. Success needs `build.status: completed` and `state: ready`.
+After a good build, compare `target_roles.primary`
 in `career-dashboard/profiles/<id>/data/config/profile.yml` with the titles they asked for; the
 person changes differences on the dashboard's Profile page (you never edit that file by hand).
+Run `career status --profile <id>` to verify the saved candidate and show the ID in the setup
+reply. A provider executable found by doctor is not proof of sign-in; AI readiness is checked
+by the build or `career ws ai-status --profile <id>`.
 
 **AI-only mode.** Write `me/profile.md`. Every line ends with its source in square brackets:
 `[resume.pdf]`, `[about-me]` or `[chat 2026-10-05]`. Copy titles, dates and numbers exactly as

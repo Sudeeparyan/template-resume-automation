@@ -13,6 +13,7 @@ from backend.job_quality import JobQualityService, ProfileRules  # noqa: E402
 from backend.services.agents import AgentRunner  # noqa: E402
 from backend.services.assistant import Assistant  # noqa: E402
 from backend.services.assistant_tools import Toolbox  # noqa: E402
+from backend.services.pipeline import STEP_IDS  # noqa: E402
 from backend.services.resume_studio import ResumeStudio  # noqa: E402
 
 from test_hunt import ireland_profile  # noqa: E402 - the same disposable Ireland profile
@@ -75,7 +76,7 @@ def test_start_hunt_tool_passes_only_what_was_asked(tmp_path):
     _, tools = assistant_for(services, hunt)
     result = tools.call("start_hunt", {"target": "15", "min_fit": 75, "steps": "tailor,pdf"})
     assert hunt.started[-1] == {"target": 15, "min_fit": 75,
-                                "steps": {"research": False, "tailor": True, "study_plan": False, "pdf": True}}
+                                "steps": {step: step in ("tailor", "pdf") for step in STEP_IDS}}
     assert result["hunt_id"] == "hunt1"
     assert tools.call("stop_hunt")["stopped"] is True
 

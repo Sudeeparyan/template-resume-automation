@@ -43,9 +43,10 @@ import type {
   AssistantOverview,
   AssistantStep,
   ApplicationDocuments,
+  Job,
   Summary,
 } from "../types";
-import { useTierTitles } from "../components/JobList";
+import { TierBadge } from "../components/JobList";
 import { useMarket, useProfiles } from "../profiles";
 import SourceLibrary from "./SourceLibrary";
 
@@ -804,6 +805,7 @@ export default function Assistant({ data, refresh, notify, onJob, asked, onAsked
                     onEdit={prompt}
                     now={now}
                     jobTier={m.data.job_id ? jobs.get(m.data.job_id)?.sponsor_tier : undefined}
+                    jobs={jobs}
                     stopping={stopping && m.state === "processing"}
                     latest={i === shown.length - 1 && !echo}
                   />
@@ -1313,6 +1315,7 @@ export function Exchange({
   onEdit,
   now,
   jobTier,
+  jobs,
   stopping = false,
   latest = false,
 }: {
@@ -1328,11 +1331,11 @@ export function Exchange({
   onEdit?: (text: string) => void;
   now: number;
   jobTier?: string | null;
+  jobs?: Map<string, Job>;
   stopping?: boolean;
   /** The newest exchange: only its open question gets answer buttons. */
   latest?: boolean;
 }) {
-  const tierTitle = useTierTitles();
   const long = m.message.length > FOLD_AT;
   const shown = long && !expanded ? m.message.slice(0, FOLD_AT) + "…" : m.message;
   const working = m.state === "processing";
@@ -1502,12 +1505,7 @@ export function Exchange({
                         {m.data.company} — {m.data.title}
                       </b>
                       {(m.data.tier || jobTier) && (
-                        <Badge
-                          tone={tier === "S" ? "green" : tier === "A" ? "lime" : "neutral"}
-                          title={tierTitle[tier as keyof typeof tierTitle]}
-                        >
-                          Tier {tier}
-                        </Badge>
+                        <TierBadge job={{ ...(m.data.job_id ? jobs?.get(m.data.job_id) : undefined), sponsor_tier: tier } as Job} />
                       )}
                       {m.data.revision != null && <small>v{m.data.revision}</small>}
                     </div>
@@ -1567,12 +1565,7 @@ export function Exchange({
                       {card.revision != null && <small> · v{card.revision}</small>}
                     </span>
                     {card.tier && (
-                      <Badge
-                        tone={card.tier === "S" ? "green" : card.tier === "A" ? "lime" : "neutral"}
-                        title={tierTitle[card.tier as keyof typeof tierTitle]}
-                      >
-                        Tier {card.tier}
-                      </Badge>
+                      <TierBadge job={{ ...jobs?.get(card.job_id), sponsor_tier: card.tier } as Job} />
                     )}
                     {(card.coverage != null || card.ats != null) && (
                       <small className="chat-card-scores">

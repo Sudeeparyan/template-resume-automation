@@ -12,6 +12,8 @@ import {
   Upload,
 } from "lucide-react";
 import { shellApi, uploadFile } from "../api";
+import { LatestRequest } from "../latestRequest";
+import OnboardingLoad from "./OnboardingLoad";
 import { Badge, Field } from "../components/UI";
 import { firstName, type ProfileEntry } from "../profiles";
 
@@ -55,21 +57,26 @@ export default function Onboarding({
   onUseChat?: () => void;
 }) {
   const [intake, setIntake] = useState<Intake | null>(null);
+  const [loadError, setLoadError] = useState("");
+  const reads = useRef(new LatestRequest()).current;
   const [busy, setBusy] = useState("");
   const [dragging, setDragging] = useState(false);
   const input = useRef<HTMLInputElement>(null);
   const base = `/profiles/${profile.id}/intake`;
 
   const load = useCallback(async () => {
+    setLoadError("");
     try {
-      setIntake(await shellApi<Intake>(base));
+      await reads.run(() => shellApi<Intake>(base), setIntake);
     } catch (e) {
+      setLoadError((e as Error).message);
       notify((e as Error).message, true);
     }
-  }, [base, notify]);
+  }, [base, notify, reads]);
   useEffect(() => {
     load();
-  }, [load]);
+    return () => reads.invalidate();
+  }, [load, reads]);
   useEffect(() => {
     if (intake?.state !== "reading" && intake?.state !== "building") return;
     const timer = setInterval(load, 2000);
@@ -77,11 +84,12 @@ export default function Onboarding({
   }, [intake?.state, load]);
 
   async function upload(files: FileList | File[]) {
+    reads.invalidate();
     setBusy("upload");
     try {
       let latest: Intake | null = null;
       for (const file of Array.from(files)) latest = await uploadFile<Intake>("/api" + base + "/files", file, file.name);
-      if (latest) setIntake(latest);
+      if (latest) { reads.invalidate(); setIntake(latest); }
     } catch (e) {
       notify((e as Error).message, true);
     } finally {
@@ -89,9 +97,11 @@ export default function Onboarding({
     }
   }
   async function act(name: string, path: string, method = "POST", body?: unknown) {
+    reads.invalidate();
     setBusy(name);
     try {
       const next = await shellApi<Intake & { profile?: ProfileEntry }>(path, method, body);
+      reads.invalidate();
       setIntake(next);
       return next;
     } catch (e) {
@@ -103,7 +113,7 @@ export default function Onboarding({
   }
 
   const who = firstName(profile.name) || profile.name;
-  if (!intake) return <div className="onboarding"><LoaderCircle className="spin" /> Loading…</div>;
+  if (!intake) return <OnboardingLoad error={loadError} onRetry={() => void load()} />;
   const reading = intake.state === "reading" || intake.running;
   return (
     <div className="onboarding">

@@ -10,11 +10,12 @@ from pathlib import Path
 from backend.ai import limits
 from backend.services import hunt as hunt_module
 from backend.services import reapply
+from backend.services.pipeline import STEP_IDS
 from backend.services.reapply import REMOVAL_REASONS
 
 from test_hunt import FakeClock, ireland_profile, make_hunt, posting, run_inline
 
-NO_STEPS = {"research": False, "tailor": False, "study_plan": False, "pdf": False}
+NO_STEPS = {step: False for step in STEP_IDS}
 
 
 # ----- usage limits: the five-hour window -------------------------------------------------------
@@ -71,17 +72,28 @@ def test_removal_reasons_teach_the_next_searches():
         row("Birch", "Data Analyst", deleted_at=removed, deletion_reason=REMOVAL_REASONS["company"]),
         row("Cedar", "BI Developer", deleted_at=removed, deletion_reason=REMOVAL_REASONS["location"]),
         row("Delta", "Data Engineer", deleted_at=removed, deletion_reason=REMOVAL_REASONS["permit"]),
+        row("Fir", "Data Scientist", deleted_at=removed, deletion_reason=REMOVAL_REASONS["senior"]),
     ]
     check = lambda company, title: reapply.check(company, title, memory, automatic=True)  # noqa: E731
     # The wrong kind of role: that title is skipped at every company.
     assert check("Elm", "Sales Analyst")["rule"] == "removed_title"
-    # Not this company, or it needs a permit: every role there is skipped.
+    # Only an explicit company preference rules out every role there.
     assert check("Birch", "BI Developer")["rule"] == "removed_company"
-    assert check("Delta", "Data Analyst")["rule"] == "removed_company"
-    # The wrong location teaches only that role.
+    # Permit, location and seniority describe the removed vacancy. A different
+    # vacancy can have different requirements, even with the same employer or title.
+    assert check("Delta", "Data Engineer")["rule"] == "removed_before"
+    assert not check("Delta", "Data Analyst")["blocked"]
+    assert not check("Elm", "Data Engineer")["blocked"]
     assert check("Cedar", "BI Developer")["rule"] == "removed_before"
     assert not check("Cedar", "Data Analyst")["blocked"]
+    assert not check("Elm", "BI Developer")["blocked"]
+    assert check("Fir", "Data Scientist")["rule"] == "removed_before"
+    assert not check("Fir", "Data Analyst")["blocked"]
+    assert not check("Elm", "Data Scientist")["blocked"]
     assert not check("Elm", "Data Analyst")["blocked"]
+    # A person adding a previously rejected kind of role still receives the reason.
+    manual = reapply.check("Elm", "Sales Analyst", memory)
+    assert not manual["blocked"] and "mostly sales" in manual["note"]
     assert reapply.removal_kind("Marked not suitable by user") is None
     assert reapply.removal_kind(REMOVAL_REASONS["senior"]) == "senior"
 
@@ -151,11 +163,54 @@ def test_a_helper_step_that_times_out_is_tried_once_more(tmp_path):
 
 
 def test_an_interrupted_hunt_carries_on_with_the_jobs_it_saved(tmp_path):
+    from backend.services.pipeline import Pipeline
+
     services = ireland_profile(tmp_path)
     clock = FakeClock()
-    hunt, runner, pipeline = make_hunt(services, ["Birch Data"], clock)
+    hunt, runner, choices = make_hunt(services, ["Birch Data"], clock)
+
+    class SavedDraft:
+        """Synthetic artifacts, with the real durable stage wrapper checking them."""
+        def folder(self, job_id):
+            return services.w.root / "data/output" / ("recovery-" + job_id)
+
+        def open(self, job_id):
+            self.folder(job_id).mkdir(parents=True, exist_ok=True)
+
+        def get(self, job_id):
+            folder = self.folder(job_id)
+            source = folder / "draft.tex"
+            return {"revision": int(source.exists()), "source": source.read_text() if source.exists() else "",
+                    "preview": {"path": str(folder.relative_to(services.w.root / "data/output"))}}
+
+    studio = SavedDraft()
+
+    def durable_pipeline():
+        pipeline = Pipeline(services, runner, studio, poll_seconds=0.01)
+        pipeline.preferences, pipeline.providers = choices.preferences, choices.providers
+        pipeline.status = choices.status
+        pipeline.steps = []
+
+        def tailor(job_id, config):
+            pipeline.steps.append(("tailor", job_id))
+            studio.open(job_id)
+            (studio.folder(job_id) / "draft.tex").write_text("Sample evidence-backed draft for " + job_id)
+            return {"note": "tailor done"}
+
+        def pdf(job_id, config):
+            pipeline.steps.append(("pdf", job_id))
+            (studio.folder(job_id) / "resume.pdf").write_bytes(b"%PDF-1.7 sample test artifact")
+            return {"note": "pdf done"}
+
+        pipeline._tailor, pipeline._pdf = tailor, pdf
+        return pipeline
+
+    pipeline = hunt.pipeline = durable_pipeline()
     first = services.add_posting(posting(90, company="Acme Analytics"), source="discovery")["job"]
     config = hunt.validate({"target": 2, "hours": 4, "steps": {**NO_STEPS, "tailor": True, "pdf": True}})
+    # Finished work has a durable task and matching artifact, not just a progress flag.
+    run_config = {**config, "free_only": True}
+    pipeline.run_step("tailor", first["id"], run_config)
     progress = {"stage": "Tailored resume for Acme Analytics", "started_epoch": clock.now - 3600,
                 "search_until_epoch": clock.now + 1800, "deadline_epoch": clock.now + 3 * 3600, "target": 2, "cycle": 1,
                 "saved": [{"id": first["id"], "company": "Acme Analytics", "title": "Data Analyst", "location": "Dublin",
@@ -168,6 +223,7 @@ def test_an_interrupted_hunt_carries_on_with_the_jobs_it_saved(tmp_path):
                    ("old", "running", json.dumps(config), json.dumps(progress), services.now(), services.now()))
     hunt.recover()  # the app restarted
     assert hunt.get("old")["state"] == "interrupted"
+    pipeline = hunt.pipeline = durable_pipeline()  # a new service instance reads the persisted stages
 
     new = inline_start(hunt, hunt.resume_interrupted)
     done = hunt.get(new["id"])
@@ -180,6 +236,17 @@ def test_an_interrupted_hunt_carries_on_with_the_jobs_it_saved(tmp_path):
     old = hunt.get("old")
     assert old["progress"]["resumed_into"] == new["id"] and "carried on by itself" in old["error"]
     assert hunt.resume_interrupted() is None  # once only
+
+    # Current artifacts are reusable; a removed PDF or draft must be rebuilt.
+    completed_steps = list(pipeline.steps)
+    pipeline.run_step("pdf", first["id"], run_config)
+    assert pipeline.steps == completed_steps
+    (studio.folder(first["id"]) / "resume.pdf").unlink()
+    pipeline.run_step("pdf", first["id"], run_config)
+    assert pipeline.steps == completed_steps + [("pdf", first["id"])]
+    (studio.folder(first["id"]) / "draft.tex").unlink()
+    pipeline.run_step("tailor", first["id"], run_config)
+    assert pipeline.steps[-1] == ("tailor", first["id"])
 
 
 def test_an_interrupted_hunt_whose_time_is_up_is_left_alone(tmp_path):

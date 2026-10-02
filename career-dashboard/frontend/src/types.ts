@@ -25,6 +25,52 @@ export type Job = {
   fit_score?: number | null;
   fit_rationale?: string | null;
   closed_at?: string | null;
+  opportunity?: Opportunity | null;
+};
+export type SalarySource = {
+  url: string;
+  title: string;
+  quote: string;
+  observed_at: string;
+};
+export type SearchCoverage = {
+  sources: {
+    key: string;
+    cursor: Record<string, unknown>;
+    state: "partial" | "complete" | "failed" | "blocked" | "attempted";
+    checked_at: string | null;
+    found: number;
+    error: string | null;
+  }[];
+  complete: number;
+  partial: number;
+  failed: number;
+  scope: string;
+};
+export type Opportunity = {
+  salary: {
+    kind: "advertised" | "researched" | "unknown";
+    currency: string;
+    minimum: number | null;
+    maximum: number | null;
+    annual_min: number | null;
+    annual_max: number | null;
+    period: string;
+    quote: string;
+    url: string;
+    sources: SalarySource[];
+    observed_at: string;
+  };
+  salary_state: "meets_floor" | "below_floor" | "needs_confirmation" | "unknown";
+  section: "salary_matches" | "researched_leads" | "needs_research" | "below_floor";
+  permit: {
+    state: "needs_confirmation" | "obstacle" | "criteria_checked";
+    summary: string;
+    checks: { id: string; label: string; state: "pass" | "unknown" | "fail"; note: string }[];
+    sources: { url: string; title: string }[];
+  };
+  floor: number;
+  sponsorship: { state: string; quote: string };
 };
 export type SponsorTier = "S" | "A" | "B" | "C";
 export type SponsorEvidence = {
@@ -77,6 +123,8 @@ export type CoverLetter = {
 export type Report = {
   summary: string;
   report: string;
+  verdict?: "pass" | "review" | "blocked";
+  issues?: string[];
   sources: { title: string; url: string; accessed_at: string }[];
   limitations: string[];
 };
@@ -478,6 +526,28 @@ export type PipelineStepState = {
   started_epoch?: number;
   quick?: boolean;
   found?: number;
+  /** The ready-to-submit check's verdict and readiness score (backend/services/readiness.py). */
+  verdict?: ReadinessVerdict;
+  score?: number | null;
+  /** What is left before sending, most important first. */
+  next?: string[];
+  /** Each search pass of a Daily Search that came back short and looked again. */
+  passes?: { label: string; state: string; found?: number; looked?: number; seconds?: number; error?: string }[];
+};
+export type ReadinessVerdict = "ready" | "review" | "blocked";
+/** GET /studio/<job>/readiness: the final check before a resume is sent. */
+export type Readiness = {
+  job_id: string;
+  verdict: ReadinessVerdict;
+  label: string;
+  score: number | null;
+  parts: { fit: number | null; coverage: number | null; ats: number | null };
+  weights: { fit: number; coverage: number; ats: number };
+  checks: { id: string; label: string; state: "pass" | "warn" | "fail"; note: string }[];
+  next: string[];
+  review_summary: string | null;
+  note: string;
+  checked_at: string;
 };
 export type PipelineJobProgress = {
   id: string;
@@ -496,6 +566,8 @@ export type PipelineRun = {
     finished_epoch?: number;
     find: PipelineStepState;
     jobs: PipelineJobProgress[];
+    /** How many prepared jobs each ready-to-submit verdict got. */
+    ready?: Partial<Record<ReadinessVerdict, number>>;
   };
   error: string | null;
   stop_requested: boolean;

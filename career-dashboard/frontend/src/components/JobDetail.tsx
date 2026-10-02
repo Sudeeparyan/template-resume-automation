@@ -4,6 +4,7 @@ import { api, fileUrl, safeUrl } from "../api";
 import { AskAssistant, Badge, Field, Modal, ReportView, Running } from "./UI";
 import { statuses, statusLabel, TierBadge, FitBadge } from "./JobList";
 import type { Summary, Job } from "../types";
+import { SalaryEvidence } from "./SalaryEvidence";
 export default function JobDetail({
   job,
   data,
@@ -30,6 +31,8 @@ export default function JobDetail({
   );
   const latest = runs[0];
   const running = runs.some((r) => ["queued", "running"].includes(r.state));
+  const salaryRun = data.runs.find((r) => r.kind === "salary_research" && r.job_id === job.id);
+  const salaryRunning = data.runs.some((r) => r.kind === "salary_research" && r.job_id === job.id && ["queued", "running"].includes(r.state));
   useEffect(() => {
     api("/jobs/" + job.id)
       .then((d) => {
@@ -189,6 +192,26 @@ export default function JobDetail({
           {job.sponsor_evidence.everify ? " · E-Verify employer (STEM OPT extension possible)" : ""}
         </p>
       )}
+      <SalaryEvidence job={job} />
+      {(job.market === "ie" || job.opportunity) && <div className="spaced">
+        <button type="button" className="secondary" disabled={!!busy || salaryRunning || job.record_source === "gmail"}
+          onClick={async () => {
+            setBusy("salary");
+            try {
+              await api("/v2/agents/run", "POST", { kind: "salary_research", job_id: job.id });
+              await refresh();
+              notify("Salary research started. Any estimate stays separate from the employer’s advertised salary.");
+            } catch (e) {
+              notify((e as Error).message, true);
+            } finally {
+              setBusy("");
+            }
+          }}>
+          <Search size={15} /> {salaryRunning || busy === "salary" ? "Researching salary…" : "Research salary"}
+        </button>
+        {job.record_source === "gmail" && <p className="small muted">Add the job posting before researching its salary.</p>}
+        {salaryRun && <Running run={salaryRun} />}
+      </div>}
       <div className="segmented detail-tabs">
         {[
           ["progress", "Progress"],

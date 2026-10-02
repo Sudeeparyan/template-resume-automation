@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { ProfileEntry } from "../profiles";
-import SourceLibrary, { etaLabel, marketSelection, progressPercent } from "./SourceLibrary";
+import SourceLibrary, { etaLabel, marketSelection, profileBuildSettings, progressPercent } from "./SourceLibrary";
 import OnboardingWorkspace from "./OnboardingWorkspace";
 
 const profile: ProfileEntry = {
@@ -56,5 +56,22 @@ describe("profile source library", () => {
     expect(marketSelection(["xx"])).toEqual(["ie"]);
     expect(marketSelection(["us", "ie", "us"])).toEqual(["us", "ie"]);
     expect(etaLabel(60, 150)).toContain("left");
+  });
+
+  it("detects persisted market and eligibility changes without discarding edits on ordinary profile reloads", () => {
+    const signature = (entry: ProfileEntry) => JSON.stringify(profileBuildSettings(entry));
+    const saved: ProfileEntry = {
+      ...profile, target_markets: ["us"],
+      work_authorization_by_market: { us: { status: "authorized", citizenship: "noncitizen", needs_sponsorship_later: "yes" } },
+    };
+    expect(signature({ ...saved, name: "Updated display name", state: "ready" })).toBe(signature(saved));
+    const updated: ProfileEntry = {
+      ...saved, target_markets: ["ie", "us"],
+      work_authorization_by_market: { us: { status: "authorized", citizenship: "noncitizen", needs_sponsorship_later: "no" } },
+    };
+    expect(signature(updated)).not.toBe(signature(saved));
+    expect(profileBuildSettings(updated)).toMatchObject({
+      markets: ["ie", "us"], authorization: { us: { needs_sponsorship_later: "no" }, ie: { status: "unknown" } },
+    });
   });
 });

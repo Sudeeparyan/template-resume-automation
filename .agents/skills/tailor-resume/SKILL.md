@@ -26,22 +26,30 @@ contract and validator are stricter than anything done by hand.
 
 ## App mode
 
-Run the same steps, in the same order, as the app's overnight hunt:
+First read `career ws summary --profile <profile-id>` and
+`career ws profile --profile <profile-id>` for the current state and candidate facts. Resolve
+pending evidence reconciliation before tailoring. Use the exact selected profile ID and the
+saved job ID in every command below:
 
 ```text
-career add --file job.json                        only when the job is not saved yet (prints its id)
-career ws fit --job-id <id>                       each requirement and the evidence that meets it
-career ws run --kind research --job-id <id>       public company research (never sees the profile)
-career ws tailor --job-id <id>                    tailored draft + PDF fitted to the page contract
-career ws run --kind resume_match --job-id <id>   independent review of the PDF against the posting
-career ws run --kind study_plan --job-id <id>     study plan for the gaps (never on the resume)
+career add --file job.json --profile <profile-id>
+career ws fit --job-id <job-id> --profile <profile-id>
+career ws run --kind research --job-id <job-id> --profile <profile-id>
+career ws tailor --job-id <job-id> --profile <profile-id>
+career ws run --kind resume_match --job-id <job-id> --profile <profile-id>
+career ws run --kind study_plan --job-id <job-id> --profile <profile-id>
 ```
 
 `career add` JSON: `company`, `title`, `location`, `url`, the full `description`. `career ws
 tailor` tailors with the AI app signed in on the computer and uses the research; with no AI ready
 it ranks and fits registered evidence only (`tailored_by_ai` says which, so say so). Report the
-PDF path, pages, coverage, ATS score, gaps and the match review. Suggested items the AI predicted
-wait for the person's decision on the dashboard's Assurance tab; Resume Studio shows the draft.
+PDF path, pages, coverage, ATS score, gaps and the match review. AI-suggested skills or proposed
+projects are gaps to learn, never candidate experience. New facts require the person's own
+words or documents and profile evidence reconciliation before they can appear on a resume.
+Keeping a suggestion in Assurance alone does not supply that evidence.
+Read the independent review's `verdict` and `issues`, not just the run's completed state.
+Only `pass` with no unresolved issues passes that check; `review`, `blocked` or a legacy
+report without a verdict needs attention before the resume is offered as ready.
 
 ## AI-only mode
 

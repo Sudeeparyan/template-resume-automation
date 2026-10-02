@@ -19,8 +19,9 @@ with a deadline ("find 10 jobs that fit at 70 or better by 7 AM") and it loops:
    held (services/search_memory.py) and checked when one is back.
 5. The search memory skips postings an earlier pass (or an earlier night) already decided.
 6. When the target is met, the search time is used up or every source is exhausted, each saved
-   job gets the enabled helpers (research, tailored resume, study plan, PDF) through the
-   Daily Search pipeline, and HUNT-REPORT.md is written.
+   job gets the enabled helpers through the Daily Search pipeline (posting check, research with
+   the hiring-manager view and profile fit, tailored resume, PDF, independent review, study
+   plan, ready-to-submit check), and HUNT-REPORT.md is written.
 
 Nothing is ever submitted and no one is contacted. The hunt only saves and prepares.
 """
@@ -35,11 +36,12 @@ import uuid
 from datetime import datetime, timezone
 
 from backend.services import search_memory
+from backend.services.pipeline import DEFAULT_STEPS
 
 MAX_TARGET = 40
 MAX_HOURS = 12.0
 DEFAULTS = {"target": 10, "hours": 8.0, "min_fit": 70, "sources": "all", "allow_paid": False,
-            "require_ai_fit": True, "steps": {"research": True, "tailor": True, "study_plan": True, "pdf": True}}
+            "require_ai_fit": True, "steps": dict(DEFAULT_STEPS)}
 SOURCE_CHOICES = ("all", "feeds", "ai")
 # At most this many cycles through every strategy; between cycles the hunt pauses so boards can refresh.
 MAX_CYCLES = 3
@@ -154,6 +156,18 @@ class Hunt:
         from backend.ai import router
 
         providers = {p["id"]: p for p in self.pipeline.providers()}
+        allow_paid = bool(merged.get("allow_paid"))
+        if not allow_paid:
+            # A saved main provider can be a paid API. This run's permission takes
+            # precedence: Auto is usable only when a free plan is installed.
+            free_plans = [p for name, p in providers.items() if name in router.FREE]
+            free_ready = any(p["ready"] for p in free_plans)
+            # A reduced catalog may expose only Auto. Its per-call free policy
+            # remains authoritative when the individual plans are not listed.
+            if not free_plans:
+                free_ready = bool((providers.get(router.ID) or {}).get("ready"))
+            providers = {name: p for name, p in providers.items()
+                         if name in router.FREE or (name == router.ID and free_ready)}
         provider = providers.get(merged.get("provider") or "")
         if provider is None or not provider["ready"]:
             # The AI chosen in Settings is not ready: any AI that is (Auto comes first) takes over.
@@ -169,7 +183,7 @@ class Hunt:
                 model = provider["models"][0]["id"]
         return {"target": target, "hours": round(hours, 2), "min_fit": min_fit, "sources": sources,
                 "requested_sources": merged["sources"], "no_ai": no_ai,
-                "allow_paid": bool(merged.get("allow_paid")), "require_ai_fit": bool(merged.get("require_ai_fit", True)),
+                "allow_paid": allow_paid, "require_ai_fit": bool(merged.get("require_ai_fit", True)),
                 "steps": {step: bool(steps.get(step, DEFAULTS["steps"][step])) for step in STEP_IDS},
                 "provider": provider["id"], "model": model}
 
@@ -525,7 +539,7 @@ class Hunt:
 
     def _prepare(self, id, config, progress) -> None:
         from backend.ai import limits
-        from backend.services.pipeline import STEP, STEP_IDS
+        from backend.services.pipeline import STEP, STEP_IDS, JobStopped, open_draft, step_entry
 
         steps = [step for step in STEP_IDS if config["steps"].get(step)]
         saved = progress["saved"]
@@ -538,21 +552,26 @@ class Hunt:
         done_steps = progress.get("done_steps") or {}
         for number, job in enumerate(jobs, 1):
             done_before = set(done_steps.get(job["id"]) or [])
-            try:
-                self.pipeline.studio.open(job["id"])
-            except Exception as exc:  # noqa: BLE001
-                for step in steps:
-                    job["steps"][step] = {"state": "failed", "error": "Could not open this job's resume: " + str(exc)[:300]}
-                self._save(id, progress)
-                continue
+            stopped, opened = None, False
             for step in steps:
                 if self._stop_requested(id):
                     raise Stopped()
-                if step in done_before:
-                    job["steps"][step] = {"state": "done", "note": "Done before the app restarted."}
+                if stopped:
+                    job["steps"][step] = {"state": "skipped", "note": stopped}
                     continue
                 if self.clock() >= progress["deadline_epoch"]:
                     job["steps"][step] = {"state": "skipped", "note": "The hunt's time ran out."}
+                    continue
+                try:
+                    from backend.services.opportunities import preparation_issue
+                    issue = preparation_issue(self.w.get_job(job["id"]))
+                    if step != "posting" and issue:
+                        raise JobStopped(issue)
+                    opened = open_draft(self.pipeline.studio, job["id"], step, opened)
+                except Exception as exc:  # noqa: BLE001
+                    stopped = "Could not open this job's resume: " + str(exc)[:300]
+                    job["steps"][step] = {"state": "failed", "error": stopped}
+                    self._save(id, progress)
                     continue
                 progress["stage"] = f"{STEP[step]['label']} for {job['company']} (job {number} of {len(jobs)})"
                 job["steps"][step] = {"state": "running"}
@@ -561,7 +580,12 @@ class Hunt:
                 for attempt in (1, 2):
                     try:
                         done = self.pipeline.run_step(step, job["id"], config)
-                        job["steps"][step] = {"state": "done", "seconds": round(self.clock() - started, 1), **done}
+                        job["steps"][step] = step_entry(done, round(self.clock() - started, 1))
+                        break
+                    except JobStopped as exc:  # the posting closed: nothing more for this job
+                        stopped = str(exc)
+                        job["steps"][step] = {"state": "failed", "seconds": round(self.clock() - started, 1),
+                                              "error": stopped}
                         break
                     except Exception as exc:  # noqa: BLE001
                         message = str(exc)
@@ -605,7 +629,7 @@ class Hunt:
         lines.append(f"**{len(saved)} of {config['target']} jobs saved** at a fit bar of {config['min_fit']} "
                      f"({state}{': ' + error if error else ''}).")
         if progress.get("exhausted"):
-            lines.append("Every source was searched and nothing new passed the checks, so the hunt ended early.")
+            lines.append("No new matches passed the checks in the attempted sources. Coverage may still be partial.")
         if progress.get("resumed_from"):
             lines.append("The app stopped during the night; the hunt carried on by itself with the jobs already saved.")
         if config.get("no_ai"):
@@ -632,6 +656,8 @@ class Hunt:
                         if step.get("state") in ("failed", "skipped")]
             if done:
                 lines.append("- Prepared: " + ", ".join(done))
+            if (steps.get("ready") or {}).get("verdict"):
+                lines.append("- Final check: " + str(steps["ready"].get("note") or steps["ready"]["verdict"]))
             for problem in problems:
                 lines.append(f"- ⚠ {problem}")
             lines.append("")

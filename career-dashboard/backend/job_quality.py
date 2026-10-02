@@ -332,8 +332,12 @@ class JobQualityService:
             verdict = self.s.gate(job["company"], text, job["url"], job.get("location", ""),
                                   market=job.get("market") or "")
             if verdict.excluded and not sponsorship.overridden(job.get("sponsor_evidence"), verdict):
-                refusal = verdict
-                evidence.append(f'The posting now says: "{verdict.screen.sentence}" It moved to Excluded roles.')
+                from backend.services.demo import demo_mode
+                if demo_mode(self.s):
+                    evidence.append(f'Demo mode: the posting now says: "{verdict.screen.sentence}" The role stays on the list.')
+                else:
+                    refusal = verdict
+                    evidence.append(f'The posting now says: "{verdict.screen.sentence}" It moved to Excluded roles.')
         checked = utcnow()
         closed_at = checked if state == "expired" else None
         with self.w.connect() as db:

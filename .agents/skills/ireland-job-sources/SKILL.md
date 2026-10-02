@@ -22,7 +22,7 @@ profession.
 - **One pass without AI:** Daily Search source *Job boards + employer feeds* (preset `feeds`).
 - **Search plan:** the Assistant's `search_plan` / `update_search_plan` show and change related
   titles, excluded titles and tracked companies (where to look, never evidence).
-- Save a lead found by hand with `career add --file job.json` or the Assistant's `save_posting`,
+- Save a lead found by hand with `career add --file job.json --profile <profile-id>` or the Assistant's `save_posting`,
   never by editing the database.
 
 ## What the feeds read (`career-dashboard/backend/services/job_sources.py`)

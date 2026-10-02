@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { AlertTriangle, Check, ChevronDown, Lock, Plus, Settings2, Trash2, RotateCcw } from "lucide-react";
 import { PROFILE_ID, shellApi } from "./api";
+import { LatestRequest } from "./latestRequest";
 import { Badge, Field, Modal, Switch } from "./components/UI";
 
 export type Market = {
@@ -80,13 +81,14 @@ export function useMarket(jobMarket?: string) {
   const current = useContext(ProfileContext).current;
   const market = current?.market;
   const dual = current?.target_markets?.length === 2 && !jobMarket;
-  const code = jobMarket === "ie" || jobMarket === "us" ? jobMarket : market?.code;
+  const code = jobMarket === "ie" || jobMarket === "us" ? jobMarket : market?.code || current?.country;
   const us = code === "us";
   const primary = !jobMarket || code === market?.code;
-  const pages = primary ? market?.pages || 2 : 1;
-  const paper = primary ? market?.paper || "A4" : us ? "US Letter" : "A4";
+  const pages = primary ? market?.pages || (us ? 1 : 2) : 1;
+  const paper = primary ? market?.paper || (us ? "US Letter" : "A4") : us ? "US Letter" : "A4";
   const pageLabel = pages === 1 ? "one page" : `${pages} pages`;
   return {
+    code,
     us,
     dual,
     paper,
@@ -96,8 +98,8 @@ export function useMarket(jobMarket?: string) {
     minBodyPt: primary ? market?.min_body_pt || 10 : 10,
     maxBodyPt: primary ? market?.max_body_pt || 12 : 11,
     time: timeLabel(market?.timezone),
-    postings: dual ? "Ireland and US postings" : us ? "US postings" : `${market?.adjective || market?.name} postings`,
-    tierLabels: us ? {} : market?.tier_labels || {},
+    postings: dual ? "Ireland and US postings" : us ? "US postings" : "Irish postings",
+    tierLabels: us || !primary ? {} : market?.tier_labels || {},
   };
 }
 
@@ -445,21 +447,48 @@ export function ConfirmErase({
   );
 }
 
-/** Load the profile list once; a page served without profiles (tests, old server) keeps working. */
+/** A successful list is authoritative; a transient request failure is not. */
+export function profileRoute(listing: ProfileListing | null, profileId: string | null, failed: boolean) {
+  const current = listing?.profiles.find((profile) => profile.id === profileId) || null;
+  const next = listing && !current
+    ? listing.profiles.find((profile) => profile.id === listing.last_used)?.id || listing.profiles[0]?.id
+    : null;
+  return {
+    current,
+    destination: listing && !current ? next ? `/p/${next}/` : profileId ? "/" : null : null,
+    ready: Boolean(current && current.state === "ready"),
+    unavailable: !listing && failed,
+  };
+}
+
+/** Keep open tabs in sync when profiles change through the CLI or another tab. */
 export function useProfileListing() {
   const [listing, setListing] = useState<ProfileListing | null>(null);
   const [failed, setFailed] = useState(false);
+  const reads = useRef(new LatestRequest()).current;
   const reload = useCallback(async () => {
     try {
-      setListing(await shellApi<ProfileListing>("/profiles"));
-      setFailed(false);
+      await reads.run(() => shellApi<ProfileListing>("/profiles"), (value) => {
+        setListing(value);
+        setFailed(false);
+      });
     } catch {
       setFailed(true);
     }
-  }, []);
+  }, [reads]);
   useEffect(() => {
-    void reload();
-  }, [reload]);
-  const current = listing?.profiles.find((p) => p.id === PROFILE_ID) || null;
-  return { listing, current, failed, reload };
+    let active = true;
+    let timer: number | undefined;
+    const poll = async () => {
+      await reload();
+      if (active) timer = window.setTimeout(poll, 8000);
+    };
+    void poll();
+    return () => {
+      active = false;
+      reads.invalidate();
+      if (timer !== undefined) window.clearTimeout(timer);
+    };
+  }, [reload, reads]);
+  return { listing, failed, reload, ...profileRoute(listing, PROFILE_ID, failed) };
 }

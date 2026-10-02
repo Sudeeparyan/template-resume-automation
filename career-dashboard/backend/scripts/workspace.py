@@ -22,6 +22,8 @@ def main():
             "stale-drafts",
             "recompile",
             "summary",
+            "coverage",
+            "salary",
             "goals",
             "profile",
             "mail",
@@ -43,7 +45,7 @@ def main():
     parser.add_argument("--file", type=Path)
     parser.add_argument("--id")
     parser.add_argument("--job-id")
-    parser.add_argument("--kind", choices=["research", "resume_advisor", "email", "discovery", "resume_build", "resume_match", "instruction_interpret", "study_plan"])
+    parser.add_argument("--kind", choices=["research", "resume_advisor", "email", "discovery", "resume_build", "resume_match", "instruction_interpret", "study_plan", "salary_research"])
     parser.add_argument("--refresh", action="store_true",
                         help="fit: check the job's requirements again (AI on a free plan when one is free)")
     parser.add_argument("--preset", choices=["default", "balanced_five", "portals"], default="default",
@@ -51,6 +53,8 @@ def main():
     parser.add_argument("--company")
     parser.add_argument("--title")
     parser.add_argument("--url", default="")
+    parser.add_argument("--location", default="", help="sponsor-check: posting location")
+    parser.add_argument("--market", choices=["ie", "us"], help="sponsor-check: one of the profile's selected markets")
     parser.add_argument("--provider", help="ai-wake: which plan to try again now (kimi_cli, codex, claude_code, azure_openai)")
     parser.add_argument("--profile", help="profile ID (default: last opened profile)")
     args = parser.parse_args()
@@ -60,7 +64,17 @@ def main():
     if not profile_id:
         parser.error("No profile exists yet. Run  career setup --name \"Full Name\"  or create one in the dashboard.")
     s = CareerServices(Workspace(profiles.root_for(profile_id)))
-    if args.command == "fit":
+    if args.command == "coverage":
+        from backend.services.source_coverage import Coverage
+        result = Coverage(s.w.root).summary()
+    elif args.command == "salary":
+        if not args.job_id:
+            parser.error("--job-id is required")
+        job = s.w.get_job(args.job_id)
+        result = {"job_id": job["id"], "company": job["company"], "title": job["title"],
+                  "opportunity": job.get("opportunity"),
+                  "note": "Salary evidence and permit checks are separate; researched pay is not an advertised offer."}
+    elif args.command == "fit":
         # What one job asks for and which registered evidence meets each item (services/fit.py).
         if not args.job_id:
             parser.error("--job-id is required")
@@ -124,8 +138,8 @@ def main():
         # The gate on one posting: --company plus the JD in --file. Nothing is saved.
         if not (args.company and args.file):
             parser.error("--company and --file are required")
-        from backend.services import sponsorship
-        result = sponsorship.evaluate(args.company, args.file.read_text(encoding="utf-8"), args.url).as_dict()
+        result = s.gate(args.company, args.file.read_text(encoding="utf-8"), args.url,
+                        args.location, market=args.market or "").as_dict()
     elif args.command == "check-reapply":
         if not (args.company and args.title):
             parser.error("--company and --title are required")

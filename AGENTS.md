@@ -9,13 +9,19 @@ follow the same rules and the same skills in `.agents/skills/`. Work only inside
 1. Read the skill for what the person asked (table below) before you act. Do not work from memory
    of a skill; read its file each time.
 2. Decide the mode once per conversation and say which in one short line:
-   - **App mode**: you can run commands on this computer and `career.cmd status` (Windows) or
-     `sh career status` (macOS, Linux) prints JSON with a candidate name. The installed app does the
-     searching, the checks and the PDF resumes; you drive it with its commands. Below, `career`
-     means `career.cmd` on Windows and `sh career` elsewhere. With more than one profile, add
-     `--profile <id>` and ask whose list it is when that is not clear.
-   - **AI-only mode**: anything else (a cloud sandbox, no Python, no profile and no app). You do the
-     work yourself from `me/` and write results to `my-jobs/`. The rules below do not change.
+   - Run `career.cmd doctor` (Windows) or `sh career doctor` (macOS, Linux). This read-only
+     check needs no profile, server or AI sign-in. Below, `career` means `career.cmd` on Windows
+     and `sh career` elsewhere.
+   - **App mode**: the check returns `app_mode: true`. The app owns searching, checks, evidence,
+     history and PDFs. Zero profiles means run `career-setup`, not AI-only mode. With an existing
+     profile, use its exact ID with `--profile <id>` on every profile command and morning run.
+     With several profiles, ask whose workspace this is before opening any candidate data;
+     the last-opened profile is not evidence of who is chatting.
+   - **AI-only mode**: the app cannot run here (for example no Python, missing dependencies or a
+     cloud sandbox). Explain the limitation and setup action from doctor. Work from `me/` and
+     save to `my-jobs/`; these files do not automatically sync into the app. If the app already
+     holds this person's history, resolve access instead of creating a second tracker. A failed
+     build, missing AI sign-in or zero profiles is not permission to bypass the app's checks.
 3. Never open `backup/`, another person's profile, `.env` files or keys. Never run
    `Start Dashboard`, `Check Workspace` or installers from a sandbox; the person runs those on
    their own computer.
@@ -52,6 +58,25 @@ follow the same rules and the same skills in `.agents/skills/`. Work only inside
   `my-jobs/tracker.csv` does in AI-only mode. Silence never changes an application's status, and
   the date an email arrived is not the date they applied.
 - Use exact saved job IDs in App mode. Keep each person's files apart.
+- After an app command, read its JSON/result before claiming success. A started search is not a
+  completed list, an uploaded source is not a completed profile build, and an existing PDF is
+  not proof that it belongs to the current job or passed its checks. Report fewer jobs and the
+  recorded blocker when needed; never fill gaps with invented jobs, scores or artifacts.
+- The UI, built-in Assistant and `career` commands share the selected profile's services and
+  SQLite database. For each new progress, job or profile question, re-read `career ws summary
+  --profile <id>` and, when candidate facts matter, `career ws profile --profile <id>`.
+  Changes made in the dashboard after an earlier chat must be treated as current; do not
+  reuse a previous chat's copy of facts, status, goals or job results. Dashboard Profile form
+  edits synchronize evidence; drafts still need the app's profile sync and PDF checks before
+  being offered as current.
+- Gmail and Drive are optional tools of the AI host, not connections automatically inherited by
+  the local app. Save a user-selected remote resume into `me/` before setup. Upload a generated
+  resume only when requested, to the person's chosen destination; keep the app's local original
+  and job ID. A connector does not replace the app's evidence or application history.
+- Scheduled chat tasks must use this original local folder and the selected profile ID. A new
+  Git worktree lacks ignored profiles and documents. Confirm scheduler availability and the
+  saved task before saying it is scheduled; do not promise a chat notification from the local
+  morning runner alone. See `START-HERE.md` for host-specific instructions.
 - Keep replies short and plain: what you did, the jobs, what you need from them.
 
 ## For developers

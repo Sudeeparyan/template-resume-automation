@@ -1,5 +1,6 @@
 import { useContext, useEffect, useRef, useState } from "react";
 import {
+  AlertTriangle,
   CheckCircle2,
   Copy,
   Download,
@@ -11,15 +12,16 @@ import {
   Search,
   Settings2,
   Sparkles,
+  XCircle,
 } from "lucide-react";
 import { API_BASE, api, fileUrl } from "../api";
 import { AskAssistant, AskContext, Badge, Field, Modal, ReportView, Running } from "../components/UI";
 import { JobList } from "../components/JobList";
 import { useMarket } from "../profiles";
-import { macroSpan, readField, writeField } from "./studioFields";
+import { clearStudioDraft, macroSpan, readField, readStudioDraft, saveStudioDraft, studioDraftKey, writeField } from "./studioFields";
 import FitCheck from "./FitCheck";
 import { AgentControl } from "./AgentControl";
-import type { CoverLetter, Job, Run, Summary } from "../types";
+import type { CoverLetter, Job, Readiness, Run, Summary } from "../types";
 type Draft = {
   match?: {
     score: number | null;
@@ -276,7 +278,7 @@ function Editor({
   const alive = useRef(true);
   const latestSource = useRef(source);
   latestSource.current = source;
-  const key = "resume-studio:" + jobId;
+  const key = studioDraftKey(API_BASE, jobId);
   const base = "/v2/studio/" + jobId;
   const ask = useContext(AskContext);
   const researchRun = data.runs.find(
@@ -304,7 +306,7 @@ function Editor({
   const advisorActive = !!advisorRun && ["queued", "running"].includes(advisorRun.state);
   function edit(value: string) {
     setSource(value);
-    sessionStorage.setItem(key, value);
+    saveStudioDraft(key, value);
     setError("");
   }
   async function open() {
@@ -314,9 +316,10 @@ function Editor({
       const d = await api<Draft>(base + "/open", "POST");
       if (!alive.current) return;
       setDraft(d);
-      setSource(sessionStorage.getItem(key) ?? d.source);
+      const cached = readStudioDraft(key);
+      setSource(cached ?? d.source);
       refresh().catch(() => {});
-      if (!d.preview && !sessionStorage.getItem(key)) {
+      if (!d.preview && cached === null) {
         setBusy(`Fitting to ${market.resumeShape}: ranking registered content and balancing the layout…`);
         const p = await api<Draft>(base + "/fill", "POST", {
           revision: d.revision,
@@ -363,10 +366,10 @@ function Editor({
       setDraft(d);
       if (Object.keys(extra).length) {
         setSource(d.source);
-        sessionStorage.setItem(key, d.source);
+        saveStudioDraft(key, d.source);
         latestSource.current = d.source;
       } else if (latestSource.current === snapshot)
-        sessionStorage.removeItem(key);
+        clearStudioDraft(key);
       refresh().catch(() => {});
       if (compile) {
         setBusy("Updating the preview…");
@@ -432,7 +435,7 @@ function Editor({
       if (!alive.current) return;
       setDraft(fitted);
       setSource(fitted.source);
-      sessionStorage.removeItem(key);
+      clearStudioDraft(key);
       refresh().catch(() => {});
     } catch (e) {
       if (alive.current) setError((e as Error).message);
@@ -445,7 +448,7 @@ function Editor({
     if (!alive.current) return;
     setDraft(next);
     setSource(next.source);
-    sessionStorage.removeItem(key);
+    clearStudioDraft(key);
     await refresh();
   }
   async function startBuild() {
@@ -461,7 +464,7 @@ function Editor({
         if (!alive.current) return;
         setDraft(saved);
         setSource(saved.source);
-        sessionStorage.removeItem(key);
+        clearStudioDraft(key);
         setBusy("");
       }
       const result = await api<{ id: string }>("/v2/agents/run", "POST", {
@@ -514,6 +517,11 @@ function Editor({
   const current = !dirty && !!draft.preview?.current;
   return (
     <>
+      <ReadinessCard
+        jobId={jobId}
+        refreshKey={[draft.revision, draft.preview?.current, draft.match?.current, reviewRun?.id, reviewRun?.state,
+                     job.posting_state, data.runs.filter((r) => r.job_id === jobId && r.state === "running").length].join(":")}
+      />
       <div className="studio-steps" aria-label="Resume workflow">
         <button
           className={`${step === "analyse" ? "active" : ""} ${researchRun?.state === "completed" ? "complete" : ""}`}
@@ -889,9 +897,9 @@ function Editor({
                   <div className="studio-help">
                     <b>Lead with the skills this role names</b>
                     <span>
-                      These resumes carry no summary: the skills block does
-                      that job. Put the strongest matching skills first in each
-                      category. Only skills already in your profile belong here.
+                      Put the strongest matching skills first in each category.
+                      If this draft includes a summary, keep it grounded in your
+                      saved evidence. Only skills already in your profile belong here.
                     </span>
                   </div>
                   {contentFields.map(
@@ -946,7 +954,7 @@ function Editor({
                       }
                     >
                       {draft.preview.layout.full_pages
-                        ? "One full page"
+                        ? draft.preview.page_count === 1 ? "One full page" : `${draft.preview.page_count} full pages`
                         : "Page fill needs attention"}
                     </Badge>
                     <p>
@@ -1333,6 +1341,103 @@ function AnalyseRole({
         <button className="primary" onClick={onNext}>
           Check my current resume <ArrowRight size={16} />
         </button>
+      </div>
+    </section>
+  );
+}
+
+const VERDICT_TONE: Record<Readiness["verdict"], string> = { ready: "green", review: "amber", blocked: "red" };
+const PART_LABEL: Record<keyof Readiness["parts"], string> = {
+  fit: "Fit with the role",
+  coverage: "Posting covered by the PDF",
+  ats: "Readability",
+};
+
+function CheckMark({ state }: { state: Readiness["checks"][number]["state"] }) {
+  if (state === "pass") return <CheckCircle2 size={15} className="tone-done" aria-label="passed" />;
+  if (state === "fail") return <XCircle size={15} className="tone-failed" aria-label="not passed" />;
+  return <AlertTriangle size={15} className="tone-warn" aria-label="needs attention" />;
+}
+
+/** The ready-to-submit check (backend/services/readiness.py): the same verdict a Daily Search ends with. */
+function ReadinessCard({ jobId, refreshKey }: { jobId: string; refreshKey: string }) {
+  const [result, setResult] = useState<Readiness>();
+  const [error, setError] = useState("");
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    let live = true;
+    api<Readiness>("/v2/studio/" + jobId + "/readiness")
+      .then((r) => {
+        if (live) {
+          setResult(r);
+          setError("");
+        }
+      })
+      .catch((e) => live && setError((e as Error).message));
+    return () => {
+      live = false;
+    };
+  }, [jobId, refreshKey, tick]);
+  if (!result)
+    return error ? <div className="callout warning">The final check could not run: {error}</div> : null;
+  const left = result.checks.filter((c) => c.state !== "pass");
+  return (
+    <section className={"card spaced readiness " + result.verdict} aria-labelledby="readiness-title">
+      <div className="section-title">
+        <div>
+          <div className="eyebrow">FINAL CHECK BEFORE YOU SEND IT</div>
+          <h2 id="readiness-title">
+            <Badge tone={VERDICT_TONE[result.verdict]}>{result.label}</Badge>
+          </h2>
+        </div>
+        <button className="secondary" onClick={() => setTick((n) => n + 1)}>
+          <RefreshCw size={15} /> Check again
+        </button>
+      </div>
+      <div className="match-overview">
+        <div className={"match-score" + (result.verdict === "ready" ? " current" : "")}>
+          <strong>{result.score ?? "—"}</strong>
+          <small>readiness out of 100</small>
+        </div>
+        <div className="readiness-body">
+          <ul className="readiness-parts">
+            {(Object.keys(PART_LABEL) as (keyof Readiness["parts"])[]).map((key) => (
+              <li key={key}>
+                <span>{PART_LABEL[key]}</span>
+                <b>{result.parts[key] ?? "—"}</b>
+                <small>{result.weights[key]}% of the score</small>
+              </li>
+            ))}
+          </ul>
+          {left.length ? (
+            <ul className="readiness-checks">
+              {left.map((c) => (
+                <li key={c.id}>
+                  <CheckMark state={c.state} />
+                  <span>
+                    <b>{c.label}:</b> {c.note}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p>Every check passed. Read the PDF once, then apply through the posting link yourself.</p>
+          )}
+          <details>
+            <summary>All {result.checks.length} checks</summary>
+            <ul className="readiness-checks">
+              {result.checks.map((c) => (
+                <li key={c.id}>
+                  <CheckMark state={c.state} />
+                  <span>
+                    <b>{c.label}:</b> {c.note}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </details>
+          <p className="small muted">{result.note}</p>
+        </div>
       </div>
     </section>
   );

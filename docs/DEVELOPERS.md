@@ -14,7 +14,7 @@ me/, my-jobs/               a person's inbox and the AI-only lists (private; onl
 career, career.cmd          the CLI for AI apps (macOS/Linux/Git Bash, Windows)
 Start Dashboard.*           launcher: scripts/bootstrap.py installs, checks tools, runs the app
 Check Workspace.*           the full release gate
-scripts/                    bootstrap, scan_release (privacy), check_profiles, smoke_first_run
+scripts/                    bootstrap, career_doctor, reset_template, scan_release, smoke_first_run
 daily-job-search/           autopilot.py: the morning runner (morning-jobs.cmd/.command), AUTOPILOT.md
 career-dashboard/
   backend/                  FastAPI app, services, AI routing, country packs, CLI scripts
@@ -28,15 +28,16 @@ backup/                     local backups (ignored, never read by AI apps)
 
 `AGENTS.md` routes each request to a skill and picks a mode once per conversation:
 
-- **App mode**: the AI app can run commands on this computer and `career status` works. Skills
+- **App mode**: the AI app can run commands here and `career doctor` returns `app_mode: true`.
+  Zero profiles is a normal installed state and routes to `career setup`. Skills
   call the CLI and the morning runner; the app's gates, evidence registry and validators do the
   work.
 - **AI-only mode**: anything else (for example Cowork's cloud sandbox, which cannot run the
   installed app). Skills tell the AI to do the same steps by hand from `me/` and write to
   `my-jobs/` (`tracker.csv`, dated `JOBS.md`, one folder per job).
 
-Every skill describes both modes with the same rules, so a request gives the same kind of answer
-in either. When you change app behaviour that a skill describes (a command, a gate, a file
+Both modes follow the same evidence rules, but only App mode shares the app's database and
+validators. AI-only files are not automatically synced. When you change app behaviour that a skill describes (a command, a gate, a file
 path), update the skill in the same change. Codex and Kimi Code discover `.agents/skills/`;
 Claude Code discovers `.claude/skills/`, whose pointer files must keep the same `name` and
 `description` as the shared skill (a test checks this).
@@ -53,6 +54,7 @@ Claude Code discovers `.claude/skills/`, whose pointer files must keep the same 
 | Job discovery: feeds without AI, the overnight hunt | `services/job_sources.py`, `services/hunt.py`, `services/search_plan.py`, `services/search_memory.py` |
 | Gates: market, work permit, never re-apply, fit | `services/sponsorship.py`, `countries/<ie\|us>/`, `services/reapply.py`, `services/fit.py`, `job_quality.py`, `role_titles.py` |
 | Agents and runs (research, tailoring, study plan) | `services/agents.py` (`AgentRunner`), `services/pipeline.py` |
+| Ready-to-submit check (verdict and readiness score) | `services/readiness.py`, `GET /studio/<job>/readiness` |
 | Resume Studio, page contract, PDF | `services/resume_studio.py`, `resume_contract.py`, `pdf_compiler.py` (Tectonic), `ai_marks.py` |
 | Assistant (one chat, every feature as a tool) | `services/assistant.py`, `services/assistant_tools.py` (`Toolbox`) |
 | AI providers and routing (Kimi Code, Codex, Claude Code, keyed APIs) | `ai/router.py`, `ai/providers.py`, `ai/agents/` |
@@ -68,8 +70,15 @@ company research never see the profile.
 Every command works on the last opened profile unless given `--profile <id>`, prints JSON and
 needs no running server.
 
+AI hosts must pass the selected profile ID explicitly; the last-used profile is a UI convenience,
+not proof of the current person's identity. `doctor` lists registry IDs/states without reading
+candidate documents. It works using the standard library before dependencies or profiles exist,
+and distinguishes missing dependencies, empty onboarding, multiple profiles and invalid selection.
+Installed provider executables are reported as available, never as authenticated.
+
 | Command | Does |
 |---|---|
+| `career doctor [--profile <id>]` | read-only readiness and concrete next actions, including zero-profile setup |
 | `career setup --name "…" --market ie\|us\|both --work-auth '<json>'` | create a profile from the files in `me/` and run the build (`--profile <id>` rebuilds) |
 | `career status`, `career jobs`, `career activity` | profile summary, saved jobs, event log |
 | `career add --file job.json` | save a posting through the sponsorship and never-re-apply gates |
@@ -81,9 +90,52 @@ needs no running server.
 | `career ws sponsor-check`, `check-reapply`, `ai-status` | gates and AI readiness |
 | `career verify-url --url …`, `career check-resume …`, `career check` | link check, resume validator, workspace validator |
 
+A Daily Search run (and the hunt's preparing phase) takes each job end to end, one helper after the
+other, in `pipeline.STEPS` order: `posting` (re-read; a closed posting stops the job before it gets a
+folder), `research` (company research, hiring-manager view, profile fit), `tailor`, `pdf`, `review`
+(a `resume_match` run on the current PDF), `study_plan` and `ready` (`services/readiness.py`). All are
+on by default. A search that comes back short runs up to `MAX_FIND_PASSES` focused web passes
+(`search_plan.strategies`), each skipping the URLs earlier passes looked at; the no-AI sources make one
+pass. The chat's "find jobs" / "give me N jobs" shortcut starts the same pipeline.
+
+Independent PDF review results retain their exact PDF/JD hashes and include `review.verdict`
+(`pass`, `review`, `blocked`) and `review.issues`. Readiness requires `pass` with no unresolved
+issues; a completed run or an older report without a verdict is not a passed check.
+
 The morning runner: `daily-job-search/morning-jobs.cmd` (`.command`) with `--jobs N` (find N now),
 `--list-only`, `--background`, `--check`, `--hours`, `--profile`. See
 [AUTOPILOT.md](../daily-job-search/AUTOPILOT.md).
+
+## The chat-to-app path
+
+```mermaid
+flowchart LR
+    A[ChatGPT / Claude / Kimi with local command access] --> B[AGENTS.md and shared skill]
+    B --> C[career doctor]
+    C --> D[career setup with resume and user answers]
+    D --> E[Profile source library and evidence registry]
+    B --> F[Morning runner with exact profile ID]
+    F --> G[Existing search, authorization, fit and resume services]
+    E --> G
+    G --> H[Profile database, PDFs and morning report]
+    H --> I[Chat response with saved links and actual ready count]
+```
+
+The Python API, CLI and built-in Assistant use the same services. The external AI host supplies
+the conversation and optional connectors; it must read command results before reporting success.
+Gmail/Drive sign-in in a host is not a backend mail connection. Download requested input files
+to `me/` before importing; keep generated local artifacts even when a user requests a cloud copy.
+Host schedules use the original checkout (ignored profiles do not appear in new worktrees).
+The Windows morning task prepares files; a separate host task displays them in chat.
+
+## Reusing a populated development copy
+
+Use [the reset procedure](RESET-TEMPLATE.md) to preview and explicitly delete active private data.
+It preserves code, guides, installed dependencies and `backup/`, refuses paths outside the
+workspace and does not read candidate contents. It cannot clean Git history or external storage.
+Do not remove source modules just because they look old: compatibility routes and migrations
+still have callers. Remove generated/private outputs through the reset tool, and keep portable
+regression tests and release checks in the template.
 
 ## Tests and the release gate
 

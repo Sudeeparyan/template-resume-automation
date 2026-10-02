@@ -253,8 +253,7 @@ class Workspace(Tracking):
         "LEFT JOIN companies ON companies.id = jobs.company_id "
     )
 
-    @staticmethod
-    def _job_row(row):
+    def _job_row(self, row):
         """Decode the JSON sponsorship evidence so callers and the UI get a dict."""
         job = dict(row)
         raw = job.get("sponsor_evidence")
@@ -263,6 +262,12 @@ class Workspace(Tracking):
                 job["sponsor_evidence"] = json.loads(raw) if raw else {}
             except json.JSONDecodeError:
                 job["sponsor_evidence"] = {}
+        try:
+            job["posting_metadata"] = json.loads(job.get("posting_metadata") or "{}")
+        except (ValueError, TypeError):
+            job["posting_metadata"] = {}
+        from backend.services.opportunities import evaluate
+        job["opportunity"] = evaluate(job, self.profile())
         return job
 
     def jobs(self, include_deleted=False):

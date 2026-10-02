@@ -4,6 +4,7 @@ a hunt that stops, and the list it always writes."""
 from __future__ import annotations
 
 import io
+import hashlib
 import json
 import sys
 import time
@@ -11,9 +12,14 @@ import urllib.error
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from backend.services import search_memory
+import pytest
+import yaml
 
-from test_hunt import JD, FakeClock, ireland_profile, make_hunt, posting
+from backend.services import fit, search_memory
+from backend.services.resume_studio import ResumeStudio
+from backend.pdf_compiler import tectonic_executable
+
+from test_hunt import JD, FakeClock, StubFitTeam, ireland_profile, make_hunt, posting
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "daily-job-search"))
 import autopilot  # noqa: E402
@@ -224,18 +230,73 @@ def test_one_run_at_a_time(tmp_path):
 
 # ----- the list it always writes ---------------------------------------------------------------------
 
+def checked_posting(services, job):
+    from backend.job_quality import JobQualityService
+
+    quality = JobQualityService(services)
+    cid = quality.ensure_company(job["company"])
+    with services.w.connect() as db:
+        db.execute("UPDATE companies SET legitimacy_state='verified' WHERE id=?", (cid,))
+        db.execute("UPDATE jobs SET company_id=?,last_verified_at=? WHERE id=?",
+                   (cid, stamp(datetime.now(timezone.utc)), job["id"]))
+    analysis = fit.analyse(services, job, team=StubFitTeam())
+    fit.save(services, job["id"], analysis)
+
+
+def recorded_review(services, job, pdf):
+    stamp_now = services.now()
+    with services.w.connect() as db:
+        db.execute("INSERT INTO agent_runs(id,kind,job_id,state,input,result,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)",
+                   ("review-" + job["id"], "resume_match", job["id"], "completed", "{}", json.dumps({
+                       "pdf_sha256": hashlib.sha256(pdf.read_bytes()).hexdigest(),
+                       "jd_sha256": hashlib.sha256(job["description"].encode()).hexdigest(),
+                       "review": {"summary": "Reviewed the current PDF against its posting.",
+                                  "verdict": "pass", "issues": []},
+                   }), stamp_now, stamp_now))
+
+
+def checked_studio_pdf(services, job):
+    """A saved Studio artifact and its actual hashes; no compiler is needed for freshness tests."""
+    checked_posting(services, job)
+    w = services.w
+    evidence_path = w.root / "data/context/evidence.yml"
+    evidence = w.evidence()
+    evidence["candidate_revision"] = "test-revision-1"
+    evidence_path.write_text(yaml.safe_dump(evidence), encoding="utf-8")
+    ResumeStudio(services)
+    source = "% EVIDENCE: SKILL-001\n\\newcommand{\\CoreSkills}{SQL, Power BI, Python}\n"
+    folder = w.root / "data/output/applications" / job["id"] / "studio"
+    preview = folder / "preview-2"
+    preview.mkdir(parents=True)
+    pdf = preview / "resume.pdf"
+    pdf.write_bytes(b"%PDF-1.4 current assessed fixture")
+    metadata = {"revision": 2, "source_sha256": hashlib.sha256(source.encode()).hexdigest(),
+                "path": preview.relative_to(w.root / "data/output").as_posix(), "page_count": 1,
+                "layout": {"full_pages": True}, "review_required": True}
+    (folder / "preview.json").write_text(json.dumps(metadata), encoding="utf-8")
+    with w.connect() as db:
+        db.execute("UPDATE jobs SET folder=? WHERE id=?", (folder.parent.relative_to(w.root).as_posix(), job["id"]))
+        db.execute("INSERT INTO studio_drafts VALUES(?,?,?,?,?,?)", (job["id"], source, 2,
+                   folder.relative_to(w.root).as_posix(), stamp(at(2)), "test-revision-1"))
+        db.execute("INSERT INTO resume_scores VALUES(?,?,?,?,?,?,?)", (job["id"], 2, metadata["source_sha256"],
+                   hashlib.sha256(pdf.read_bytes()).hexdigest(), hashlib.sha256(job["description"].encode()).hexdigest(),
+                   "{}", stamp(at(2))))
+    recorded_review(services, job, pdf)
+    return pdf
+
+
 def test_the_morning_list_shows_new_jobs_what_is_left_and_what_was_applied(tmp_path, monkeypatch):
-    services = ireland_profile(tmp_path)
+    services = ireland_profile(tmp_path, roles=("Data Analyst", "BI Analyst"))
     w = services.w
     fresh = w.add_job("Acme Analytics", "Data Analyst", "Dublin, Ireland", "https://jobs.example/acme/1", JD)
     older = w.add_job("Birch Data", "BI Analyst", "Cork, Ireland", "https://jobs.example/birch/2", JD)
     applied = w.add_job("Cedar Labs", "Data Engineer", "Dublin, Ireland", "https://jobs.example/cedar/3", JD)
     w.update_job(applied["id"], "applied", application_date="2026-09-20")
-    (w.root / "applications/acme").mkdir(parents=True)
-    (w.root / "applications/acme/resume.pdf").write_bytes(b"%PDF-1.4")
+    fresh_pdf = checked_studio_pdf(services, fresh)
+    checked_studio_pdf(services, older)
     with w.connect() as db:
-        db.execute("UPDATE jobs SET created_at=?, fit_score=82, fit_rationale='Fit 82/100. Meets 3 of 3 must-haves.', "
-                   "folder='applications/acme' WHERE id=?", (stamp(at(2)), fresh["id"]))
+        db.execute("UPDATE jobs SET created_at=?, fit_score=82, fit_rationale='Fit 82/100. Meets 3 of 3 must-haves.' "
+                   "WHERE id=?", (stamp(at(2)), fresh["id"]))
         db.execute("UPDATE jobs SET created_at=?, fit_score=71 WHERE id=?", (stamp(at(10, day=22)), older["id"]))
         search_memory.remember(db, posting(7, company="Elm Insights"), "held", stage="fit",
                                reason="waiting for an AI check", keep_posting=True)
@@ -254,7 +315,7 @@ def test_the_morning_list_shows_new_jobs_what_is_left_and_what_was_applied(tmp_p
     text = (w.daily_dir / "MORNING-JOBS.md").read_text(encoding="utf-8")
     assert "**Acme Analytics — Data Analyst** · Dublin, Ireland · fit 82/100" in text
     assert "Why: Fit 82/100. Meets 3 of 3 must-haves." in text and "Apply: https://jobs.example/acme/1" in text
-    assert "applications/acme/resume.pdf" in text
+    assert autopilot._shown(fresh_pdf) in text and "review before applying" in text
     assert "## Still to apply" in text and "| 71 | Birch Data | BI Analyst |" in text
     assert "Cedar Labs" not in text.split("## Your applications")[0]
     assert "Applied 1" in text and "never suggests these roles again" in text
@@ -282,7 +343,209 @@ def test_a_quiet_morning_still_gets_a_list(tmp_path, monkeypatch):
     monkeypatch.setattr(autopilot, "INDEX", tmp_path / "MORNING-JOBS.md")
     summary = autopilot.write_list(Store(), PROFILE, autopilot.Journal(), at(9), "09:00", "http://127.0.0.1:8000")
     text = (services.w.daily_dir / "MORNING-JOBS.md").read_text(encoding="utf-8")
-    assert summary["new"] == [] and "No new job passed every check" in text and "No hunt ran" in text
+    assert summary["new"] == [] and "No new job has both current checks" in text and "No hunt ran" in text
+
+
+@pytest.mark.parametrize("change,reason", [
+    ("base_only", "not prepared"),
+    ("source", "current resume revision"),
+    ("pdf", "resume assessment"),
+    ("evidence", "current profile evidence"),
+    ("posting", "blocked the automatic check"),
+    ("fit", "requirement check"),
+    ("profile", "Reconcile your pending profile edits"),
+    ("posting_age", "more than two days ago"),
+    ("review", "No independent review"),
+    ("review_findings", "independent review needs attention"),
+    ("review_blocked", "independent review found an error"),
+    ("review_legacy", "no usable verdict"),
+    ("assurance", "suggested item"),
+    ("claims", "without registered candidate evidence"),
+    ("discovery_without_verification", "more than two days ago"),
+])
+def test_unfinished_or_stale_work_is_pending_and_never_a_new_ready_resume(tmp_path, change, reason):
+    services = ireland_profile(tmp_path)
+    w = services.w
+    job = w.add_job("Acme Analytics", "Data Analyst", "Dublin, Ireland", "https://jobs.example/acme/pending", JD)
+    pdf = checked_studio_pdf(services, job)
+    with w.connect() as db:
+        db.execute("UPDATE jobs SET created_at=? WHERE id=?", (stamp(at(2)), job["id"]))
+        if change == "base_only":
+            db.execute("DELETE FROM studio_drafts WHERE job_id=?", (job["id"],))
+            (pdf.parent.parent.parent / "resume.pdf").write_bytes(b"%PDF-1.4 stale base")
+        elif change == "source":
+            db.execute("UPDATE studio_drafts SET revision=revision+1,source=source || ' changed' WHERE job_id=?", (job["id"],))
+        elif change == "pdf":
+            pdf.write_bytes(b"%PDF-1.4 changed after assessment")
+        elif change == "evidence":
+            evidence = w.evidence()
+            evidence["candidate_revision"] = "new-evidence-revision"
+            (w.root / "data/context/evidence.yml").write_text(yaml.safe_dump(evidence), encoding="utf-8")
+        elif change == "posting":
+            db.execute("UPDATE jobs SET posting_state='needs_review' WHERE id=?", (job["id"],))
+        elif change == "fit":
+            db.execute("DELETE FROM job_fit WHERE job_id=?", (job["id"],))
+        elif change == "profile":
+            db.execute("UPDATE knowledge SET review_state='user_updated' WHERE id='SKILL-001'")
+        elif change == "posting_age":
+            db.execute("UPDATE jobs SET last_verified_at=? WHERE id=?",
+                       (stamp(datetime.now(timezone.utc) - timedelta(days=3)), job["id"]))
+        elif change == "review":
+            db.execute("DELETE FROM agent_runs WHERE kind='resume_match' AND job_id=?", (job["id"],))
+        elif change in {"review_findings", "review_blocked", "review_legacy"}:
+            row = db.execute("SELECT id,result FROM agent_runs WHERE kind='resume_match' AND job_id=?", (job["id"],)).fetchone()
+            review = json.loads(row['result'])
+            if change == "review_legacy":
+                review['review'].pop('verdict')
+            else:
+                review['review'].update(verdict='blocked' if change == 'review_blocked' else 'review',
+                                        issues=['Confirm the document details.'])
+            db.execute("UPDATE agent_runs SET result=? WHERE id=?", (json.dumps(review), row['id']))
+        elif change == "assurance":
+            db.execute("INSERT INTO resume_items(id,job_id,section,content,origin,evidence_id,decision,created_at,updated_at) "
+                       "VALUES(?,?,?,?,?,?,?,?,?)", ("suggestion-1", job["id"], "skills", "Looker", "predicted", "", "pending",
+                                                   services.now(), services.now()))
+        elif change == "claims":
+            source = "% EVIDENCE: resume_items:suggestion-1\n\\newcommand{\\CoreSkills}{Looker}\n"
+            db.execute("UPDATE studio_drafts SET source=? WHERE job_id=?", (source, job["id"]))
+            preview_file = pdf.parent.parent / "preview.json"
+            preview = json.loads(preview_file.read_text(encoding="utf-8"))
+            preview["source_sha256"] = hashlib.sha256(source.encode()).hexdigest()
+            preview_file.write_text(json.dumps(preview), encoding="utf-8")
+            db.execute("UPDATE resume_scores SET source_sha256=? WHERE job_id=?",
+                       (preview["source_sha256"], job["id"]))
+        elif change == "discovery_without_verification":
+            db.execute("UPDATE jobs SET last_verified_at=NULL WHERE id=?", (job["id"],))
+            db.execute("INSERT INTO agent_runs(id,kind,state,input,result,created_at,updated_at) VALUES(?,?,?,?,?,?,?)",
+                       ("discovery-example", "discovery", "completed", "{}",
+                        json.dumps({"added_job_ids": [job["id"]]}), services.now(), services.now()))
+
+    class Store:
+        def root_for(self, _id):
+            return w.root
+
+    result = autopilot.collect(Store(), PROFILE, autopilot.Journal(), at(9), "09:00")
+    assert result["new"] == []
+    pending = result["pending"]
+    assert len(pending) == 1 and pending[0]["resume"] is None
+    assert any(reason in text for text in pending[0]["pending_reasons"])
+    report = autopilot.render(result, "http://127.0.0.1:8000")
+    assert "## Pending checks or resume (1)" in report
+    assert "Tailored resume (review before applying):" not in report
+
+
+def test_morning_readiness_does_not_write_artifacts_or_request_another_agent(tmp_path, monkeypatch):
+    services = ireland_profile(tmp_path)
+    job = services.w.add_job("Acme Analytics", "Data Analyst", "Dublin, Ireland", "https://jobs.example/acme/read-only", JD)
+    pdf = checked_studio_pdf(services, job)
+    source_file = pdf.parent.parent / "resume.tex"
+    source_file.write_text("A file reporting must not overwrite.\n", encoding="utf-8")
+    files = list(pdf.parent.parent.rglob("*"))
+    before = {path: (path.read_bytes(), path.stat().st_mtime_ns) for path in files if path.is_file()}
+
+    def unexpected(*args, **kwargs):
+        raise AssertionError("Reporting must not request AI, compile or rescore a PDF")
+
+    from backend.services.agents import AgentRunner
+
+    monkeypatch.setattr(AgentRunner, "enqueue", unexpected)
+    monkeypatch.setattr(ResumeStudio, "preview", unexpected)
+    monkeypatch.setattr(ResumeStudio, "score", unexpected)
+    monkeypatch.setattr(fit, "for_job", unexpected)
+    current = services.w.get_job(job["id"])
+    result, reasons = autopilot._readiness(services, current, set(), fit.catalogue(services), {})
+    assert result == pdf and reasons == []
+    assert {path: (path.read_bytes(), path.stat().st_mtime_ns) for path in before} == before
+
+
+def test_ready_studio_pdf_wins_over_base_and_manual_job_waits_for_checks(tmp_path):
+    services = ireland_profile(tmp_path)
+    w = services.w
+    ready = w.add_job("Acme Analytics", "Data Analyst", "Dublin, Ireland", "https://jobs.example/acme/ready", JD)
+    manual = w.add_job("Manual Example", "Data Analyst", "Dublin, Ireland", "https://jobs.example/manual", JD)
+    pdf = checked_studio_pdf(services, ready)
+    (pdf.parent.parent.parent / "resume.pdf").write_bytes(b"%PDF-1.4 obsolete base")
+    (pdf.parent.parent / "preview-9").mkdir()
+    (pdf.parent.parent / "preview-9/resume.pdf").write_bytes(b"%PDF-1.4 unrelated newer-looking preview")
+    with w.connect() as db:
+        db.execute("UPDATE jobs SET created_at=?", (stamp(at(2)),))
+        db.execute("INSERT INTO agent_runs(id,kind,state,input,result,created_at,updated_at) VALUES(?,?,?,?,?,?,?)",
+                   ("discovery-example", "discovery", "completed", "{}", json.dumps({"added_job_ids": [ready["id"]]}),
+                    stamp(at(2)), stamp(at(2))))
+
+    class Store:
+        def root_for(self, _id):
+            return w.root
+
+    result = autopilot.collect(Store(), PROFILE, autopilot.Journal(), at(9), "09:00")
+    assert [j["id"] for j in result["new"]] == [ready["id"]]
+    assert result["new"][0]["resume"] == autopilot._shown(pdf)
+    assert result["new"][0]["review_required"] is True
+    assert [j["id"] for j in result["pending"]] == [manual["id"]]
+    assert any("not prepared" in reason for reason in result["pending"][0]["pending_reasons"])
+
+
+def test_aging_service_keeps_application_status_notes_and_events_unchanged(tmp_path):
+    services = ireland_profile(tmp_path)
+    job = services.w.add_job("Example Services", "Data Analyst", "Dublin, Ireland", "https://jobs.example/applied", JD)
+    services.w.update_job(job["id"], "applied", notes="Waiting for a reply", application_date="2020-01-01")
+    before = services.w.get_job(job["id"])
+    events = services.w.activity()
+    assert services.age_applications() == []
+    assert services.w.get_job(job["id"]) == before
+    assert services.w.activity() == events
+
+
+@pytest.mark.skipif(not tectonic_executable(), reason="Tectonic is required for the complete Studio PDF")
+def test_a_real_onboarded_and_compiled_studio_resume_is_in_the_ready_morning_list(tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+    from backend.dashboard.shell import create_shell
+    from backend.profiles import ProfileStore
+    from backend.job_quality import JobQualityService
+    from backend.services.workspace_v2 import CareerServices
+    import backend.services.intake.api as intake_api
+    from career import Workspace
+    from test_build_pipeline import ExtractorFixture, _wait
+
+    monkeypatch.setattr(intake_api, "team_factory", lambda _profiles: lambda _on_usage: ExtractorFixture())
+    store = ProfileStore(base=tmp_path / "profiles", legacy_root=tmp_path / "no-legacy")
+    with TestClient(create_shell(store), base_url="http://127.0.0.1") as client:
+        profile = client.post("/api/profiles", json={"name": "Example Person"}).json()["profile"]
+        base = "/api/profiles/" + profile["id"]
+        client.post(base + "/sources?name=resume.md", content=(
+            b"Example Person\nCustomer Support Specialist, Example Services, Dublin, Ireland.\n"
+            b"January 2023 to Present. Responded to customer requests by email and phone.\n"
+            b"Used Zendesk to track support tickets and follow-up actions.\n"))
+        run = client.post(base + "/build-runs", json={"target_markets": ["ie"],
+            "work_authorization_by_market": {"ie": {"status": "authorized", "citizenship": "citizen",
+                                                      "needs_sponsorship_later": "no"}}}).json()
+        built = _wait(client, base, run["id"])
+        assert built["status"] == "completed", built
+
+    services = CareerServices(Workspace(store.root_for(profile["id"])))
+    services.set_pref("hunt_preferences", {"require_ai_fit": False, "min_fit": 70})
+    job = services.add_posting({"company": "Example Services", "title": "Customer Support Specialist",
+        "location": "Dublin, Ireland", "url": "https://example.org/careers/support",
+        "description": "Customer Support Specialist in Dublin. Requirements: Zendesk. "
+                       "Answer customer requests by email and phone and follow up on support tickets."})["job"]
+    quality = JobQualityService(services)
+    quality.assess_company(job["company"], job["url"], [], [], [], override_reason="Test employer feed")
+    quality.verify_posting(job["id"], response={"status": 200, "text": job["description"], "final_url": job["url"]})
+    analysis = fit.for_job(services, job["id"], use_ai=False)
+    assert analysis["score"] >= 70
+    studio = ResumeStudio(services)
+    draft = studio.open(job["id"])
+    fitted = studio.fit(job["id"], draft["revision"])
+    assert fitted["preview"]["current"]
+    pdf = services.w.root / "data/output" / fitted["preview"]["path"] / "resume.pdf"
+    recorded_review(services, job, pdf)
+    with services.w.connect() as db:
+        db.execute("UPDATE jobs SET created_at=? WHERE id=?", (stamp(at(2)), job["id"]))
+    result = autopilot.collect(store, profile, autopilot.Journal(), at(9), "09:00")
+    assert result["pending"] == [], result["pending"]
+    assert [j["id"] for j in result["new"]] == [job["id"]]
+    assert result["new"][0]["resume"] == autopilot._shown(pdf) and pdf.is_file()
+    assert result["new"][0]["review_required"] is True
 
 
 def test_a_list_written_in_the_evening_shows_that_days_search(tmp_path, monkeypatch):

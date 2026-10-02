@@ -3,6 +3,7 @@ backup/
 .local-reference/
 .venv/
 pytest-of-*/
+.test-source-audit/
 PLAN.md
 WORKSPACE-STATE.md
 *.code-workspace

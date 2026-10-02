@@ -19,7 +19,9 @@ python career-dashboard/backend/scripts/verify_job_url.py --file my-jobs/<date>/
 `--file` takes any text or Markdown file and checks every link in it, one request every
 `--delay` seconds.
 
-In App mode the same checker is `career verify-url --url "<link>"`. When you cannot run
+In App mode the same checker is `career verify-url --url "<link>"`. This standalone URL check
+does not read a profile and does not accept `--profile`; any subsequent job or resume command
+must use the selected profile's exact ID. When you cannot run
 commands, open the page yourself and apply the same reading.
 
 Reading the result:

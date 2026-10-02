@@ -13,6 +13,7 @@ import {
   Upload,
 } from "lucide-react";
 import { shellApi, uploadFile } from "../api";
+import { LatestRequest } from "../latestRequest";
 import type { ProfileEntry } from "../profiles";
 
 export type SourceVersion = {
@@ -82,6 +83,17 @@ export function marketSelection(values: string[]): ("ie" | "us")[] {
   return unique.size ? Array.from(unique) : ["ie"];
 }
 
+/** Only persisted build inputs affect synchronization; ordinary profile polling preserves edits. */
+export function profileBuildSettings(profile: ProfileEntry) {
+  return {
+    markets: marketSelection(profile.target_markets || [profile.country]),
+    authorization: {
+      ie: { ...UNKNOWN_AUTH, ...profile.work_authorization_by_market?.ie },
+      us: { ...UNKNOWN_AUTH, ...profile.work_authorization_by_market?.us },
+    },
+  };
+}
+
 function lines(value: unknown): string[] {
   if (Array.isArray(value)) return value.map((item) => typeof item === "string" ? item : JSON.stringify(item));
   if (typeof value === "string" && value) return [value];
@@ -112,33 +124,38 @@ export default function SourceLibrary({ profile, notify, onBuilt, compact = fals
   const [noteName, setNoteName] = useState("");
   const [noteText, setNoteText] = useState("");
   const [noteOpen, setNoteOpen] = useState(false);
-  const [markets, setMarkets] = useState<MarketCode[]>(() => marketSelection(profile.target_markets || [profile.country]));
-  const [authorization, setAuthorization] = useState<Record<MarketCode, Authorization>>(() => ({
-    ie: { ...UNKNOWN_AUTH, ...profile.work_authorization_by_market?.ie },
-    us: { ...UNKNOWN_AUTH, ...profile.work_authorization_by_market?.us },
-  }));
+  const [markets, setMarkets] = useState<MarketCode[]>(() => profileBuildSettings(profile).markets);
+  const [authorization, setAuthorization] = useState<Record<MarketCode, Authorization>>(() => profileBuildSettings(profile).authorization);
+  const savedSettings = JSON.stringify(profileBuildSettings(profile));
+  useEffect(() => {
+    const saved = JSON.parse(savedSettings) as ReturnType<typeof profileBuildSettings>;
+    setMarkets(saved.markets);
+    setAuthorization(saved.authorization);
+  }, [profile.id, savedSettings]);
   const [now, setNow] = useState(() => Date.now());
   const uploadRef = useRef<HTMLInputElement>(null);
   const completedRef = useRef<string | null>(null);
+  const reads = useRef(new LatestRequest()).current;
   const base = `/profiles/${profile.id}`;
 
   const load = useCallback(async () => {
     try {
-      const [sourceData, runData] = await Promise.all([
+      await reads.run(() => Promise.all([
         shellApi<{ sources: SourceRecord[] }>(base + "/sources"),
         shellApi<{ runs: BuildRun[] }>(base + "/build-runs"),
-      ]);
-      setSources(sourceData.sources || []);
-      setRuns(runData.runs || []);
-      setLoadError("");
+      ]), ([sourceData, runData]) => {
+        setSources(sourceData.sources || []);
+        setRuns(runData.runs || []);
+        setLoadError("");
+        setLoaded(true);
+      });
     } catch (error) {
       setLoadError((error as Error).message);
-    } finally {
       setLoaded(true);
     }
-  }, [base]);
+  }, [base, reads]);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => { void load(); return () => reads.invalidate(); }, [load, reads]);
   const latest = runs[0];
   const running = latest && ACTIVE.has(latest.status);
   useEffect(() => {

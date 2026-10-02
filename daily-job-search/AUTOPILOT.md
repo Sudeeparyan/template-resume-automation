@@ -16,8 +16,11 @@ Jobs*, for the whole PC. The task:
 - wakes the PC, runs on battery, keeps the PC awake until the list is written, and is restarted if
   it fails.
 
-How many jobs, the fit bar and the helpers (research, tailored resume, study plan, PDF) are the
-**Overnight hunt** settings in Daily Search. Nothing is ever submitted and no one is contacted.
+How many jobs, the fit bar and the helpers are the **Overnight hunt** settings in Daily Search. By
+default every saved job goes end to end: the posting is re-read (a closed one gets nothing more),
+company research with the hiring-manager view and the fit with the profile, the tailored resume, the
+contract-sized PDF, an independent review of that PDF, the study plan and the ready-to-submit check.
+Nothing is ever submitted and no one is contacted.
 
 ## Where the list is
 
@@ -36,6 +39,13 @@ Each list shows these sections:
 - **Waiting for the AI requirement check**: not verified yet.
 - **Your applications**: never suggested again.
 - **How the search went**: including what the run fixed by itself.
+
+Only jobs passing the same final readiness check as Daily Search count as new ready jobs.
+An old posting check, missing or unresolved review of the exact PDF and posting, unsupported claims or
+undecided Assurance items leave the job pending. Rewriting the list does not edit or compile
+the saved resume.
+The independent review must record `pass` with no unresolved issues. Completion alone,
+including an older prose-only report, does not pass the readiness check.
 
 ## What mends itself
 
@@ -76,30 +86,35 @@ Running it twice is safe. A second run while one is working only rewrites the li
 
 Point the AI app at this folder and create scheduled tasks with these prompts (the steps for each
 app are in [START-HERE.md](../START-HERE.md)). With the Windows task switched on, you only need the
-morning prompt. Without it, for example on macOS, also add the evening prompt. The same morning
-prompt works when the dashboard is not installed: the AI app then searches and writes the resumes
-itself (`.agents/skills/morning-jobs/SKILL.md`).
+morning prompt. Without it, for example on macOS, also add the evening prompt. Select the
+original local folder and the exact profile ID. A new Git worktree does not include ignored
+candidate profiles. A cloud-only task cannot read this app's local database; that is the
+separate AI-only workflow in `.agents/skills/morning-jobs/SKILL.md`.
 
 **Every day at 09:00, bring me my jobs:**
 
 ```text
-Morning jobs. In this folder, follow AGENTS.md and the morning-jobs skill: bring me today's
-jobs with apply links and tailored resumes. Do not apply, contact anyone or change my profile.
+Morning jobs for profile <id>. In this original local folder, follow AGENTS.md and the
+morning-jobs skill. Refresh the profile's saved list and bring me up to 5 ready jobs with
+checked apply links and current tailored resumes. State the actual ready count and blockers.
+Do not apply, contact anyone or change my profile.
 ```
 
 **Every day at 23:00, start the night search** (only if the Windows task is off):
 
 ```text
-In this folder, run  daily-job-search\morning-jobs.cmd --background  (on macOS:
-bash daily-job-search/morning-jobs.command --background). It returns at once and searches overnight.
+In this original local folder, run daily-job-search\morning-jobs.cmd --background --profile <id>
+(on macOS: bash daily-job-search/morning-jobs.command --background --profile <id>).
+It returns at once and searches overnight.
 Reply only with the line it prints.
 ```
 
 ## For AI assistants working in this folder
 
-Follow `.agents/skills/morning-jobs/SKILL.md`. In short: when the person asks for "today's jobs",
-"my morning list" or similar, read `daily-job-search/MORNING-JOBS.md` and the profile list it
-points to, and answer from those files. When the list is missing or older than today, run
-`morning-jobs.cmd --list-only` if you can run commands; for "N jobs now", run `--jobs N`. Never
+Follow `.agents/skills/morning-jobs/SKILL.md`. For "today's jobs" or a progress question,
+read `career ws summary --profile <id>` and refresh that profile's morning list with
+`morning-jobs.cmd --list-only --profile <id>`; for "N jobs now", use `--jobs N --profile <id>`.
+Read only that profile's MORNING-JOBS.md and dated JSON. Count current checked jobs with
+current tailored PDFs, report pending checks separately, and use the saved dashboard URL. Never
 start an application, never send outreach and never edit a profile from this workflow. The rules
 in `AGENTS.md` apply.

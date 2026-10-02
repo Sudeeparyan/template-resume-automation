@@ -19,6 +19,9 @@ experience, or add a years-of-experience total they did not state.
 
 ## App mode
 
+Read `career ws summary --profile <id>` and `career ws profile --profile <id>` before making
+changes so dashboard edits since the last conversation are included.
+
 The profile's facts live in `career-dashboard/profiles/<id>/data/`: `config/profile.yml`
 (identity, targets, rules) and `context/evidence.yml` (the evidence registry every resume line
 must cite), built from the source documents. Do not edit those files by hand.

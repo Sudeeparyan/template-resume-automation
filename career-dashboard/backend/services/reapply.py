@@ -19,8 +19,8 @@ DEFAULTS = {
     "block_same_role": False,
     "auto_ghost": False,
     "ghost_after_days": 21,
-    "reject_cooldown_days": 180,
-    "ghost_cooldown_days": 90,
+    "reject_cooldown_days": 0,
+    "ghost_cooldown_days": 0,
 }
 
 # Why a saved role was removed, as the Dashboard offers it. The removal reason starts with
@@ -34,11 +34,12 @@ REMOVAL_REASONS = {
     "other": "Not suitable",
 }
 # Removed for these: skip every later role at that company.
-COMPANY_LESSONS = {"company", "permit"}
-# Removed for these: skip the same job title at any company.
-TITLE_LESSONS = {"role", "senior"}
+COMPANY_LESSONS = {"company"}
+# A wrong-kind preference rules out that title elsewhere. Seniority, location and
+# permit requirements belong to the removed vacancy, not every vacancy with its title.
+TITLE_LESSONS = {"role"}
 # A role in one of these states was applied for; the same role is never suggested again.
-APPLIED_STATES = {"applied", "interview", "offer", "withdrawn"}
+APPLIED_STATES = {"applied", "interview", "offer", "withdrawn", "rejected"}
 
 
 def removal_kind(reason: str | None) -> str | None:
@@ -73,8 +74,8 @@ def settings(profile: dict[str, Any] | None) -> dict[str, Any]:
         # Ignore older profile switches that inferred an outcome from silence.
         "auto_ghost": False,
         "ghost_after_days": max(0, int(raw.get("ghost_after_days", DEFAULTS["ghost_after_days"]))),
-        "reject_cooldown_days": max(0, int(raw.get("reject_cooldown_days", DEFAULTS["reject_cooldown_days"]))),
-        "ghost_cooldown_days": max(0, int(raw.get("ghost_cooldown_days", DEFAULTS["ghost_cooldown_days"]))),
+        "reject_cooldown_days": max(0, int(raw.get("reject_cooldown_days", 0))) if raw.get("company_cooldown_confirmed") else 0,
+        "ghost_cooldown_days": max(0, int(raw.get("ghost_cooldown_days", 0))) if raw.get("company_cooldown_confirmed") else 0,
     }
 
 

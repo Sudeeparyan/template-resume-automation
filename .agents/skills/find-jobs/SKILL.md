@@ -17,8 +17,16 @@ country searched; ask when it is not. Default count: the "Jobs per morning" in t
 
 The app's overnight hunt does the whole job: it reads employer career feeds and job boards
 without AI, runs focused AI searches per role, applies every check, keeps searching until it has
-the number asked for at the person's fit bar, then prepares each job (company research, tailored
-resume, study plan, PDF).
+the number asked for at the person's fit bar, then takes each job end to end: the posting is re-read
+(a closed one gets nothing more), company research with the hiring-manager view and the fit with
+their evidence, the tailored resume and PDF, an independent review of that PDF, the study plan and
+the ready-to-submit check. The check gives a verdict (ready to submit, needs your review, not ready)
+and a readiness score from fit, coverage and readability. It is not a prediction of an interview;
+never present it as one.
+
+First run `career ws summary --profile <id>` and use its current goals, job statuses and
+`profile_dirty` flag. Dashboard edits and application changes may have happened since the
+last chat. Resolve pending profile reconciliation before reusing its evidence or a PDF.
 
 1. Run it for the number asked (Windows, then macOS or Linux):
 
@@ -30,13 +38,21 @@ resume, study plan, PDF).
    It starts the app when it is not running and searches for up to 1.5 hours (`--hours 3` for
    longer). If your app cannot wait that long, add `--background`, tell the person it is running,
    and later rewrite the list with `--list-only`.
-2. Read the index `daily-job-search/MORNING-JOBS.md` and the profile list it points to.
+2. Read only the selected profile's `career-dashboard/profiles/<id>/daily-job-search/MORNING-JOBS.md`
+   and its dated `morning-jobs.json`. Check the profile, date, count and artifact paths. The
+   top-level index contains other people's summaries, so do not read it for a personal request.
 3. Reply with the list format below, using the list's own values. Items under "Waiting for the AI
    requirement check" are not checked yet; say so and do not count them.
+   Jobs still awaiting a usable tailored PDF or artifact checks also do not count as ready.
+   Link only the artifacts returned for that job, and label any required human review. When
+   fewer jobs are ready, state the actual count and the recorded reason. Do not fabricate a
+   score, permit quote or file path. If the run is still active, say that and return to its result.
 
 To add one posting the person found themselves: save it as JSON (`company`, `title`, `location`,
-`url`, full `description`) and run `career add --file job.json`, then `career ws fit --job-id <id>`
-and `career prepare <id>`, or use `tailor-resume`.
+`url`, full `description`) and run `career add --file job.json --profile <profile-id>`, then
+`career ws fit --job-id <job-id> --profile <profile-id>` and
+`career prepare <job-id> --profile <profile-id>`, or use `tailor-resume`. Use the returned job ID;
+the profile ID identifies the person and must never be replaced by a job ID.
 
 ## AI-only mode
 

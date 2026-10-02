@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Check, Download, ShieldCheck, X } from "lucide-react";
 import { api } from "../api";
-import { AskAssistant, Badge, Empty, Loading } from "../components/UI";
+import { AskAssistant, Badge, Empty, Field, Loading } from "../components/UI";
 import type { AssuranceReport, Summary } from "../types";
 
 export function confidenceTone(score: number): string {
@@ -112,22 +112,8 @@ export default function Assurance({
     <>
       <div className="page-title">
         {intro}
-        <div className="actions">
-          <select
-            aria-label="Job to review"
-            value={jobId}
-            onChange={(e) => setJobId(e.target.value)}
-          >
-            {jobs.map((j) => (
-              <option key={j.id} value={j.id}>
-                {j.company} · {j.title}
-              </option>
-            ))}
-          </select>
-          <button className="secondary" onClick={() => onJob(jobId)}>
-            Open in Resume Studio
-          </button>
-          {selectedJob && (
+        {selectedJob && (
+          <div className="actions">
             <AskAssistant
               label="Ask about these claims"
               prompts={[
@@ -135,7 +121,24 @@ export default function Assurance({
                 { label: "Is it ready to send?", text: `Is the ${selectedJob.company} — ${selectedJob.title} resume ready to send? Check the PDF, the scores and the Assurance claims.` },
               ]}
             />
-          )}
+          </div>
+        )}
+      </div>
+      {/* The job picker sits in its own bar, as in Resume Studio: a long job title never squeezes the heading. */}
+      <div className="studio-job-bar">
+        <Field label="Job to review">
+          <select value={jobId} onChange={(e) => setJobId(e.target.value)}>
+            {jobs.map((j) => (
+              <option key={j.id} value={j.id}>
+                {j.company} · {j.title}
+              </option>
+            ))}
+          </select>
+        </Field>
+        <div className="actions">
+          <button className="secondary" onClick={() => onJob(jobId)}>
+            Open in Resume Studio
+          </button>
           <button className="secondary" disabled={!report} onClick={download} title="Save the review report as JSON">
             <Download size={15} /> Report
           </button>

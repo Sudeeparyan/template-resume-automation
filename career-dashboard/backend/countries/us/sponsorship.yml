@@ -31,9 +31,7 @@ exclude_no_sponsorship:
   - 'sponsorship\s+is\s+not\s+(available|offered|provided)'
   - 'not\s+able\s+to\s+sponsor'
   - 'without\s+(the\s+need\s+for\s+)?(visa\s+|employer\s+)?sponsorship'
-  - 'now\s+or\s+in\s+the\s+future'
   - 'not\s+considering\s+candidates\s+.{0,30}sponsorship'
-  - 'no\s+(C2C|corp\s*to\s*corp|third[- ]party)'   # staffing shorthand that usually means no sponsorship
   - 'must\s+not\s+require\s+sponsorship'
   - 'ineligible\s+for\s+.{0,20}sponsorship'
   # Added 2026-09-18 after testing ten common US phrasings against the list above.
@@ -44,7 +42,8 @@ exclude_no_sponsorship:
   - 'sponsorship\s+(will\s+)?not\s+be\s+(provided|offered|available|considered)'
   - 'candidates\s+(who\s+)?requir(e|ing)\s+(visa\s+)?sponsorship\s+(will\s+not|cannot|are\s+not)'
   # Added 2026-09-23: "without current or future sponsorship" (a live Greenhouse posting) was missed.
-  - '(current|present)\s*(or|and|/)\s*future\s+((visa|employer|employment|immigration|work|H-?1B)\s+){0,2}sponsorship'
+  - 'without\s+(the\s+need\s+for\s+)?(?:current|present)\s*(?:or|and|/)\s*future\s+((visa|employer|employment|immigration|work|H-?1B)\s+){0,2}sponsorship'
+  - '(must\s+not\s+require|excludes?)\s+(?:current|present)\s*(?:or|and|/)\s*future\s+((visa|employer|employment|immigration|work|H-?1B)\s+){0,2}sponsorship'
   # Added 2026-09-24 (end-to-end test): "This position is not eligible for visa sponsorship." was missed.
   - 'not\s+eligible\s+for\s+((visa|H-?1B|employment|work|immigration)\s+){0,2}sponsorship'
 

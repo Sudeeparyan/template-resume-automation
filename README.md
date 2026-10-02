@@ -1,8 +1,9 @@
 # Career Workspace
 
 A private job-search workspace for Ireland and the US. It finds real, open jobs that fit you and
-makes an honest, tailored resume for each one. Nothing is submitted to an employer or sent as
-outreach without your confirmation. The GitHub copy starts empty: no person, no jobs, no keys.
+makes an honest, tailored resume for each one. You review and submit applications yourself;
+the assistant never applies or contacts employers. The GitHub copy starts empty: no person,
+no jobs, no keys. Begin with **[START-HERE.md](START-HERE.md)** for the chat-to-app workflow.
 
 There are two ways to use it, and they work together:
 
@@ -12,11 +13,13 @@ There are two ways to use it, and they work together:
 | You need | Claude (desktop app), ChatGPT (Codex app) or Kimi (Kimi Code) | the same, plus Python, Node.js and Tectonic on your computer |
 | Jobs come from | the AI's web search and job-board connectors | 67 Irish employers' job feeds, Irish graduate boards, then focused AI searches, overnight |
 | Resumes | written and checked by the AI (PDF and Word) | the evidence registry, Resume Studio and a validated PDF at an exact page count |
-| Start | **[START-HERE.md](START-HERE.md)** | [install the dashboard](#install-the-dashboard), then START-HERE.md |
+| Start | fallback when the local app cannot run; separate files and tracker | [install the dashboard](#install-the-dashboard), then **[START-HERE.md](START-HERE.md)** |
 
 Either way you talk to your AI app the same way ("Set me up", "Give me 5 jobs with resumes",
 "Today's jobs"). The AI app reads [AGENTS.md](AGENTS.md) and the shared skills in
-[.agents/skills/](.agents/skills/), and uses the dashboard whenever it is installed.
+[.agents/skills/](.agents/skills/). Its first command, `career doctor`, checks whether the app
+can run even before you have a profile. For the connected workflow, use the app-backed route;
+AI-only output is not automatically imported into the dashboard.
 
 ## Install the dashboard
 
@@ -35,10 +38,17 @@ Either way you talk to your AI app the same way ("Set me up", "Give me 5 jobs wi
    or a key: copy `career-dashboard/.env.example` to `career-dashboard/.env` and fill in one
    provider. Restart the launcher after adding a key or signing in, and check its AI readiness
    report. The `.env` file and each profile folder stay on your computer.
-5. Create a profile: in the dashboard (choose Ireland, US or both, add a DOCX, PDF, TXT, MD or typed
+5. Create a profile once: in the dashboard (choose Ireland, US or both, add a DOCX, PDF, TXT, MD or typed
    note to its Sources, then **Build Agent for You**), or tell your AI app "Set me up", which runs
    `career setup` on the files in `me/`. Review flagged facts and work authorization before using
-   job actions. Rebuild when you add new sources; job history stays with the profile.
+   job actions. Rebuild when you add new sources; job history stays with the profile. If a build
+   fails, retry with that profile ID rather than creating another person. A ready profile and
+   completed build, not an uploaded file alone, finish setup.
+
+For a read-only diagnosis at any time, run `career.cmd doctor` on Windows or `sh career doctor`
+elsewhere. It reports missing dependencies and tools without opening resumes, credentials or
+starting AI calls. Provider detection does not prove sign-in. Gmail and Drive are optional
+AI-host connectors, not prerequisites or automatic connections to the dashboard.
 
 The app serves only this computer. Pass `--port 8001` to use another port, `--no-browser` to keep
 it from opening a tab, and `--preflight-only` to install and check tools without starting the
@@ -77,7 +87,9 @@ through its web search.
 Profiles live under `career-dashboard/profiles/<id>/`, each with its own sources, SQLite database,
 search history and outputs. `me/` and `my-jobs/` hold what the AI-app path writes. Git never
 publishes any of these, API keys or `backup/`. Before publishing changes, run
-`python scripts/scan_release.py`.
+`python scripts/scan_release.py`. To reuse an already populated local copy, follow
+[Reset to an empty template](docs/RESET-TEMPLATE.md). Resetting private data does not inspect or
+erase backups, external chats or Git history; distribute the clean Git tree, not a used folder ZIP.
 
 ## For developers
 

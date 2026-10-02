@@ -152,7 +152,7 @@ def test_smartrecruiters_postings_are_read_in_full():
     assert job_sources.smartrecruiters_parts(found[0]["url"]) == ("Acme", "7440001")
 
 
-def test_gradireland_reads_recent_matching_jobs_from_its_sitemap():
+def test_gradireland_checks_closing_dates_even_for_old_sitemap_entries():
     sitemap = ("<urlset>"
                "<url><loc>https://gradireland.com/jobs/data-analyst-graduate-101</loc><lastmod>2099-01-01T00:00:00Z</lastmod></url>"
                "<url><loc>https://gradireland.com/jobs/chef-102</loc><lastmod>2099-01-01T00:00:00Z</lastmod></url>"
@@ -162,15 +162,20 @@ def test_gradireland_reads_recent_matching_jobs_from_its_sitemap():
     pages = {"https://gradireland.com/robots.txt": "User-agent: *\nAllow: /\n",
              "https://gradireland.com/sitemap-0.xml": sitemap,
              "https://gradireland.com/jobs/data-analyst-graduate-101": job_page(title="Data Analyst Graduate"),
+             "https://gradireland.com/jobs/data-analyst-103": job_page(
+                 title="Data Analyst", extra={"validThrough": "2099-02-01T00:00:00Z"}),
              "https://gradireland.com/jobs/data-analyst-intern-104": job_page(
                  title="Data Analyst Intern", extra={"validThrough": "2001-02-01T00:00:00Z"})}
     reader = fetcher(pages)
     found, _ = job_sources.gradireland_jobs(reader, TITLE, IRELAND.location_ok)
-    assert [p["url"] for p in found] == ["https://gradireland.com/jobs/data-analyst-graduate-101"]
+    assert {p["url"] for p in found} == {"https://gradireland.com/jobs/data-analyst-graduate-101",
+                                         "https://gradireland.com/jobs/data-analyst-103"}
     assert found[0]["source"] == "gradireland" and found[0]["source_kind"] == "job_board"
     assert "gradireland" in found[0]["vouched"]
     opened = {url for _, url, _ in reader.opener.calls}
-    assert "https://gradireland.com/jobs/chef-102" not in opened and "https://gradireland.com/jobs/data-analyst-103" not in opened
+    assert "https://gradireland.com/jobs/chef-102" not in opened
+    assert "https://gradireland.com/jobs/data-analyst-103" in opened
+    assert next(p for p in found if p["url"].endswith("103"))["valid_through"] == "2099-02-01T00:00:00Z"
 
 
 def test_jobs_ie_search_results_are_read_from_each_posting_page():
@@ -200,11 +205,8 @@ def test_askmanavi_roles_are_read_from_the_employers_own_feed(monkeypatch):
     pages = {"https://askmanavi.com/robots.txt": "User-agent: *\nAllow: /\nDisallow: /api/\n",
              "https://askmanavi.com/graduate-tracker": html}
 
-    def feed(url):
-        assert url == "https://boards-api.greenhouse.io/v1/boards/acme/jobs/555"
-        return {"content": "<p>SQL and Power BI for the insights team.</p>", "location": {"name": "Dublin"}}, None
-
-    monkeypatch.setattr(portals, "_get_json", feed)
+    pages["https://boards-api.greenhouse.io/v1/boards/acme/jobs/555"] = {
+        "content": "<p>SQL and Power BI for the insights team.</p>", "location": {"name": "Dublin"}}
     found, _ = job_sources.askmanavi_jobs(fetcher(pages), TITLE, IRELAND.location_ok)
     assert len(found) == 1
     posting = found[0]

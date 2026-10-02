@@ -209,6 +209,7 @@ MIGRATIONS: tuple[tuple[int, str, str], ...] = (
         )
         """,
     ),
+    (9, "ireland_opportunity_evidence", "ALTER TABLE jobs ADD COLUMN posting_metadata TEXT NOT NULL DEFAULT '{}';"),
 )
 
 

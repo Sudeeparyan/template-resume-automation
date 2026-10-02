@@ -520,9 +520,11 @@ class Assistant:
         if MORNING.fullmatch(low):
             return "done", self._morning_text(self.tools.morning_list()), {"intent": "morning_list",
                                                                            "suggestions": ["hunt status", "status"]}
-        if re.fullmatch(r"(find|search|look for|discover|hunt)( me)?( some| new| more)? (jobs?|roles?|postings?|openings?)( for (me|my profile|today))?\.?", low) \
-                or re.fullmatch(r"(daily search|run (the )?search|search)\.?", low):
-            return self._discover(id)
+        wanted = re.fullmatch(r"(?:find|search|look for|discover|hunt|give|get)(?: me)?(?: (\d{1,2}))?(?: some| new| more)? "
+                              r"(?:jobs?|roles?|postings?|openings?)(?: with(?: tailored)? resumes?)?"
+                              r"(?: for (?:me|my profile|today))?\.?", low)
+        if wanted or re.fullmatch(r"(daily search|run (the )?search|search)\.?", low):
+            return self._discover(id, int(wanted[1]) if wanted and wanted[1] else None)
         if re.fullmatch(r"(status|summary|progress|pipeline|where (are|am) (we|i)|what(’|')?s (next|new|going on)|how am i doing)\??\.?", low):
             return "done", self._status(), {"intent": "status", "suggestions": ["find jobs", "which saved jobs still have no resume? build them"]}
         if re.fullmatch(r"(excluded( roles| postings)?|what was excluded)\??", low):
@@ -740,7 +742,9 @@ class Assistant:
         return "done", "\n".join(lines), data
 
     # ---- Shortcuts ---------------------------------------------------------------
-    def _discover(self, id):
+    def _discover(self, id, count=None):
+        if self.tools.pipeline is not None:
+            return self._search_pipeline(id, count)
         preset = (self.s.pref("discovery_preferences", {}) or {}).get("preset", "default")
         self._step(id, "Starting job discovery (" + preset + ")", agent="discovery")
         try:
@@ -752,6 +756,23 @@ class Assistant:
         return "done", ("Job discovery is running with the *" + preset + "* mix. Every lead passes the sponsorship gate and the never-re-apply check "
                         "before it is saved; watch the Agents rail or ask me *status* in a few minutes."), \
             {"intent": "discovery", "run_id": run["id"], "suggestions": ["status", "overnight hunt"]}
+
+    def _search_pipeline(self, id, count=None):
+        """"find jobs" means jobs taken end to end: the Daily Search pipeline, not a bare discovery pass."""
+        from backend.services.agents import MAX_DISCOVERY_JOBS
+
+        self._step(id, "Starting the Daily Search pipeline", agent="discovery")
+        try:
+            result = self.tools.run_search_pipeline(count=min(count, MAX_DISCOVERY_JOBS) if count else None)
+        except ValueError as error:
+            self._finish_step(id, "failed", str(error))
+            return "done", str(error), {"intent": "discovery_refused"}
+        self._finish_step(id, "done", result["summary"], run_id=result["pipeline_run_id"])
+        return "done", (f"Searching for **{result['jobs_target']}** new job(s), and searching again while it is short. "
+                        "Each job then goes end to end: posting check, company research with the hiring-manager view and "
+                        "your fit, tailored resume, PDF, an independent review and the ready-to-submit check. Follow it on "
+                        "**Daily Search**; each finished resume appears in **Resume Studio**. Nothing is ever submitted."), \
+            {"intent": "discovery", "pipeline_run_id": result["pipeline_run_id"], "suggestions": ["status", "overnight hunt"]}
 
     def _start_hunt(self, id):
         if self.tools.hunt is None:

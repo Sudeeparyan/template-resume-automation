@@ -49,6 +49,7 @@ type SettingsData = {
   providers: Provider[];
   tiers: Record<string, string>;
   preferences: { tiers: Record<string, Choice>; fallback?: Choice | null };
+  demo_mode?: boolean;
 };
 // daily_call_limit is paid AI calls a day; free plan calls never count against it.
 type Budget = {
@@ -117,6 +118,7 @@ export default function Settings({
   const [limit, setLimit] = useState<number>();
   const [mailConnection, setMailConnection] = useState<MailConnection>({});
   const [mailDraft, setMailDraft] = useState({ connector_id: "", expected_email: "" });
+  const [demoMode, setDemoMode] = useState(false);
   const [error, setError] = useState("");
 
   const load = useCallback(async (refresh = false) => {
@@ -137,6 +139,7 @@ export default function Settings({
         connector_id: connection.connector_id || "",
         expected_email: connection.expected_email || "",
       });
+      setDemoMode(Boolean(next.demo_mode));
       setError("");
     } catch (e) {
       setError((e as Error).message);
@@ -263,6 +266,17 @@ export default function Settings({
       setMailConnection(connection);
       setMailDraft({ connector_id: connection.connector_id || "", expected_email: connection.expected_email || "" });
       notify("Mail settings saved for this profile. The mailbox will be verified before its first sync.");
+    });
+
+  const saveDemoMode = (on: boolean) =>
+    act("demo", async () => {
+      await api("/v2/ai/settings", "PUT", { demo_mode: on });
+      setDemoMode(on);
+      notify(
+        on
+          ? "Demo mode on: evidence and rejection gates are advisory, so every found job goes end to end."
+          : "Demo mode off: every check applies again.",
+      );
     });
 
   return (
@@ -569,6 +583,30 @@ export default function Settings({
           </form>
         </section>
       )}
+
+      <section className="card spaced">
+        <div className="section-title">
+          <h2>Demo mode</h2>
+          <Badge tone={demoMode ? "amber" : "neutral"}>{demoMode ? "On" : "Off"}</Badge>
+        </div>
+        <p className="muted">
+          For POC demos only. With demo mode on, evidence gates are optional and a search
+          never turns a job away for sponsorship wording, relevance, legitimacy or fit:
+          the job is kept with a note, taken end to end, and the ready-to-submit check
+          still shows what would normally gate. Never-re-apply and duplicate rules still
+          apply, and resumes are still written from registered evidence only.
+        </p>
+        <label className="actions" style={{ gap: 8 }}>
+          <input
+            type="checkbox"
+            aria-label="Demo mode"
+            checked={demoMode}
+            disabled={busy === "demo"}
+            onChange={(e) => void saveDemoMode(e.target.checked)}
+          />
+          Demo mode (evidence optional — for POC demos)
+        </label>
+      </section>
 
       <section className="card spaced">
         <div className="section-title">

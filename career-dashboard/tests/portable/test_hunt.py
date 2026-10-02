@@ -13,6 +13,7 @@ import yaml
 from backend.services import fit, hunt as hunt_module, job_sources, search_memory
 from backend.services.agents import AgentRunner
 from backend.services.hunt import Hunt
+from backend.services.pipeline import STEP_IDS
 from backend.services.search_plan import focus_instructions, plan_for, strategies
 from backend.services.workspace_v2 import CareerServices
 
@@ -20,6 +21,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "backend/scripts"))
 from career import Workspace  # noqa: E402
 
 JD = ("About the role: join the finance insights team in Dublin.\n"
+      "Base salary: EUR 42,000 per year.\n"
       "Requirements:\n- Strong SQL for reporting queries\n- Power BI dashboards for stakeholders\n"
       "- Python for data cleaning\nResponsibilities: build weekly KPI reports and explain trends to managers.")
 
@@ -276,7 +278,7 @@ def test_the_hunt_stops_at_its_target_and_prepares_each_job(tmp_path):
     services = ireland_profile(tmp_path)
     clock = FakeClock()
     hunt, runner, pipeline = make_hunt(services, ["Acme Analytics", "Birch Data"], clock)
-    done = run_inline(hunt, {"target": 2, "hours": 2, "steps": {"research": False, "tailor": True, "study_plan": False, "pdf": True}})
+    done = run_inline(hunt, {"target": 2, "hours": 2, "steps": {s: s in ("tailor", "pdf") for s in STEP_IDS}})
     assert done["state"] == "completed", done["error"]
     saved = done["progress"]["saved"]
     assert [job["company"] for job in saved] == ["Acme Analytics", "Birch Data"]
@@ -297,8 +299,7 @@ def test_the_hunt_waits_for_a_plan_to_reset_after_the_no_ai_work(tmp_path):
     # Every AI check says "resting" until the clock passes the wake time.
     hunt, runner, _ = make_hunt(services, [], clock)
     hunt._ai_state = lambda config: (clock.now >= wake, None if clock.now >= wake else wake, "Kimi Code rests until 3:00 AM")
-    done = run_inline(hunt, {"target": 1, "hours": 3, "sources": "all", "steps": {s: False for s in
-                                                                                  ("research", "tailor", "study_plan", "pdf")}})
+    done = run_inline(hunt, {"target": 1, "hours": 3, "sources": "all", "steps": {s: False for s in STEP_IDS}})
     presets = [call["preset"] for call in runner.calls]
     first_ai = presets.index("default")
     assert set(presets[:first_ai]) == {"feeds"} and first_ai == 5  # every feed ran before waiting
@@ -313,7 +314,7 @@ def test_no_plan_before_the_deadline_skips_ai_passes_but_not_feeds(tmp_path):
     clock = FakeClock()
     hunt, runner, _ = make_hunt(services, [], clock)
     hunt._ai_state = lambda config: (False, clock.now + 99 * 3600, "Codex rests until Tuesday")
-    done = run_inline(hunt, {"target": 3, "hours": 1, "steps": {s: False for s in ("research", "tailor", "study_plan", "pdf")}})
+    done = run_inline(hunt, {"target": 3, "hours": 1, "steps": {s: False for s in STEP_IDS}})
     assert {call["preset"] for call in runner.calls} == {"feeds"}
     skipped = [p for p in done["progress"]["passes"] if p["state"] == "skipped"]
     assert skipped and "No AI plan was free" in skipped[0]["note"]

@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import time
+from contextlib import nullcontext
 from pathlib import Path
 from typing import Any
 
@@ -239,6 +240,16 @@ class AgentTeam:
             return self._invoke_on(agent, retry, provider, model, max_tokens)
 
     def _invoke_on(self, agent: Specialist, text: str, provider: str, model: str, max_tokens: int):
+        from backend.services.task_execution import invocation_slot
+
+        reserve = self.route.get("reserve_call")
+        # Reserve each real attempt, including schema repairs, after a slot is
+        # available. An operation waiting in the queue consumes no paid call.
+        with invocation_slot(provider):
+            with reserve(provider, model, "specialist:" + agent.name) if reserve else nullcontext():
+                return self._invoke_endpoint(agent, text, provider, model, max_tokens)
+
+    def _invoke_endpoint(self, agent: Specialist, text: str, provider: str, model: str, max_tokens: int):
         if provider in (claude_code.ID, codex.ID, kimi_cli.ID):
             return self._invoke_local(agent, text, provider, model)
         llm = models.build(self.root, provider, model, max_tokens=max_tokens)

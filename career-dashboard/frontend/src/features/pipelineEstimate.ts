@@ -196,11 +196,13 @@ export function formatSeconds(seconds?: number) {
   return formatMinutes(seconds / 60);
 }
 
+const ALL_STEPS = ["posting", "research", "tailor", "pdf", "review", "study_plan", "ready"];
+const only = (...on: string[]) => Object.fromEntries(ALL_STEPS.map((id) => [id, on.includes(id)]));
+
 /** The quick picks: which helpers each one switches on. */
 export const QUICK_PICKS: { id: string; label: string; steps: Record<string, boolean> }[] = [
-  // The same helpers as the 07:00 morning run: research is left out (three AI calls a job).
-  { id: "recommended", label: "Recommended", steps: { research: false, tailor: true, study_plan: true, pdf: true } },
-  { id: "all", label: "Everything", steps: { research: true, tailor: true, study_plan: true, pdf: true } },
-  { id: "resumes", label: "Just resumes", steps: { research: false, tailor: true, study_plan: false, pdf: true } },
-  { id: "find", label: "Just find jobs", steps: { research: false, tailor: false, study_plan: false, pdf: false } },
+  // "Find 5 jobs" means 5 jobs taken end to end, the same helpers as the morning run.
+  { id: "recommended", label: "End to end (recommended)", steps: only(...ALL_STEPS) },
+  { id: "resumes", label: "Just resumes", steps: only("posting", "tailor", "pdf", "ready") },
+  { id: "find", label: "Just find jobs", steps: only() },
 ];

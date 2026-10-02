@@ -3,6 +3,7 @@ import { useState } from "react";
 import { Badge, Empty } from "./UI";
 import { useMarket } from "../profiles";
 import type { Job } from "../types";
+import { PermitBadge, SalaryBadge } from "./SalaryEvidence";
 export const statuses = [
   "saved",
   "prepared",
@@ -42,14 +43,20 @@ export const tierTitle: Record<string, string> = {
   B: "Proven H-1B sponsor; posting is silent",
   C: "Posting is silent, no H-1B record; still worth applying",
 };
-/** The tier wording for this tab's profile: its country's own labels, else the US ones above. */
-export function useTierTitles(): Record<string, string> {
-  const { tierLabels } = useMarket();
-  return { ...tierTitle, ...tierLabels };
+const irishTierTitle: Record<string, string> = {
+  S: "Research or public employer",
+  A: "Posting says it sponsors work permits",
+  B: "Known permit sponsor; posting is silent",
+  C: "Posting is silent on work permits; still worth applying",
+};
+/** Saved jobs use their own market; legacy jobs follow the profile's country. */
+export function useTierTitles(jobMarket?: string): Record<string, string> {
+  const { code, tierLabels } = useMarket(jobMarket);
+  return { ...(code === "ie" ? irishTierTitle : tierTitle), ...tierLabels };
 }
 export function TierBadge({ job, long = false }: { job: Job; long?: boolean }) {
   const tier = job.sponsor_tier || "C";
-  const titles = useTierTitles();
+  const titles = useTierTitles(job.market);
   const label = job.sponsor_evidence?.label || titles[tier];
   return (
     <Badge tone={tier === "S" ? "green" : tier === "A" ? "lime" : "neutral"} title={label}>
@@ -63,12 +70,14 @@ export function JobList({
   onCoverLetter,
   onRemove,
   compact = false,
+  filters = true,
 }: {
   jobs: Job[];
   onSelect: (id: string) => void;
   onCoverLetter?: (job: Job) => void;
   onRemove?: (job: Job) => void;
   compact?: boolean;
+  filters?: boolean;
 }) {
   const [q, setQ] = useState("");
   const [status, setStatus] = useState("all");
@@ -90,7 +99,7 @@ export function JobList({
     );
   return (
     <>
-      <div className="list-toolbar">
+      {filters && <div className="list-toolbar">
         <div className="search-input">
           <Search size={18} />
           <input
@@ -124,7 +133,7 @@ export function JobList({
           <option value="C">C · silent</option>
         </select>
         <span className="muted">{shown.length} jobs</span>
-      </div>
+      </div>}
       {!shown.length ? (
         <Empty title="No jobs in this view">
           Try another filter or save a new opportunity.
@@ -162,6 +171,8 @@ export function JobList({
                   </Badge>
                   <TierBadge job={j} />
                   <FitBadge job={j} />
+                  <SalaryBadge job={j} />
+                  <PermitBadge job={j} />
                   {j.posting_state === "expired" && (
                     <Badge tone="red">posting closed</Badge>
                   )}

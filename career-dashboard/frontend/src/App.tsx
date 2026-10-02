@@ -1,4 +1,4 @@
-import { Component, useCallback, useEffect, useState } from "react";
+import { Component, useCallback, useEffect, useRef, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
 import {
   LayoutDashboard,
@@ -14,7 +14,8 @@ import {
   Menu,
   X,
 } from "lucide-react";
-import { api, PROFILE_ID, shellApi } from "./api";
+import { api, shellApi } from "./api";
+import { LatestRequest } from "./latestRequest";
 import { ProfileContext, ProfileMenu, firstName, openProfile, timeLabel, useProfileListing } from "./profiles";
 import OnboardingWorkspace from "./features/OnboardingWorkspace";
 import { AskContext, Field, Loading, Modal, NoticeContext } from "./components/UI";
@@ -127,20 +128,20 @@ function FirstProfile() {
 
 export default function App() {
   // Which profile this tab belongs to (the /p/<id>/ address) and the others on this PC.
-  const { listing, current, failed, reload } = useProfileListing();
+  const { listing, current, destination, ready, unavailable, reload } = useProfileListing();
   const onboarding = current?.state === "onboarding";
   // Tabs open once a profile exists and is built.
-  const locked = onboarding || listing?.profiles.length === 0;
-  // Profiles are known (or the server predates them): the workspace can load.
-  const ready = Boolean(current && !onboarding) || failed;
+  const locked = !ready;
+  const readyRef = useRef(ready);
+  readyRef.current = ready;
+  const summaryReads = useRef(new LatestRequest()).current;
   useEffect(() => {
-    if (!listing) return;
-    // "/" or an unknown profile: go to the last-used one, keeping the tab named in the address.
-    if (!PROFILE_ID || !listing.profiles.some((p) => p.id === PROFILE_ID)) {
-      const next = listing.last_used || listing.profiles[0]?.id;
-      if (next) openProfile(next, location.hash.slice(1));
-    }
-  }, [listing]);
+    if (!destination) return;
+    // Only a successful profile listing can redirect a stale tab. With zero
+    // profiles, return to the shell so the new profile screen has the right URL.
+    if (destination === "/") location.replace("/");
+    else location.assign(destination + location.hash);
+  }, [destination]);
   useEffect(() => {
     if (current) document.title = `${firstName(current.name) || current.name} · Career Workspace`;
   }, [current]);
@@ -157,6 +158,13 @@ export default function App() {
       : null,
   );
   const [add, setAdd] = useState(false);
+  useEffect(() => {
+    if (!listing || current) return;
+    setData(undefined);
+    setError("");
+    setSelected(null);
+    setAdd(false);
+  }, [listing, current]);
   // The phone's More sheet (the tabs that are not in its bottom bar).
   const [moreOpen, setMoreOpen] = useState(false);
   const closeMore = useCallback(() => setMoreOpen(false), []);
@@ -190,14 +198,18 @@ export default function App() {
     [],
   );
   const refresh = useCallback(async () => {
+    if (!readyRef.current) return;
     try {
-      setData(await api("/v2/summary"));
-      setError("");
+      await summaryReads.run(() => api<Summary>("/v2/summary"), (value) => {
+        if (!readyRef.current) return;
+        setData(value);
+        setError("");
+      });
     } catch (e) {
       setError((e as Error).message);
       throw e;
     }
-  }, []);
+  }, [summaryReads]);
   useEffect(() => {
     if (!ready) return;
     refresh().catch(() => {});
@@ -210,9 +222,10 @@ export default function App() {
     window.addEventListener("hashchange", hash);
     return () => {
       clearInterval(timer);
+      summaryReads.invalidate();
       window.removeEventListener("hashchange", hash);
     };
-  }, [refresh, ready]);
+  }, [refresh, ready, summaryReads]);
   useEffect(() => {
     const update = () => {
       if (ready) void refresh().catch(() => {});
@@ -373,7 +386,12 @@ export default function App() {
             </span>
           </header>
           <div className={"page" + (route === "assistant" || onboarding || listing?.profiles.length === 0 ? " assistant-page" : "")}>
-            {listing?.profiles.length === 0 ? (
+            {unavailable ? (
+              <section className="card" role="alert">
+                <p>The profile list is unavailable. The app is retrying the connection.</p>
+                <button className="secondary" onClick={() => void reload()}>Retry connection</button>
+              </section>
+            ) : listing?.profiles.length === 0 ? (
               <FirstProfile />
             ) : onboarding && current ? (
               <OnboardingWorkspace profile={current} notify={notify} onBuilt={reload} setupForm={setupForm} chooseSetup={chooseSetup} />
@@ -393,7 +411,8 @@ export default function App() {
             {!data ? (
               <Loading label="Loading your workspace" />
             ) : (
-              <ErrorBoundary>
+              // Keyed by tab: a page that failed must not keep its message on the next tab.
+              <ErrorBoundary key={route}>
                 {route === "assistant" && (
                   <Assistant
                     data={data}

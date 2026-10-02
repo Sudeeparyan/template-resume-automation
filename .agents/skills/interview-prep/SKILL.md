@@ -12,6 +12,9 @@ Read `AGENTS.md` first. Find the job and the resume that was actually sent (App 
 application folder under the profile's `data/output/`; AI-only: its folder in `my-jobs/`). Every
 line of that resume is fair game for the interviewer.
 
+In App mode, first read `career ws summary --profile <id>` and
+`career ws profile --profile <id>` to use the current job status and candidate evidence.
+
 Deliver, briefly:
 
 1. The ten most likely questions for this role and company, with why each is likely.

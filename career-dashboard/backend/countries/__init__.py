@@ -110,6 +110,7 @@ class _Matcher:
 
         self.strong = alternation("strong")          # the country's own name(s)
         self.places = alternation("places")          # cities, counties, regions
+        self.excluded_places = alternation("excluded_places")  # named regions outside this jurisdiction
         self.remote = alternation("remote")          # "Remote (Ireland)" and the like
         self.strip = alternation("strip_before_match")  # "Northern Ireland" is not Ireland
         self.foreign = alternation("foreign")        # other countries that outweigh a bare city
@@ -117,6 +118,11 @@ class _Matcher:
 
     def matches(self, location: str) -> bool:
         text = self.strip.sub(" ", location) if self.strip else location
+        if (self.excluded_places and self.excluded_places.search(text)
+                and not (self.places and self.places.search(text))):
+            # A broad "Ireland" label cannot turn Belfast into a Republic role.
+            # A posting naming Dublin or Cork as another allowed place still counts.
+            return False
         if self.strong and self.strong.search(text):
             return True
         if self.remote and self.remote.search(text):
@@ -150,7 +156,7 @@ def available() -> list[Pack]:
 
 def code_for(profile: dict | None) -> str:
     """The pack a profile uses: `country_pack`, else its target country's name."""
-    profile = profile or {}
+    profile = profile if isinstance(profile, dict) else {}
     code = str(profile.get("country_pack") or "").strip().lower()
     if code and (COUNTRIES / code / "pack.yml").is_file():
         return code
@@ -169,6 +175,7 @@ def target_markets_for(root) -> list[str]:
         profile = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
     except (OSError, yaml.YAMLError):
         profile = {}
+    profile = profile if isinstance(profile, dict) else {}
     configured = profile.get("target_markets")
     if not isinstance(configured, list) or not configured:
         configured = [code_for(profile)]
@@ -183,18 +190,28 @@ def require_known_authorization(root, market: str | None = None) -> None:
         profile = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
     except (OSError, yaml.YAMLError):
         profile = {}
+    profile = profile if isinstance(profile, dict) else {}
     by_market = profile.get("work_authorization_by_market")
-    if not isinstance(by_market, dict) or not by_market:
-        # Pre-template imported profiles retain their existing permit rules.
-        return
+    by_market = by_market if isinstance(by_market, dict) else {}
     selected = [market] if market else target_markets_for(root)
     for code in selected:
         facts = by_market.get(code) or {}
+        facts = facts if isinstance(facts, dict) else {}
         if facts.get("status") not in {"authorized", "needs_sponsorship"} or facts.get("citizenship") not in {"citizen", "noncitizen"}:
             raise ValueError(f"Confirm work authorization and citizenship for {load_pack(code).name} in Assistant → Profile sources → Build settings, then rebuild before eligibility-dependent actions.")
         if (facts["status"] == "authorized" and facts["citizenship"] != "citizen"
                 and facts.get("needs_sponsorship_later") not in {"yes", "no"}):
             raise ValueError(f"Confirm whether employer sponsorship will be needed later for {load_pack(code).name} in Assistant → Profile sources → Build settings, then rebuild before eligibility-dependent actions.")
+        if facts["status"] == "authorized" and facts.get("valid_until"):
+            from datetime import date, datetime
+            from zoneinfo import ZoneInfo
+
+            try:
+                expiry = date.fromisoformat(facts["valid_until"])
+            except (TypeError, ValueError):
+                raise ValueError(f"Confirm the permission validity date for {load_pack(code).name} before eligibility-dependent actions.") from None
+            if expiry < datetime.now(ZoneInfo(load_pack(code).timezone)).date():
+                raise ValueError(f"The recorded permission for {load_pack(code).name} expired on {expiry.isoformat()}. Confirm current authorization before eligibility-dependent actions.")
 
 
 def market_for_location(root, location: str, requested: str | None = None, *, require_match: bool = False) -> str:

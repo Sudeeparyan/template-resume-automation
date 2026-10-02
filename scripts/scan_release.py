@@ -24,7 +24,7 @@ TEXT_SUFFIXES = {
 }
 TEXT_NAMES = {"career", ".gitignore", ".gitattributes", "Dockerfile"}
 REQUIRED_IGNORES = (
-    ".local-reference/", "backup/", "pytest-of-*/", "me/*", "my-jobs/*",
+    ".local-reference/", "backup/", "pytest-of-*/", ".test-source-audit/", "me/*", "my-jobs/*",
     "career-dashboard/profiles/", "career-dashboard/data/",
     "career-dashboard/tests/*", "daily-job-search/history.csv",
     "**/.env", "**/keys.txt", "**/*.db", "**/node_modules/",
@@ -41,7 +41,7 @@ PRIVATE_ROOT_FILES = {
 }
 PRIVATE_APP_DIRS = {"profiles", "data", "output", "career-dashboard", "docs"}
 PRIVATE_APP_FILES = {"CLAUDE.md", "DATA_CONTRACT.md"}
-PRUNE_DIRS = {".git", ".venv", ".runtime", "__pycache__", ".pytest_cache", "node_modules", "dist"}
+PRUNE_DIRS = {".git", ".venv", ".runtime", "__pycache__", ".pytest_cache", "node_modules", "dist", ".test-source-audit"}
 PERSON_NAMES = tuple("".join(parts) for parts in (
     ("che", "tan"), ("an", "nie"), ("sus", "ma"), ("sush", "ma"),
     ("sud", "ee"), ("sri", "kanth"),
@@ -168,6 +168,7 @@ def ignore_errors() -> list[str]:
         "career-dashboard/profiles/example/data/career.db",
         "career-dashboard/data/context/evidence.yml",
         "career-dashboard/tests/test_old.py",
+        "career-dashboard/.test-source-audit/example/data/config/profile.yml",
         ".local-reference/example/notes.txt",
         "backup/old/profile.yml",
         "daily-job-search/history.csv",

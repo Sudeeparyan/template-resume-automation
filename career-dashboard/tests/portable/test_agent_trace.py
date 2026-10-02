@@ -19,6 +19,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "backend/scripts"))
 from career import Workspace  # noqa: E402
 
 JD = ("About the role: join the finance insights team in Dublin.\n"
+      "Base salary: EUR 42,000 per year.\n"
       "Requirements:\n- Strong SQL for reporting queries\n- Power BI dashboards for stakeholders\n"
       "- Python for data cleaning\nResponsibilities: build weekly KPI reports and explain trends to managers.")
 

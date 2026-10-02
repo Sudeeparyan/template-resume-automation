@@ -30,6 +30,7 @@ import re
 import threading
 import time
 import urllib.robotparser
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from html import unescape
 from typing import Any, Callable
@@ -86,6 +87,8 @@ class Fetcher:
         self._last: dict[str, float] = {}
         self._robots: dict[str, urllib.robotparser.RobotFileParser | None] = {}
         self._lock = threading.Lock()
+        self._host_locks: dict[str, threading.Lock] = {}
+        self._slots = threading.BoundedSemaphore(4)
         self.requests = 0
         self.refused: list[str] = []
 
@@ -99,6 +102,13 @@ class Fetcher:
     def _raw(self, url: str, data: bytes | None = None, accept: str = "*/*", content_type: str | None = None):
         """(status, body text, final url, error)."""
         host = (urlsplit(url).hostname or "").lower()
+        with self._lock:
+            lock = self._host_locks.setdefault(host, threading.Lock())
+        with lock, self._slots:
+            return self._request(url, data, accept, content_type)
+
+    def _request(self, url, data, accept, content_type):
+        host = (urlsplit(url).hostname or "").lower()
         self._pace(host)
         headers = {"User-Agent": USER_AGENT, "Accept": accept, "Accept-Language": "en-IE,en;q=0.8"}
         if content_type:
@@ -108,7 +118,8 @@ class Fetcher:
         try:
             with self.opener(request, timeout=self.timeout) as response:
                 raw = response.read(MAX_BYTES)
-                charset = response.headers.get_content_charset() if hasattr(response, "headers") else None
+                response_headers = getattr(response, "headers", None)
+                charset = response_headers.get_content_charset() if hasattr(response_headers, "get_content_charset") else None
                 return response.status, _decode(raw, charset), response.geturl(), None
         except HTTPError as exc:
             return exc.code, "", url, f"HTTP {exc.code}"
@@ -185,7 +196,9 @@ def today(tz: str | None = None) -> str:
 
 def make_posting(company: str, title: str, url: str, location: str, description: str, *, source: str,
                  source_kind: str, vouched: str = "", requisition_id: str = "", posted_at: str = "",
-                 careers_url: str = "", tz: str | None = None, verification: str = "") -> dict:
+                 careers_url: str = "", tz: str | None = None, verification: str = "",
+                 raw_salary=None, valid_through: str = "") -> dict:
+    from backend.services import salary
     return {
         "company": " ".join(str(company or "").split()),
         "title": " ".join(str(title or "").split()),
@@ -193,6 +206,9 @@ def make_posting(company: str, title: str, url: str, location: str, description:
         "url": url or "",
         "requisition_id": str(requisition_id or ""),
         "description": (description or "").strip(),
+        "raw_salary": raw_salary,
+        "salary": salary.extract(description or "", raw_salary=raw_salary, url=url or "", observed_at=today(tz)),
+        "valid_through": valid_through,
         "company_sources": ([{"title": f"{company} careers", "url": careers_url, "accessed_at": today(tz)}]
                             if careers_url else []),
         "legal_presence": vouched,
@@ -306,6 +322,7 @@ def jsonld_posting(html: str) -> dict | None:
                 "description": description,
                 "posted_at": str(node.get("datePosted") or ""),
                 "valid_through": str(node.get("validThrough") or ""),
+                "raw_salary": node.get("baseSalary"),
                 "requisition_id": str(identifier or ""),
                 "company_url": str((organisation or {}).get("sameAs") or (organisation or {}).get("url") or "")
                 if isinstance(organisation, dict) else "",
@@ -351,44 +368,64 @@ def workday_detail(host: str, tenant: str, site: str, external_path: str, fetche
         "location": location,
         "requisition_id": str(info.get("jobReqId") or ""),
         "posted_at": str(info.get("startDate") or ""),
+        "valid_through": str(info.get("endDate") or ""),
+        "raw_salary": info.get("baseSalary") or info.get("salaryRange"),
         "url": str(info.get("externalUrl") or f"https://{host}/{site}{external_path}"),
         "company": str(organisation),
     }
 
 
+def _checkpoint(coverage, key, cursor, *, complete=False, found=0, error=""):
+    if coverage:
+        coverage.checkpoint(key, cursor, "failed" if error else "complete" if complete else "partial",
+                            found=found, error=error)
+
+
 def workday_jobs(row: dict, fetcher: Fetcher, title_ok: Callable[[str], bool], place_ok: Callable[[str], bool], *,
                  search_text: str, pages: int = 5, details: int = 15, tz: str | None = None,
-                 deadline: float | None = None) -> tuple[list[dict], str | None]:
-    """The tenant's postings for ``search_text`` whose title matches, each read in full."""
+                 deadline: float | None = None, coverage=None, skip_posting=None) -> tuple[list[dict], str | None]:
+    """Resume pages and details; already-decided postings consume no detail budget."""
     host, site = str(row.get("host") or ""), str(row.get("site") or "")
     tenant = host.split(".")[0]
-    listing, error = [], None
-    for page in range(pages):
+    key = f"workday:{host}/{site}:{search_text}"
+    cursor = (coverage.get(key).get("cursor") or {}) if coverage else {}
+    offset, index = int(cursor.get("offset", 0)), int(cursor.get("index", 0))
+    out, attempts = [], 0
+    for _ in range(pages):
         if deadline and time.monotonic() > deadline:
             break
         data, error = fetcher.json(f"https://{host}/wday/cxs/{tenant}/{site}/jobs",
-                                   {"appliedFacets": {}, "limit": 20, "offset": page * 20, "searchText": search_text})
+                                  {"appliedFacets": {}, "limit": 20, "offset": offset, "searchText": search_text})
         if not isinstance(data, dict):
-            break
+            _checkpoint(coverage, key, {"offset": offset, "index": index}, found=len(out), error=error or "Invalid listing")
+            return out, error or "Invalid listing"
         batch = data.get("jobPostings") or []
-        listing.extend(batch)
-        if len(batch) < 20 or len(listing) >= int(data.get("total") or 0):
-            break
-    out = []
-    for item in listing:
-        if len(out) >= details or (deadline and time.monotonic() > deadline):
-            break
-        title, where = str(item.get("title") or ""), str(item.get("locationsText") or "")
-        if not title_ok(title) or not (place_ok(where) or re.match(r"^\d+ Locations?$", where)):
-            continue
-        full = workday_detail(host, tenant, site, str(item.get("externalPath") or ""), fetcher)
-        if not full or not place_ok(full["location"]):
-            continue
-        out.append(make_posting(row.get("name") or full["company"], full["title"] or title, full["url"], full["location"],
-                                full["description"], source=row.get("_source", "directory"), source_kind="employer_feed",
-                                vouched=row.get("_vouched", ""), requisition_id=full["requisition_id"],
-                                posted_at=full["posted_at"], careers_url=f"https://{host}/{site}", tz=tz))
-    return out, (error if not listing else None)
+        for position, item in enumerate(batch):
+            if position < index:
+                continue
+            if attempts >= details or (deadline and time.monotonic() > deadline):
+                _checkpoint(coverage, key, {"offset": offset, "index": position}, found=len(out))
+                return out, None
+            title, where = str(item.get("title") or ""), str(item.get("locationsText") or "")
+            path = str(item.get("externalPath") or "")
+            preview = {"url": f"https://{host}/{site}{path}", "company": row.get("name") or "", "title": title}
+            if title_ok(title) and (place_ok(where) or re.match(r"^\d+ Locations?$", where)) and not (skip_posting and skip_posting(preview)):
+                attempts += 1
+                full = workday_detail(host, tenant, site, path, fetcher)
+                if full and place_ok(full["location"]):
+                    out.append(make_posting(row.get("name") or full["company"], full["title"] or title, full["url"], full["location"],
+                                            full["description"], source=row.get("_source", "directory"), source_kind="employer_feed",
+                                            vouched=row.get("_vouched", ""), requisition_id=full["requisition_id"],
+                                            posted_at=full["posted_at"], careers_url=f"https://{host}/{site}", tz=tz,
+                                            raw_salary=full.get("raw_salary"), valid_through=full.get("valid_through", "")))
+            _checkpoint(coverage, key, {"offset": offset, "index": position + 1}, found=len(out))
+        offset += 20
+        index = 0
+        if len(batch) < 20 or offset >= int(data.get("total") or 0):
+            _checkpoint(coverage, key, {}, complete=True, found=len(out))
+            return out, None
+    _checkpoint(coverage, key, {"offset": offset, "index": index}, found=len(out))
+    return out, None
 
 
 # ----- SmartRecruiters -----------------------------------------------------------------------
@@ -415,37 +452,54 @@ def smartrecruiters_detail(company: str, posting_id: str, fetcher: Fetcher) -> d
     return {"title": str(data.get("name") or "").strip(), "description": description, "location": where,
             "url": str(data.get("postingUrl") or ""), "requisition_id": str(data.get("refNumber") or data.get("id") or ""),
             "posted_at": str(data.get("releasedDate") or ""),
+            "raw_salary": data.get("baseSalary") or data.get("salary"),
+            "valid_through": str(data.get("validThrough") or ""),
             "company": str((data.get("company") or {}).get("name") or company)}
 
 
 def smartrecruiters_jobs(row: dict, fetcher: Fetcher, title_ok: Callable[[str], bool], *, country: str,
-                         details: int = 15, tz: str | None = None, deadline: float | None = None) -> tuple[list[dict], str | None]:
+                         details: int = 15, tz: str | None = None, deadline: float | None = None,
+                         coverage=None, skip_posting=None) -> tuple[list[dict], str | None]:
     company = str(row.get("token") or "")
-    listing, error, offset = [], None, 0
-    while offset < 400:
+    key = f"smartrecruiters:{company}:{country}"
+    cursor = (coverage.get(key).get("cursor") or {}) if coverage else {}
+    offset, index = int(cursor.get("offset", 0)), int(cursor.get("index", 0))
+    out, attempts = [], 0
+    for _ in range(4):
+        if deadline and time.monotonic() > deadline:
+            break
         data, error = fetcher.json(f"https://api.smartrecruiters.com/v1/companies/{quote(company)}/postings"
-                                   f"?country={quote(country)}&limit=100&offset={offset}")
+                                  f"?country={quote(country)}&limit=100&offset={offset}")
         if not isinstance(data, dict):
-            break
+            _checkpoint(coverage, key, {"offset": offset, "index": index}, found=len(out), error=error or "Invalid listing")
+            return out, error or "Invalid listing"
         batch = data.get("content") or []
-        listing.extend(batch)
+        for position, item in enumerate(batch):
+            if position < index:
+                continue
+            if attempts >= details or (deadline and time.monotonic() > deadline):
+                _checkpoint(coverage, key, {"offset": offset, "index": position}, found=len(out))
+                return out, None
+            posting_id = str(item.get("id") or "")
+            preview = {"url": f"https://jobs.smartrecruiters.com/{company}/{posting_id}", "company": row.get("name") or company,
+                       "title": str(item.get("name") or ""), "requisition_id": str(item.get("refNumber") or posting_id)}
+            if title_ok(preview["title"]) and not (skip_posting and skip_posting(preview)):
+                attempts += 1
+                full = smartrecruiters_detail(company, posting_id, fetcher)
+                if full:
+                    out.append(make_posting(row.get("name") or full["company"], full["title"], full["url"], full["location"],
+                                            full["description"], source=row.get("_source", "directory"), source_kind="employer_feed",
+                                            vouched=row.get("_vouched", ""), requisition_id=full["requisition_id"],
+                                            posted_at=full["posted_at"], careers_url=f"https://jobs.smartrecruiters.com/{company}", tz=tz,
+                                            raw_salary=full.get("raw_salary"), valid_through=full.get("valid_through", "")))
+            _checkpoint(coverage, key, {"offset": offset, "index": position + 1}, found=len(out))
         offset += 100
+        index = 0
         if len(batch) < 100 or offset >= int(data.get("totalFound") or 0):
-            break
-    out = []
-    for item in listing:
-        if len(out) >= details or (deadline and time.monotonic() > deadline):
-            break
-        if not title_ok(str(item.get("name") or "")):
-            continue
-        full = smartrecruiters_detail(company, str(item.get("id") or ""), fetcher)
-        if not full:
-            continue
-        out.append(make_posting(row.get("name") or full["company"], full["title"], full["url"], full["location"],
-                                full["description"], source=row.get("_source", "directory"), source_kind="employer_feed",
-                                vouched=row.get("_vouched", ""), requisition_id=full["requisition_id"],
-                                posted_at=full["posted_at"], careers_url=f"https://jobs.smartrecruiters.com/{company}", tz=tz))
-    return out, (error if not listing else None)
+            _checkpoint(coverage, key, {}, complete=True, found=len(out))
+            return out, None
+    _checkpoint(coverage, key, {"offset": offset, "index": index}, found=len(out))
+    return out, None
 
 
 def smartrecruiters_parts(url: str) -> tuple[str, str] | None:
@@ -468,7 +522,7 @@ def read_posting(url: str, fetcher: Fetcher | None = None) -> dict | None:
     SmartRecruiters through theirs, anything else through the page's schema.org JobPosting.
     None when the page cannot be read or publishes no structured posting.
     """
-    official = official_posting(url)
+    official = official_posting(url, fetcher=fetcher) if fetcher else official_posting(url)
     if official:
         return {**official, "method": "ats_feed"}
     if is_public_ats(url):
@@ -497,39 +551,46 @@ _SITEMAP_URL = re.compile(r"<url>\s*<loc>([^<]+)</loc>(?:\s*<lastmod>([^<]+)</la
 
 
 def gradireland_jobs(fetcher: Fetcher, title_ok: Callable[[str], bool], place_ok: Callable[[str], bool], *,
-                     max_age_days: int = 45, details: int = 40, tz: str | None = None,
-                     deadline: float | None = None) -> tuple[list[dict], str | None]:
-    """gradireland's live jobs: the sitemap lists each with a date, and each page carries its JobPosting."""
+                     max_age_days: int | None = None, details: int = 40, tz: str | None = None,
+                     deadline: float | None = None, coverage=None, skip_posting=None) -> tuple[list[dict], str | None]:
+    """Read still-open graduate programmes; publication age alone never closes a role."""
+    key = "board:gradireland"
     body, error = fetcher.text("https://gradireland.com/sitemap-0.xml", accept="application/xml,text/xml")
     if body is None:
+        _checkpoint(coverage, key, (coverage.get(key).get("cursor") or {}) if coverage else {}, error=error or "Unreadable sitemap")
         return [], error
     candidates = []
     for url, stamp in _SITEMAP_URL.findall(body):
         if "/jobs/" not in url:
             continue
-        slug = url.rstrip("/").rsplit("/", 1)[-1]
-        words = re.sub(r"-\d+$", "", slug).replace("-", " ")
+        words = re.sub(r"-\d+$", "", url.rstrip("/").rsplit("/", 1)[-1]).replace("-", " ")
         age = age_days(stamp)
-        if age is not None and age > max_age_days:
+        if max_age_days is not None and age is not None and age > max_age_days:
             continue
         if title_ok(words):
-            candidates.append((age if age is not None else 999, url))
-    candidates.sort()
-    out = []
-    for _age, url in candidates:
-        if len(out) >= details or (deadline and time.monotonic() > deadline):
-            break
-        html, _ = fetcher.text(url)
-        found = jsonld_posting(html or "")
-        if not found or not title_ok(found["title"]) or not place_ok(found["location"]):
-            continue
-        valid = _parse_date(found.get("valid_through") or "")
-        if valid and valid < datetime.now(timezone.utc):
-            continue  # the closing date has passed
-        out.append(make_posting(found["company"], found["title"], url, found["location"], found["description"],
-                                source="gradireland", source_kind="job_board", vouched=_board_vouch("gradireland", found),
-                                requisition_id=found["requisition_id"], posted_at=found["posted_at"],
-                                careers_url=found.get("company_url") or "", tz=tz))
+            candidates.append(url)
+    candidates = sorted(set(candidates))
+    index = int((coverage.get(key).get("cursor") or {}).get("index", 0)) if coverage else 0
+    out, attempts = [], 0
+    for position in range(index, len(candidates)):
+        url = candidates[position]
+        if attempts >= details or (deadline and time.monotonic() > deadline):
+            _checkpoint(coverage, key, {"index": position}, found=len(out))
+            return out, None
+        if not (skip_posting and skip_posting({"url": url})):
+            attempts += 1
+            html, _ = fetcher.text(url)
+            found = jsonld_posting(html or "")
+            if found and title_ok(found["title"]) and place_ok(found["location"]):
+                valid = _parse_date(found.get("valid_through") or "")
+                if not valid or valid >= datetime.now(timezone.utc):
+                    out.append(make_posting(found["company"], found["title"], url, found["location"], found["description"],
+                                            source="gradireland", source_kind="job_board", vouched=_board_vouch("gradireland", found),
+                                            requisition_id=found["requisition_id"], posted_at=found["posted_at"],
+                                            careers_url=found.get("company_url") or "", tz=tz,
+                                            raw_salary=found.get("raw_salary"), valid_through=found.get("valid_through", "")))
+        _checkpoint(coverage, key, {"index": position + 1}, found=len(out))
+    _checkpoint(coverage, key, {}, complete=True, found=len(out))
     return out, None
 
 
@@ -545,45 +606,61 @@ def _preloaded_state(html: str, key: str):
 
 
 def jobs_ie_jobs(fetcher: Fetcher, keywords: list[str], title_ok: Callable[[str], bool], place_ok: Callable[[str], bool], *,
-                 max_age_days: int = 30, details: int = 30, pages: int = 2, tz: str | None = None,
-                 deadline: float | None = None) -> tuple[list[dict], str | None]:
-    """jobs.ie search results for each keyword; each matching result read from its own page."""
-    seen, listing, error = set(), [], None
+                 max_age_days: int | None = None, details: int = 30, pages: int = 2, tz: str | None = None,
+                 deadline: float | None = None, coverage=None, skip_posting=None) -> tuple[list[dict], str | None]:
+    """Fair keyword rotation with persistent page/detail positions."""
+    out, attempts, seen = [], 0, set()
+    keywords = coverage.order(keywords, key=lambda k: "jobs_ie:" + k) if coverage else keywords
     for keyword in keywords:
+        key = "jobs_ie:" + keyword
+        cursor = (coverage.get(key).get("cursor") or {}) if coverage else {}
+        page, index = max(1, int(cursor.get("page", 1))), int(cursor.get("index", 0))
         slug = re.sub(r"[^a-z0-9]+", "-", keyword.casefold()).strip("-")
-        for page in range(1, pages + 1):
-            if deadline and time.monotonic() > deadline:
-                break
+        for _ in range(pages):
+            if attempts >= details or (deadline and time.monotonic() > deadline):
+                return out, None
             url = f"https://www.jobs.ie/jobs/{slug}" + (f"?page={page}" if page > 1 else "")
             html, error = fetcher.text(url)
-            state = _preloaded_state(html or "", "app-unifiedResultlist") or {}
-            items = ((state.get("searchResults") or {}).get("items") or []) if isinstance(state, dict) else []
-            for item in items:
-                if item.get("id") in seen:
+            state = _preloaded_state(html or "", "app-unifiedResultlist")
+            if not isinstance(state, dict):
+                _checkpoint(coverage, key, {"page": page, "index": index}, found=len(out), error=error or "Unreadable listing")
+                return out, error or "Unreadable listing"
+            items = (state.get("searchResults") or {}).get("items") or []
+            for position, item in enumerate(items):
+                if position < index:
                     continue
-                seen.add(item.get("id"))
-                listing.append(item)
+                if attempts >= details or (deadline and time.monotonic() > deadline):
+                    _checkpoint(coverage, key, {"page": page, "index": position}, found=len(out))
+                    return out, None
+                title = str(item.get("title") or "")
+                age = age_days(str(item.get("datePosted") or ""))
+                if max_age_days is not None and age is not None and age > max_age_days:
+                    _checkpoint(coverage, key, {"page": page, "index": position + 1}, found=len(out))
+                    continue
+                posting_url = "https://www.jobs.ie" + str(item.get("url") or "")
+                preview = {"url": posting_url, "company": str(item.get("companyName") or ""), "title": title,
+                           "requisition_id": str(item.get("id") or "")}
+                if posting_url not in seen and title_ok(title) and place_ok(str(item.get("location") or "")) and not (skip_posting and skip_posting(preview)):
+                    seen.add(posting_url)
+                    attempts += 1
+                    detail, _ = fetcher.text(posting_url)
+                    found = jsonld_posting(detail or "")
+                    if found:
+                        valid = _parse_date(found.get("valid_through") or "")
+                        if not valid or valid >= datetime.now(timezone.utc):
+                            out.append(make_posting(found["company"] or preview["company"], found["title"] or title,
+                                                    posting_url, found["location"] or str(item.get("location") or ""),
+                                                    found["description"], source="jobs_ie", source_kind="job_board",
+                                                    vouched=_board_vouch("jobs.ie", found), requisition_id=preview["requisition_id"],
+                                                    posted_at=found["posted_at"] or str(item.get("datePosted") or ""), tz=tz,
+                                                    raw_salary=found.get("raw_salary"), valid_through=found.get("valid_through", "")))
+                _checkpoint(coverage, key, {"page": page, "index": position + 1}, found=len(out))
             if len(items) < 10:
+                _checkpoint(coverage, key, {}, complete=True, found=len(out))
                 break
-    out = []
-    for item in listing:
-        if len(out) >= details or (deadline and time.monotonic() > deadline):
-            break
-        title = str(item.get("title") or "")
-        age = age_days(str(item.get("datePosted") or ""))
-        if not title_ok(title) or not place_ok(str(item.get("location") or "")) or (age is not None and age > max_age_days):
-            continue
-        url = "https://www.jobs.ie" + str(item.get("url") or "")
-        html, _ = fetcher.text(url)
-        found = jsonld_posting(html or "")
-        if not found:
-            continue
-        company = found["company"] or str(item.get("companyName") or "")
-        out.append(make_posting(company, found["title"] or title, url, found["location"] or str(item.get("location") or ""),
-                                found["description"], source="jobs_ie", source_kind="job_board",
-                                vouched=_board_vouch("jobs.ie", found), requisition_id=str(item.get("id") or ""),
-                                posted_at=found["posted_at"] or str(item.get("datePosted") or ""), tz=tz))
-    return out, (error if not listing else None)
+            page, index = page + 1, 0
+            _checkpoint(coverage, key, {"page": page, "index": 0}, found=len(out))
+    return out, None
 
 
 def _rsc_objects(html: str, marker: str) -> list[dict]:
@@ -601,8 +678,8 @@ def _rsc_objects(html: str, marker: str) -> list[dict]:
 
 
 def askmanavi_jobs(fetcher: Fetcher, title_ok: Callable[[str], bool], place_ok: Callable[[str], bool], *,
-                   details: int = 25, max_age_days: int = 60, tz: str | None = None,
-                   deadline: float | None = None) -> tuple[list[dict], str | None]:
+                   details: int = 25, max_age_days: int | None = None, tz: str | None = None,
+                   deadline: float | None = None, coverage=None, skip_posting=None) -> tuple[list[dict], str | None]:
     """The askmanavi graduate tracker's roles, each read in full from the employer's ATS page it links to."""
     html, error = fetcher.text("https://askmanavi.com/graduate-tracker")
     if html is None:
@@ -619,17 +696,29 @@ def askmanavi_jobs(fetcher: Fetcher, title_ok: Callable[[str], bool], place_ok: 
             # The same requisition id the employer's own feed gives it, so the two are one posting.
             role = {**role, "_requisition": board.group(2)}
         unique.setdefault(url, role)
-    out = []
-    for url, role in unique.items():
-        if len(out) >= details or (deadline and time.monotonic() > deadline):
-            break
+    out, attempts = [], 0
+    key = "board:askmanavi"
+    index = int((coverage.get(key).get("cursor") or {}).get("index", 0)) if coverage else 0
+    for position, (url, role) in enumerate(sorted(unique.items())):
+        if position < index:
+            continue
+        if attempts >= details or (deadline and time.monotonic() > deadline):
+            _checkpoint(coverage, key, {"index": position}, found=len(out))
+            return out, None
+        _checkpoint(coverage, key, {"index": position + 1}, found=len(out))
         age = age_days(str(role.get("postedDate") or ""))
-        if not title_ok(str(role["title"])) or (age is not None and age > max_age_days):
+        if max_age_days is not None and age is not None and age > max_age_days:
+            continue
+        if not title_ok(str(role["title"])) or (skip_posting and skip_posting({"url": url, "company": role["company"], "title": role["title"], "requisition_id": role.get("_requisition", "")})):
             continue
         if not place_ok(str(role.get("location") or "")):
             continue
+        attempts += 1
         full = read_posting(url, fetcher)
         if not full or not place_ok(str(full.get("location") or role.get("location") or "")):
+            continue
+        valid = _parse_date(full.get("valid_through") or "")
+        if valid and valid < datetime.now(timezone.utc):
             continue
         sponsorship = str(role.get("visaSponsorship") or "")
         note = f" askmanavi lists visa sponsorship as {sponsorship}." if sponsorship and sponsorship != "Unknown" else ""
@@ -640,8 +729,10 @@ def askmanavi_jobs(fetcher: Fetcher, title_ok: Callable[[str], bool], place_ok: 
                                          f"({urlsplit(url).hostname}), linked from the askmanavi graduate tracker."),
                                 requisition_id=str(full.get("requisition_id") or role.get("_requisition") or ""),
                                 posted_at=str(role.get("postedDate") or full.get("posted_at") or ""), tz=tz,
+                                raw_salary=full.get("raw_salary"), valid_through=full.get("valid_through", ""),
                                 verification=f"Found on the askmanavi graduate tracker; full text read from the employer's "
                                              f"own careers page ({full.get('method', 'feed')}).{note}"))
+    _checkpoint(coverage, key, {}, complete=True, found=len(out))
     return out, None
 
 
@@ -717,36 +808,38 @@ def employer_rows(root, source: str) -> list[dict]:
                          "_vouched": f"Tracked employer: {row.get('name')} is listed in data/config/portals.yml and this "
                                      "posting was read from its own careers feed."})
         return rows
+    from backend.services.source_coverage import Coverage
+    registry = Coverage(root)
     rows = []
     for market in target_markets_for(root):
         for row in directory(market)["employers"]:
             rows.append({**row, "_source": "directory", "_market": market,
                          "_vouched": f"{row['name']} is in the verified {market.upper()} employer directory and this "
                                      "posting was read from its own careers feed."})
-    return rows
+        rows.extend(registry.employers(market))
+    return list({(row.get("_market"), row_url(row)): row for row in rows}.values())
 
 
 def employer_feed(row: dict, fetcher: Fetcher, title_ok, place_ok, *, country: str, search_text: str,
-                  tz: str | None = None, deadline: float | None = None) -> tuple[list[dict], str | None]:
+                  tz: str | None = None, deadline: float | None = None, coverage=None, skip_posting=None) -> tuple[list[dict], str | None]:
     """One employer's current postings whose title matches, from whichever ATS it uses."""
     ats = str(row.get("ats") or "").strip().casefold()
     if ats == "workday":
-        return workday_jobs(row, fetcher, title_ok, place_ok, search_text=search_text, tz=tz, deadline=deadline)
+        return workday_jobs(row, fetcher, title_ok, place_ok, search_text=search_text, tz=tz, deadline=deadline,
+                            coverage=coverage, skip_posting=skip_posting)
     if ats == "smartrecruiters":
-        return smartrecruiters_jobs(row, fetcher, title_ok, country=country, tz=tz, deadline=deadline)
+        return smartrecruiters_jobs(row, fetcher, title_ok, country=country, tz=tz, deadline=deadline,
+                                    coverage=coverage, skip_posting=skip_posting)
     kind, token = board_token(row)
     if not kind or not token:
         return [], None
-    # Every Greenhouse (or Lever, Ashby) board is read from one API host: pace them like pages.
-    fetcher._pace({"greenhouse": "boards-api.greenhouse.io", "lever": "api.lever.co",
-                   "ashby": "api.ashbyhq.com"}.get(kind, kind))
-    postings, error = fetch_board({**row, "ats": kind, "ats_token": token}, tz)
+    postings, error = fetch_board({**row, "ats": kind, "ats_token": token}, tz, fetcher=fetcher)
     out = []
     for posting in postings:
-        if not title_ok(posting["title"]) or not place_ok(posting["location"]):
+        if not title_ok(posting["title"]) or not place_ok(posting["location"]) or (skip_posting and skip_posting(posting)):
             continue
         out.append({**posting, "legal_presence": row.get("_vouched", ""), "source": row.get("_source", "directory"),
-                    "source_kind": "employer_feed", "vouched": row.get("_vouched", ""), "posted_at": ""})
+                    "source_kind": "employer_feed", "vouched": row.get("_vouched", "") })
     return out, error
 
 
@@ -754,7 +847,7 @@ def employer_feed(row: dict, fetcher: Fetcher, title_ok, place_ok, *, country: s
 
 def harvest(root, sources: list[str], *, title_ok, place_ok, keywords: list[str], tz: str | None = None,
             fetcher: Fetcher | None = None, seconds: float = 900, held: list[dict] | None = None,
-            skip: Callable[[dict], bool] | None = None,
+            skip: Callable[[dict], bool] | None = None, skip_posting: Callable[[dict], bool] | None = None,
             progress: Callable[..., None] | None = None) -> tuple[list[dict], list[str]]:
     """Postings from each named source, with one coverage line per source (or per employer).
 
@@ -765,6 +858,8 @@ def harvest(root, sources: list[str], *, title_ok, place_ok, keywords: list[str]
     progress = progress or (lambda label, **detail: None)
     from backend.countries import target_markets_for
 
+    from backend.services.source_coverage import Coverage
+    registry = Coverage(root)
     fetcher = fetcher or _default_fetcher()
     deadline = time.monotonic() + seconds
     markets = target_markets_for(root)
@@ -781,7 +876,7 @@ def harvest(root, sources: list[str], *, title_ok, place_ok, keywords: list[str]
                 added += 1
         return added
 
-    for source in sources:
+    for source in registry.order(sources, key=lambda name: "feeds:" + name):
         if time.monotonic() > deadline:
             coverage.append(f"{SOURCE_LABELS.get(source, source)}: not read (the time budget for this pass ran out)")
             continue
@@ -797,41 +892,77 @@ def harvest(root, sources: list[str], *, title_ok, place_ok, keywords: list[str]
             if not rows:
                 coverage.append(f"{SOURCE_LABELS[source]}: none listed")
                 continue
+            rows = registry.order(rows, key=lambda row: "employer:" + row_url(row))
             read = matched = failed = skipped = 0
-            for row in rows:
+            partial = False
+
+            def read_employer(row):
                 if time.monotonic() > deadline:
-                    coverage.append(f"{SOURCE_LABELS[source]}: stopped after {read} of {len(rows)} employers (time budget)")
-                    break
-                if skip and skip(row):
-                    skipped += 1
-                    continue
+                    return row, [], "", False
                 country = row.get("_market") or (markets[0] if markets else "ie")
-                search_text = COUNTRY_NAMES.get(country, country)
-                found, error = employer_feed(row, fetcher, title_ok, place_ok, country=country, search_text=search_text,
-                                             tz=tz, deadline=deadline)
-                read += 1
-                if error:
-                    failed += 1
-                    coverage.append(f"{row.get('name')}: FETCH FAILED ({error})")
-                added = keep(found)
-                matched += added
-                progress(str(row.get("name") or "Employer"), url=row_url(row), found=added,
-                         error=str(error or ""), ats=str(row.get("ats") or ""))
-            coverage.append(f"{SOURCE_LABELS[source]}: read {read} employer feeds"
-                            + (f", skipped {skipped} read recently" if skipped else "")
-                            + (f", {failed} could not be read" if failed else "")
-                            + f"; {matched} postings matched your target roles")
+                try:
+                    found, error = employer_feed(row, fetcher, title_ok, place_ok, country=country,
+                                                 search_text=COUNTRY_NAMES.get(country, country), tz=tz,
+                                                 deadline=deadline, coverage=registry, skip_posting=skip_posting)
+                except Exception as exc:
+                    found, error = [], f"{type(exc).__name__}: {str(exc)[:200]}"
+                return row, found, error, True
+
+            # Submit one bounded batch at a time: no queue of requests outlives the budget.
+            with ThreadPoolExecutor(max_workers=4, thread_name_prefix="career-source") as pool:
+                for offset in range(0, len(rows), 4):
+                    if time.monotonic() > deadline:
+                        partial = True
+                        break
+                    batch = []
+                    for row in rows[offset:offset + 4]:
+                        if skip and skip(row):
+                            skipped += 1
+                        else:
+                            batch.append(row)
+                    for row, found, error, attempted in pool.map(read_employer, batch):
+                        if not attempted:
+                            partial = True
+                            continue
+                        read += 1
+                        failed += bool(error)
+                        added = keep(found)
+                        matched += added
+                        # Detailed ATS checkpoints say whether a paged board was exhausted.
+                        ats = str(row.get("ats") or "").lower()
+                        country = row.get("_market") or (markets[0] if markets else "ie")
+                        detail_key = (f"workday:{row.get('host')}/{row.get('site')}:{COUNTRY_NAMES.get(country, country)}" if ats == "workday"
+                                      else f"smartrecruiters:{row.get('token')}:{country}" if ats == "smartrecruiters" else "")
+                        state = "failed" if error else (registry.get(detail_key).get("state", "partial") if detail_key else "complete")
+                        partial = partial or state == "partial"
+                        registry.checkpoint("employer:" + row_url(row), {}, state, found=added, error=error or "")
+                        if error:
+                            coverage.append(f"{row.get('name')}: FETCH FAILED ({error})")
+                        progress(str(row.get("name") or "Employer"), url=row_url(row), found=added,
+                                 error=str(error or ""), ats=str(row.get("ats") or ""))
+            state = "failed" if failed else "partial" if partial or skipped or read < len(rows) else "complete"
+            registry.checkpoint("feeds:" + source, {}, state, found=matched,
+                                error=f"{failed} employer feeds failed" if failed else "")
+            coverage.append(f"{SOURCE_LABELS[source]}: read {read} of {len(rows)} configured employer feeds; "
+                            f"{matched} new matching postings; {state}"
+                            + (f", {skipped} skipped" if skipped else ""))
             continue
         if source == "gradireland":
-            found, error = gradireland_jobs(fetcher, title_ok, place_ok, tz=tz, deadline=deadline)
+            found, error = gradireland_jobs(fetcher, title_ok, place_ok, tz=tz, deadline=deadline, coverage=registry, skip_posting=skip_posting)
         elif source == "jobs_ie":
-            found, error = jobs_ie_jobs(fetcher, keywords, title_ok, place_ok, tz=tz, deadline=deadline)
+            found, error = jobs_ie_jobs(fetcher, keywords, title_ok, place_ok, tz=tz, deadline=deadline, coverage=registry, skip_posting=skip_posting)
         elif source == "askmanavi":
-            found, error = askmanavi_jobs(fetcher, title_ok, place_ok, tz=tz, deadline=deadline)
+            found, error = askmanavi_jobs(fetcher, title_ok, place_ok, tz=tz, deadline=deadline, coverage=registry, skip_posting=skip_posting)
         else:
             coverage.append(f"{source}: unknown source")
             continue
         added = keep(found)
+        if source == "jobs_ie":
+            states = [registry.get("jobs_ie:" + k).get("state", "partial") for k in keywords]
+            state = "failed" if error else "complete" if states and all(s == "complete" for s in states) else "partial"
+        else:
+            state = "failed" if error else registry.get("board:" + source).get("state", "partial")
+        registry.checkpoint("feeds:" + source, {}, state, found=added, error=error or "")
         coverage.append(f"{SOURCE_LABELS[source]}: " + (f"FETCH FAILED ({error})" if error and not found else
                                                          f"{added} postings matched your target roles"))
         progress(SOURCE_LABELS[source], url=BOARD_URLS.get(source, ""), found=added,
