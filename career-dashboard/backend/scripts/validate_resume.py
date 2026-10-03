@@ -1395,19 +1395,22 @@ def main() -> int:
                             f"Compiled PDF prints {anchor} without a registered title/date line ({accepted[0]})",
                         )
 
+                # A project heading starts its line; a stack may sit beside it, so match the line's
+                # start. A registered bullet that names its own project ("The X app was my final
+                # year project") is not a second heading.
+                def heading_count(title: str) -> int:
+                    return sum(compact(line).startswith(compact(title)) for line in normalized_pdf_text.splitlines())
+
                 if required_projects:
                     expected_project_title = (qa.get("selected_project") or {}).get("title")
                     add_failure(
                         failures,
-                        isinstance(expected_project_title, str)
-                        # A stack may sit on the title line, so match its start rather than the whole line.
-                        and (sum(compact(line).startswith(compact(expected_project_title)) for line in normalized_pdf_text.splitlines()) == 1
-                             if args.studio_layout else compact_pdf_text.count(compact(expected_project_title)) == 1),
+                        isinstance(expected_project_title, str) and heading_count(expected_project_title) == 1,
                         "Compiled PDF must show the registered selected-project title exactly once",
                     )
                 if required_projects >= 2:
                     second_title = (qa.get('second_project') or {}).get('title')
-                    add_failure(failures, isinstance(second_title, str) and compact_pdf_text.count(compact(second_title)) == 1,
+                    add_failure(failures, isinstance(second_title, str) and heading_count(second_title) == 1,
                                 'Compiled PDF must show the registered second-project title exactly once')
                 heading_positions = [normalized_pdf_text.find(heading) for heading in required_order]
                 qa["text_order_ok"] = all(

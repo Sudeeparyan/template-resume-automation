@@ -24,8 +24,9 @@ AI-only output is not automatically imported into the dashboard.
 ## Install the dashboard
 
 1. Install [Python 3.12](https://www.python.org/downloads/) and
-   [Node.js 20 or newer](https://nodejs.org/en/download). On Windows, install Python with its `py`
-   launcher. On macOS, make sure `python3.12` is on `PATH`.
+   [Node.js 20 or newer](https://nodejs.org/en/download). It must be 3.12, not the newest Python
+   that the download page offers first: the OCR packages need 3.12. On Windows, install Python
+   with its `py` launcher. On macOS, make sure `python3.12` is on `PATH`.
 2. Install [Tectonic](https://tectonic-typesetting.github.io/book/latest/installation/) for resume
    PDFs. Scanned PDF OCR is included in the Python dependencies. If you already have
    [Poppler](https://poppler.freedesktop.org/) (`pdftoppm`) and
@@ -45,7 +46,7 @@ AI-only output is not automatically imported into the dashboard.
    fails, retry with that profile ID rather than creating another person. A ready profile and
    completed build, not an uploaded file alone, finish setup.
 
-For a read-only diagnosis at any time, run `career.cmd doctor` on Windows or `sh career doctor`
+For a read-only diagnosis at any time, run `.\career.cmd doctor` on Windows or `sh career doctor`
 elsewhere. It reports missing dependencies and tools without opening resumes, credentials or
 starting AI calls. Provider detection does not prove sign-in. Gmail and Drive are optional
 AI-host connectors, not prerequisites or automatic connections to the dashboard.

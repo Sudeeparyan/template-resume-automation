@@ -196,3 +196,59 @@ def test_build_profile_and_preserve_history(tmp_path, monkeypatch, markets):
             assert rebuilt["completed_profile_revision"] != first["completed_profile_revision"]
             assert any("clarification" in flag.lower() for flag in rebuilt["flags"])
             assert len(client.get(f"/p/{pid}/api/jobs").json()) == 1
+
+
+class NamedProjectsFixture:
+    """Two projects whose own facts name them, as people write in their notes."""
+
+    def run(self, name, payload):
+        if name == "intake_auditor":
+            return IntakeAudit()
+        assert name == "profile_extractor"
+        return IntakeFacts.model_validate({
+            "contact": {"full_name": "Example Person", "city": "Cork", "country": "Ireland", "refs": ["P001"]},
+            "targets": {"roles": ["Graduate Software Engineer"], "countries": ["Ireland"], "refs": ["P001"]},
+            "education": [{"institution": "Example University", "degree": "BSc in Computer Science",
+                           "location": "Cork, Ireland", "start": "September 2020", "end": "May 2024", "refs": ["P001"]}],
+            "projects": [
+                {"name": "Study Room Booking App", "kind": "academic", "period": "2024",
+                 "facts": ["The Study Room Booking App was my final year project.",
+                           "Built a React frontend and a FastAPI backend with a PostgreSQL database.",
+                           "Supported about 150 student users during a pilot semester."],
+                 "tools": ["React", "FastAPI", "PostgreSQL"], "refs": ["P001"]},
+                {"name": "Job Posting Deduplicator", "kind": "personal", "period": "2025",
+                 "facts": ["Wrote the Job Posting Deduplicator to group near-duplicate job postings.",
+                           "Processed a public dataset of 20,000 postings with TF-IDF and cosine similarity.",
+                           "Packaged the tool with Docker for repeatable runs."],
+                 "tools": ["Python", "Docker"], "refs": ["P001"]},
+            ],
+            "skills": [{"name": "Programming", "skills": ["Python", "React", "FastAPI", "SQL"],
+                        "level": "used", "refs": ["P001"]}],
+        })
+
+
+@pytest.mark.skipif(not tectonic_executable(), reason="Tectonic is required for the full PDF build")
+def test_base_resume_accepts_a_bullet_that_names_its_project(tmp_path, monkeypatch):
+    # The title heads its project once; a registered bullet repeating it is not a second heading.
+    monkeypatch.setattr(intake_api, "team_factory", lambda _profiles: lambda _on_usage: NamedProjectsFixture())
+    store = ProfileStore(base=tmp_path / "profiles", legacy_root=tmp_path / "no-legacy")
+    dist = tmp_path / "dist"
+    dist.mkdir()
+    (dist / "index.html").write_text("<html>test</html>", encoding="utf-8")
+    with TestClient(create_shell(store, frontend=dist), base_url="http://127.0.0.1") as client:
+        pid = client.post("/api/profiles", json={"name": "Example Person"}).json()["profile"]["id"]
+        base = f"/api/profiles/{pid}"
+        text = (b"Example Person, Cork, Ireland\nBSc in Computer Science, Example University\n"
+                b"The Study Room Booking App was my final year project.\n"
+                b"Wrote the Job Posting Deduplicator to group near-duplicate job postings.\n")
+        assert client.post(base + "/sources?name=resume.md", content=text).status_code == 200
+        response = client.post(base + "/build-runs", json={"target_markets": ["ie"], "work_authorization_by_market": {
+            "ie": {"status": "authorized", "citizenship": "citizen", "needs_sponsorship_later": "no"}}})
+        assert response.status_code == 200, response.text
+        run = _wait(client, base, response.json()["id"])
+        assert run["status"] == "completed", run.get("errors")
+        root = store.root_for(pid)
+        source = (root / "data/templates/resume-base.tex").read_text(encoding="utf-8")
+        assert "The Study Room Booking App was my final year project" in source
+        assert "Wrote the Job Posting Deduplicator" in source
+        assert len(list((root / "data/output/base").glob("*.pdf"))) == 1

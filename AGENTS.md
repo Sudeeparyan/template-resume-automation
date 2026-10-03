@@ -9,9 +9,9 @@ follow the same rules and the same skills in `.agents/skills/`. Work only inside
 1. Read the skill for what the person asked (table below) before you act. Do not work from memory
    of a skill; read its file each time.
 2. Decide the mode once per conversation and say which in one short line:
-   - Run `career.cmd doctor` (Windows) or `sh career doctor` (macOS, Linux). This read-only
-     check needs no profile, server or AI sign-in. Below, `career` means `career.cmd` on Windows
-     and `sh career` elsewhere.
+   - From this folder run `.\career.cmd doctor` (Windows PowerShell or Command Prompt) or
+     `sh career doctor` (macOS, Linux, Git Bash). This read-only check needs no profile, server
+     or AI sign-in. Below, `career` means whichever of the two works in your shell.
    - **App mode**: the check returns `app_mode: true`. The app owns searching, checks, evidence,
      history and PDFs. Zero profiles means run `career-setup`, not AI-only mode. With an existing
      profile, use its exact ID with `--profile <id>` on every profile command and morning run.
