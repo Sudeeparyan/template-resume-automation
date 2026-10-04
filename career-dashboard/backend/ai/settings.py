@@ -347,6 +347,47 @@ def save_fallback(services, gateway, provider_id: str, model: str) -> dict:
     return overview(services, gateway=gateway)
 
 
+# Where a person gets each key (shown before the first profile exists).
+KEY_PAGES = {"openrouter": "https://openrouter.ai/keys", "openai": "https://platform.openai.com/api-keys",
+             "anthropic": "https://console.anthropic.com/settings/keys", "gemini": "https://aistudio.google.com/apikey",
+             "kimi": "https://platform.moonshot.ai/console/api-keys"}
+
+
+def machine_status() -> dict:
+    """The AI this computer can use before any profile exists. Never a key's value."""
+    from backend.ai import claude_code, codex, kimi_cli, provider_label, ready_providers
+    from backend.paths import APP_ROOT
+
+    ready = ready_providers(APP_ROOT)
+    clis = []
+    for module in (claude_code, codex, kimi_cli):
+        installed = module.available()
+        clis.append({"id": module.ID, "label": provider_label(module.ID), "kind": "cli", "ready": bool(ready.get(module.ID)),
+                     "installed": installed,
+                     "signed_in": bool(getattr(module, "signed_in", lambda: installed)()) if installed else False})
+    hosted = [{"id": pid, "label": spec["label"], "kind": "api_key", "ready": bool(ready.get(pid)),
+               "key_name": spec["key"], "saved_in": keys.source(APP_ROOT, spec["key"]) or "",
+               "get_key": KEY_PAGES.get(pid, "")}
+              for pid, spec in catalog.PROVIDERS.items() if pid in KEY_PAGES]
+    return {"any_ready": any(ready.values()), "clis": clis, "keys": hosted,
+            "note": "Sign in to one of these AI apps on this computer, or add an API key. Keys stay on this computer."}
+
+
+def save_machine_key(provider_id: str, value: str) -> dict:
+    """Store a key for the whole installation (career-dashboard/.env) and prove it with a model-list call."""
+    from backend.paths import APP_ROOT
+
+    if provider_id not in catalog.PROVIDERS or provider_id not in KEY_PAGES:
+        raise ValueError("This provider does not use an API key")
+    spec = catalog.PROVIDERS[provider_id]
+    keys.save(APP_ROOT, spec["key"], value)
+    listed = catalog.models(APP_ROOT, provider_id, refresh=True)
+    ok = not listed["error"] and bool(listed["models"])
+    return {"provider": provider_id, "ok": ok,
+            "detail": (f"Key saved and working: {len(listed['models'])} models available."
+                       if ok else f"Key saved, but the check failed: {listed['error'] or 'no models were listed'}.")}
+
+
 def save_key(services, provider_id: str, value: str) -> dict:
     """Store a key typed on the page, then prove it with a free model-list call."""
     if provider_id not in catalog.PROVIDERS:

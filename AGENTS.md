@@ -38,7 +38,7 @@ follow the same rules and the same skills in `.agents/skills/`. Work only inside
 | "I finished a course", "add this to my profile", a correction | `.agents/skills/profile-intake/SKILL.md` |
 | "is this job still open?" | `.agents/skills/verify-job-url/SKILL.md` |
 | "prepare me for my interview at …" | `.agents/skills/interview-prep/SKILL.md` |
-| where to search in Ireland or the US | `.agents/skills/ireland-job-sources/SKILL.md`, `.agents/skills/us-job-sources/SKILL.md` |
+| where to search in Ireland | `.agents/skills/ireland-job-sources/SKILL.md` |
 
 ## Rules that always apply
 
@@ -85,8 +85,8 @@ Architecture, commands, API, tests and the release check are in `docs/DEVELOPERS
 `career-dashboard/` (read `career-dashboard/AGENTS.md` before candidate, job or resume work in the
 app); the morning runner is `daily-job-search/` (`AUTOPILOT.md`). The dashboard, CLI and Assistant
 use the same profile-scoped database through application services. A fresh clone has zero
-profiles; onboarding (or `career setup`) creates one, with Ireland as the initial market and the
-US or both available. Company research and hiring-manager review never create candidate
+profiles; onboarding (or `career setup`) creates one for Ireland, the only market this copy offers
+(the US pack is dormant: `docs/DEVELOPERS.md`, "Re-enabling a market"). Company research and hiring-manager review never create candidate
 experience; the hiring-manager worker receives only the posting and public company research.
 
 The GitHub copy must never hold a person's documents, database, outputs, credentials or

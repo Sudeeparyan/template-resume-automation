@@ -69,7 +69,7 @@ def locate(row):
         if source.startswith("data/config/profile.yml > candidate > "):
             return "profile", ("candidate", source.rsplit(" > ", 1)[1])
         if source.startswith("data/config/profile.yml > "):
-            return "profile", (source.split(" > ", 1)[1],)
+            return "profile", tuple(source.split(" > ")[1:])
         field = data.get("field") or re.sub(r"[^a-z0-9]+", "_", row["title"].casefold()).strip("_")
         return "profile", ("candidate", field)
     if source.startswith("data/context/evidence.yml > ") and source.split(" > ", 1)[1] == row["id"]:
@@ -402,6 +402,26 @@ class ProfileSync:
                 raise ValueError(f"{row['title']} has several parts. Open it with Edit and save the form to change it.")
             before = (previous or {}).get("value")
             value = _apply(current, _changes(before, value)) if isinstance(before, dict) else value
+        from backend.services.intake.authorization import validate_authorization, validate_education, validate_job_search
+
+        if path == ("work_authorization_by_market", "ie"):
+            value = validate_authorization(value)
+        elif path == ("education_for_permits",):
+            value = validate_education(value)
+        elif path == ("job_search",):
+            unchanged_default = (isinstance(current, dict) and current.get("salary_floor_source") == "permit_rules"
+                                 and value.get("salary_floor_eur") == current.get("salary_floor_eur"))
+            if unchanged_default:
+                value = {k: v for k, v in value.items() if k != "salary_floor_eur"}
+            value = validate_job_search(value)
+            if unchanged_default:
+                from backend.permits.assessment import personal_floor
+
+                value.update(salary_floor_eur=personal_floor(self.profile), salary_floor_source="permit_rules")
+            self._set_profile(("target_roles", "seniority"), value["seniority"])
+            self._set_profile(("target_roles", "max_years_required"), value["max_years_required"])
+            self._set_profile(("scoring", "block_seniority"), bool(value.get("graduate_search_confirmed")))
+        # Permit facts and search preferences are stored in profile.yml only; they are not evidence.
         self._set_profile(path, value)
         field = path[-1] if path[0] == "candidate" else None
         if field in TWINS:

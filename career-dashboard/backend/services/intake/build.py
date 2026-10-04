@@ -126,9 +126,9 @@ def authorization_mode(auth: dict) -> str:
 def market_authorization(draft: dict, market: str) -> dict:
     """Eligibility state supplied by the person; raw permit wording is retained separately."""
     values = (draft.get("work_authorization_by_market") or {}).get(market) or {}
-    return {"status": values.get("status") if values.get("status") in {"authorized", "needs_sponsorship"} else "unknown",
-            "citizenship": values.get("citizenship") if values.get("citizenship") in {"citizen", "noncitizen"} else "unknown",
-            "needs_sponsorship_later": values.get("needs_sponsorship_later") if values.get("needs_sponsorship_later") in {"yes", "no"} else "unknown"}
+    from backend.services.intake.authorization import validate_authorization
+
+    return validate_authorization(values, market)
 
 
 def draft_authorization_mode(draft: dict, market: str) -> str:
@@ -150,7 +150,9 @@ def preferred_locations(targets: dict, markets: list[str]) -> list[str]:
     """
     cities = [clean(city) for city in targets.get("cities") or [] if clean(city)]
     chosen = set(markets)
-    return [city for city in cities if not (known := {m for m in ("ie", "us") if load_pack(m).location_ok(city)}) or known & chosen]
+    from backend.countries import known_markets
+
+    return [city for city in cities if not (known := {m for m in known_markets() if load_pack(m).location_ok(city)}) or known & chosen]
 
 
 # ---- the registry ----------------------------------------------------------------------
@@ -241,6 +243,8 @@ def build_registry(draft: dict, revision: str, sources: dict, banned: list[str])
               refs_for(auth, sources), value=value)
     if contact.get("languages"):
         claim("LANG-001", "languages", "Omit unless a posting asks for a language.", base, value=", ".join(contact["languages"]))
+    # Confirmed permit facts and search preferences live in profile.yml (build_profile), not
+    # here: they are never resume evidence, and every claim in this registry cites a source.
 
     # Education, newest first.
     education = sorted(draft.get("education") or [], key=lambda e: _sort_key(date_range(e.get("start"), e.get("end"))), reverse=True)
@@ -417,6 +421,11 @@ def build_tracks(roles: list[str], projects: list[dict], lead_section: str = "")
 
 
 def build_profile(draft: dict, registry: dict, pack: Pack, revision: str) -> dict:
+    from backend.countries import enabled_markets
+
+    offered = enabled_markets()
+    if pack.code not in offered:
+        raise ValueError(f"{pack.name} is switched off in this copy. See docs/DEVELOPERS.md, \"Re-enabling a market\".")
     contact, auth, targets = draft["contact"], draft["authorization"], draft["targets"]
     full_name = clean(contact.get("full_name"))
     preferred = clean(contact.get("preferred_name")) or (full_name.split()[0] if full_name else "")
@@ -437,9 +446,17 @@ def build_profile(draft: dict, registry: dict, pack: Pack, revision: str) -> dic
         else:
             orders[track["code"]] = list(sections)
     mode = draft_authorization_mode(draft, pack.code)
-    markets = [m for m in draft.get("target_markets") or [pack.code] if m in {"ie", "us"}]
-    markets = list(dict.fromkeys(markets)) or [pack.code]
+    from backend.countries import is_enabled
+
+    markets = [m for m in draft.get("target_markets") or [pack.code] if is_enabled(m)]
+    if not markets:
+        raise ValueError("This profile was built for a market this copy no longer offers. Choose an enabled market explicitly before building.")
+    markets = list(dict.fromkeys(markets))
     by_market = {m: market_authorization(draft, m) for m in markets}
+    from backend.services.intake.authorization import validate_education, validate_job_search
+
+    education_for_permits = validate_education(draft.get("education_for_permits") or {})
+    preferences = validate_job_search(draft.get("job_search") or {})
     status = clean(auth.get("status"))
     valid = clean(auth.get("valid_until"))
     situation = (f"who holds {status}" + (f" (valid until {valid})" if valid else "") + f" and is looking for {pack.text('market')}"
@@ -458,12 +475,14 @@ def build_profile(draft: dict, registry: dict, pack: Pack, revision: str) -> dic
     if mode == "later":
         exclusions += ["Postings that explicitly refuse to support a work permit or sponsorship",
                        "Postings requiring " + pack.data.get("discovery", {}).get("cannot_hire", "citizenship or a clearance")]
-    return {
+    profile = {
         "schema_version": 2,
         "candidate_revision": revision,
         "country_pack": pack.code,
         "target_markets": markets,
         "work_authorization_by_market": by_market,
+        "education_for_permits": education_for_permits,
+        "job_search": preferences,
         "resume_contract_by_market": {m: {"paper": "a4" if m == "ie" else "letter", "required_pages": 1}
                                       for m in markets},
         "candidate": {k: v for k, v in {
@@ -500,9 +519,9 @@ def build_profile(draft: dict, registry: dict, pack: Pack, revision: str) -> dic
         "target_roles": {
             "primary": roles,
             "secondary": [],
-            "seniority": [],
+            "seniority": preferences["seniority"],
             "excluded": exclusions,
-            "max_years_required": None,
+            "max_years_required": preferences["max_years_required"],
         },
         "role_tracks": tracks,
         "narrative": {
@@ -595,9 +614,17 @@ def build_profile(draft: dict, registry: dict, pack: Pack, revision: str) -> dic
             "project_domains": [w for w in DOMAIN_WORDS if w in doc_words][:12] or ["research"],
             "highest_degree": highest,
             "role_blocker": "Role does not match the target roles (" + ", ".join(roles[:5] or ["the profile's target roles"]) + ").",
+            # A confirmed graduate search sets senior, lead and manager titles aside (job_quality.blockers).
+            "block_seniority": bool(preferences.get("graduate_search_confirmed")),
         },
         "persona": {"name": preferred or full_name, "situation": situation},
     }
+    if "salary_floor_eur" not in preferences:
+        from backend.permits.assessment import personal_floor
+
+        preferences["salary_floor_eur"] = personal_floor(profile)
+        preferences["salary_floor_source"] = "permit_rules"
+    return profile
 
 
 # ---- the gate and the search files ---------------------------------------------------

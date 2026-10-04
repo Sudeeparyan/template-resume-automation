@@ -57,6 +57,8 @@ class DraftChanges(BaseModel):
     roles: Optional[list[str]] = None
     authorization: dict[str, Any] = Field(default_factory=dict)
     work_authorization_by_market: dict[str, dict[str, Any]] | None = None
+    education_for_permits: dict[str, Any] | None = None
+    job_search: dict[str, Any] | None = None
 
 
 class ChatMessage(BaseModel):
@@ -82,6 +84,8 @@ class SourceChanges(BaseModel):
 class BuildOptions(BaseModel):
     target_markets: list[str] | None = None
     work_authorization_by_market: dict[str, dict[str, Any]] = Field(default_factory=dict)
+    education_for_permits: dict[str, Any] | None = None
+    job_search: dict[str, Any] | None = None
 
 
 def _legacy_preferences(profiles) -> dict:
@@ -121,10 +125,9 @@ def team_factory(profiles):
 
         ready = ready_providers(APP_ROOT)
         if not any(ready.values()):
-            raise ValueError("No AI is set up on this PC to read the documents. Before the first build, "
-                             "copy career-dashboard/.env.example to career-dashboard/.env and add a provider API key, "
-                             "or sign in to a supported Kimi Code, Codex or Claude Code CLI. Restart the launcher "
-                             "and try again. Settings opens after the profile is built.")
+            raise ValueError("No AI is set up on this computer to read the documents. Use the \"First, an AI\" "
+                             "step on this page: sign in to Claude Code, Codex or Kimi Code, or paste an API key, "
+                             "then try again.")
         saved = _legacy_preferences(profiles)
         preferences = saved.get("ai_preferences") or {}
         tiers, _moved = resolve_tiers(APP_ROOT, preferences, ready)
@@ -209,6 +212,9 @@ def review(job: IntakeJob) -> dict:
             "country_pack": draft.get("country_pack") or "ie",
             "target_markets": draft.get("target_markets") or [draft.get("country_pack") or "ie"],
             "work_authorization_by_market": draft.get("work_authorization_by_market") or {},
+            "education_for_permits": draft.get("education_for_permits") or {},
+            "job_search": draft.get("job_search") or {},
+            "authorization_proposal": draft.get("authorization_proposal") or {},
             "counts": {
                 "education": len(draft.get("education") or []),
                 "experience": len(draft.get("experience") or []),
@@ -316,7 +322,18 @@ def attach_intake(api, profiles, apps) -> dict:
 
     @api.post("/api/profiles/{profile_id}/build-runs")
     def build_runs_start(profile_id: str, data: BuildOptions):
-        return runs_for(profile_id).start(data.model_dump())
+        return runs_for(profile_id).start(data.model_dump(exclude_none=True))
+
+    @api.get("/api/profiles/{profile_id}/build-settings")
+    def build_settings(profile_id: str):
+        import yaml
+
+        job = job_for(profile_id, onboarding_only=False)
+        path = job.root / "data/config/profile.yml"
+        current = yaml.safe_load(path.read_text(encoding="utf-8")) if path.is_file() else profiles.get(profile_id)
+        current = current or {}
+        return {key: current.get(key) or {} for key in
+                ("work_authorization_by_market", "education_for_permits", "job_search")}
 
     @api.get("/api/profiles/{profile_id}/build-runs/{run_id}")
     def build_runs_get(profile_id: str, run_id: str):
@@ -413,6 +430,8 @@ def attach_intake(api, profiles, apps) -> dict:
         profiles.update(profile_id, state="ready", name=built_name, initials=initials(built_name),
                         target_markets=draft.get("target_markets") or [summary["pack"]],
                         work_authorization_by_market=draft.get("work_authorization_by_market") or {},
+                        education_for_permits=draft.get("education_for_permits") or {},
+                        job_search=draft.get("job_search") or {},
                         built_at=summary["built_at"])
         app = apps.app(profile_id)  # first open seeds the profile database from the new files
         service = app.state.career

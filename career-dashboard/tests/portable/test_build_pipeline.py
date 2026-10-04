@@ -100,7 +100,7 @@ def _wait(client: TestClient, base: str, run_id: str) -> dict:
 
 @pytest.mark.skipif(not tectonic_executable(), reason="Tectonic is required for the full PDF build")
 @pytest.mark.parametrize("markets", [["ie"], ["us"], ["ie", "us"]])
-def test_build_profile_and_preserve_history(tmp_path, monkeypatch, markets):
+def test_build_profile_and_preserve_history(tmp_path, monkeypatch, markets, us_enabled):
     monkeypatch.setattr(intake_api, "team_factory", lambda _profiles: lambda _on_usage: ExtractorFixture())
     store = ProfileStore(base=tmp_path / "profiles", legacy_root=tmp_path / "no-legacy")
     dist = tmp_path / "dist"

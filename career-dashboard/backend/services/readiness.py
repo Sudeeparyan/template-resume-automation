@@ -122,6 +122,15 @@ def check(services, studio, job_id: str, *, fit_bar: int | None = None) -> dict:
     except ValueError as error:
         add("permit", "Work permit", "warn", str(error))
 
+    # 2b. Pay: a market estimate or researched figure is not this vacancy's salary.
+    from backend.services.opportunities import pay_note
+
+    note = pay_note(job)
+    if note:
+        add("pay", "Salary", "warn", note)
+    elif (job.get("opportunity") or {}).get("section") == "salary_matches":
+        add("pay", "Salary", "pass", "The advertised salary meets your floor.")
+
     # 3. The employer.
     if job.get("legitimacy_state") == "verified":
         add("employer", "Employer", "pass", "Employer passed the legitimacy check.")

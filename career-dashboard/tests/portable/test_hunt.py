@@ -171,17 +171,18 @@ def test_the_plan_adapts_to_the_profile(tmp_path):
     assert plan["early_career"] and "graduate data analyst" in plan["board_keywords"]
     passes = strategies(services.w.root, plan=plan)
     kinds = [p["kind"] for p in passes]
-    assert kinds[:5] == ["feeds"] * 5 and set(kinds[5:]) == {"ai"}
-    assert [p["id"] for p in passes[:5]] == ["feeds:tracked", "feeds:directory", "feeds:gradireland", "feeds:jobs_ie",
-                                             "feeds:askmanavi"]
+    # Careerjet and Jooble are optional and keyed: without their keys they get no pass.
+    assert kinds[:6] == ["feeds"] * 6 and set(kinds[6:]) == {"ai"}
+    assert [p["id"] for p in passes[:6]] == ["feeds:tracked", "feeds:directory", "feeds:registry", "feeds:eures",
+                                             "feeds:gradireland", "feeds:jobs_ie"]
     queries = " ".join(q for p in passes for q in p.get("queries", []))
     for site in ("site:irishjobs.ie", "site:gradireland.com", "site:myworkdayjobs.com", "site:linkedin.com/jobs/view",
                  "site:publicjobs.ie"):
         assert site in queries
     assert "graduate programme" in queries
     assert strategies(services.w.root, sources="feeds", plan=plan)[-1]["kind"] == "feeds"
-    text = focus_instructions(passes[5])
-    assert "FOCUS FOR THIS PASS" in text and passes[5]["queries"][0] in text
+    text = focus_instructions(passes[6])
+    assert "FOCUS FOR THIS PASS" in text and passes[6]["queries"][0] in text
 
 
 # ----- the loop, with a stand-in runner and pipeline ------------------------------------------
@@ -302,7 +303,7 @@ def test_the_hunt_waits_for_a_plan_to_reset_after_the_no_ai_work(tmp_path):
     done = run_inline(hunt, {"target": 1, "hours": 3, "sources": "all", "steps": {s: False for s in STEP_IDS}})
     presets = [call["preset"] for call in runner.calls]
     first_ai = presets.index("default")
-    assert set(presets[:first_ai]) == {"feeds"} and first_ai == 5  # every feed ran before waiting
+    assert set(presets[:first_ai]) == {"feeds"} and first_ai == 6  # every feed ran before waiting
     assert clock.now >= wake
     ai_call = runner.calls[first_ai]
     assert ai_call["focus"]["queries"] and ai_call["provider"] == "auto"
@@ -351,3 +352,75 @@ def test_an_unfinished_profile_has_nothing_to_hunt(tmp_path):
     hunt, _, _ = make_hunt(services, [], clock)
     done = run_inline(hunt, {"target": 1, "hours": 1, "sources": "ai"})
     assert done["state"] == "failed" and "no target roles" in done["error"]
+
+
+NO_PAY_JD = JD.replace("Base salary: EUR 42,000 per year.\n", "")
+
+
+class PayResearchRunner(FakeRunner):
+    """Discovery saves a posting with no pay (pending its salary); the salary research run then saves
+    comparable pay from two independent dated publishers, at ``annual`` a year."""
+
+    def __init__(self, services, annual):
+        super().__init__(services, [])
+        self.annual, self.researched = annual, []
+
+    def enqueue(self, kind, job_id, provider, model, preset="default", count=None, focus=None, free_only=False):
+        self.calls.append({"kind": kind, "job_id": job_id, "free_only": free_only, "provider": provider})
+        result = {}
+        if kind == "discovery" and len(self.calls) == 1:
+            saved = self.s.add_posting({**posting(1), "description": NO_PAY_JD}, source="discovery")
+            result = {"added_job_ids": [], "pending_salary_job_ids": [saved["job"]["id"]], "jobs": [{}], "rejected_leads": []}
+        elif kind == "salary_research":
+            assert free_only is True
+            self.researched.append(job_id)
+            from backend.services.opportunities import digest
+
+            today = self.s.today()
+            quote = f"Data Analyst, Dublin: EUR {self.annual:,} per year"
+            rows = [{"url": f"https://{host}/salaries", "title": host, "quote": quote, "source_text": quote,
+                     "published_at": today, "observed_at": today, "retrieved": True, "comparable": True, "market": "ie"}
+                    for host in ("pay-guide.example", "salary-survey.example")]
+            job = self.s.w.get_job(job_id)
+            with self.s.w.connect() as db:
+                db.execute("UPDATE jobs SET posting_metadata=? WHERE id=?",
+                           (json.dumps({"jd_hash": digest(job["description"]), "salary_research": rows}), job_id))
+        run_id = f"run{len(self.calls)}"
+        with self.s.w.connect() as db:
+            db.execute("INSERT INTO agent_runs(id,kind,job_id,state,input,result,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)",
+                       (run_id, kind, job_id, "completed", "{}", json.dumps(result), self.s.now(), self.s.now()))
+        return {"id": run_id}
+
+
+@pytest.mark.parametrize("annual, saved", [(40000, True), (30000, False)])
+def test_a_job_with_no_stated_pay_gets_comparable_pay_research_on_a_free_plan(tmp_path, annual, saved):
+    services = ireland_profile(tmp_path)
+    clock = FakeClock()
+    runner = PayResearchRunner(services, annual)
+    pipeline = FakePipeline()
+    hunt = Hunt(services, runner, pipeline, poll=0.01, sleep=clock.sleep, clock=clock)
+    hunt._ai_state = lambda config: (True, None, "")
+    done = run_inline(hunt, {"target": 1, "hours": 1, "sources": "feeds", "steps": {s: False for s in STEP_IDS}})
+    assert done["state"] == "completed", done["error"]
+    assert len(runner.researched) == 1
+    entry = done["progress"]["pay_research"][0]
+    if saved:
+        assert entry["state"] == "saved" and "confirm the actual salary" in entry["note"]
+        assert [job["pass"] for job in done["progress"]["saved"]][0].endswith("(comparable pay researched)")
+        job = services.w.get_job(runner.researched[0])
+        assert job["opportunity"]["section"] == "researched_leads"
+    else:
+        assert entry["state"] == "not_confirmed" and done["progress"]["saved"] == []
+        assert entry["note"].startswith("Comparable published pay for this role is below")
+    assert services.pref(hunt_module.PAY_RESEARCH_PREF, {}) == {"day": services.today(), "count": 1}
+
+
+def test_pay_research_stops_at_the_daily_cap(tmp_path):
+    services = ireland_profile(tmp_path)
+    services.set_pref(hunt_module.PAY_RESEARCH_PREF, {"day": services.today(), "count": hunt_module.PAY_RESEARCH_PER_DAY})
+    clock = FakeClock()
+    runner = PayResearchRunner(services, 40000)
+    hunt = Hunt(services, runner, FakePipeline(), poll=0.01, sleep=clock.sleep, clock=clock)
+    hunt._ai_state = lambda config: (True, None, "")
+    done = run_inline(hunt, {"target": 1, "hours": 1, "sources": "feeds", "steps": {s: False for s in STEP_IDS}})
+    assert done["state"] == "completed" and runner.researched == [] and not done["progress"].get("pay_research")

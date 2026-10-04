@@ -122,7 +122,10 @@ class AgentTeam:
         return cls(root, tiers, on_usage, persona=persona)
 
     def _record(self, agent: Specialist, raw, started: float, provider: str, model: str, chars: int = 0) -> None:
+        from backend import telemetry
+
         usage = raw if isinstance(raw, dict) else getattr(raw, "usage_metadata", None) or {}
+        telemetry.record_usage(usage.get("input_tokens"), usage.get("output_tokens"))
         self._meter(provider, usage, chars, agent.needs_web)
         if not self.on_usage:
             return
@@ -210,12 +213,15 @@ class AgentTeam:
             if self.route.get("on_switch"):
                 self.route["on_switch"]({**event, "agent": agent.name})
 
+        from backend import telemetry
+
         try:
-            result, served = router.route(
-                self.root, tier=agent.tier, policy=self.route.get("policy"),
-                ready_map=self.route.get("ready"), paid_gate=self.route.get("paid_gate"), on_switch=on_switch,
-                attempt=lambda provider, model: self._repairing(agent, text, provider, model, max_tokens),
-            )
+            with telemetry.span("ai.route", **{"career.ai.specialist": agent.name, "career.ai.tier": agent.tier}):
+                result, served = router.route(
+                    self.root, tier=agent.tier, needs={"web": agent.needs_web}, policy=self.route.get("policy"),
+                    ready_map=self.route.get("ready"), paid_gate=self.route.get("paid_gate"), on_switch=on_switch,
+                    attempt=lambda provider, model: self._repairing(agent, text, provider, model, max_tokens),
+                )
         except router.RouteError as error:
             raise AgentError(f"{agent.name} could not run: {error}") from None
         self.served = served
@@ -234,6 +240,9 @@ class AgentTeam:
         except AgentError as error:
             if SCHEMA_MISMATCH not in str(error):
                 raise
+            from backend import telemetry
+
+            telemetry.event("schema_repair", specialist=agent.name, provider=provider, model=model)
             retry = (text + "\n\nYOUR PREVIOUS ANSWER WAS REJECTED because it did not match the required "
                      "output shape (" + str(error).split(SCHEMA_MISMATCH, 1)[1].strip(" ():") + "). "
                      "Return one corrected answer in exactly that shape.")
@@ -242,12 +251,24 @@ class AgentTeam:
     def _invoke_on(self, agent: Specialist, text: str, provider: str, model: str, max_tokens: int):
         from backend.services.task_execution import invocation_slot
 
+        from backend import telemetry
+
         reserve = self.route.get("reserve_call")
         # Reserve each real attempt, including schema repairs, after a slot is
         # available. An operation waiting in the queue consumes no paid call.
-        with invocation_slot(provider):
-            with reserve(provider, model, "specialist:" + agent.name) if reserve else nullcontext():
-                return self._invoke_endpoint(agent, text, provider, model, max_tokens)
+        with telemetry.span(f"chat {model}", **{
+                "gen_ai.operation.name": "chat", "gen_ai.provider.name": provider, "gen_ai.request.model": model,
+                "openinference.span.kind": "LLM", "llm.provider": provider, "llm.model_name": model,
+                "career.ai.specialist": agent.name, "career.ai.tier": agent.tier, "career.ai.web": agent.needs_web,
+                "career.ai.paid": router.is_paid(provider), "career.ai.prompt_chars": len(text or "")}) as current:
+            asked = time.monotonic()
+            with invocation_slot(provider):
+                telemetry.event("slot_acquired", wait_ms=round((time.monotonic() - asked) * 1000))
+                with reserve(provider, model, "specialist:" + agent.name) if reserve else nullcontext():
+                    result = self._invoke_endpoint(agent, text, provider, model, max_tokens)
+            value = result.model_dump() if hasattr(result, "model_dump") else result
+            telemetry.set_attributes(current, **{"career.ai.response_chars": len(json.dumps(value, default=str))})
+            return result
 
     def _invoke_endpoint(self, agent: Specialist, text: str, provider: str, model: str, max_tokens: int):
         if provider in (claude_code.ID, codex.ID, kimi_cli.ID):

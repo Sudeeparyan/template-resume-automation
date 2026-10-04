@@ -286,6 +286,13 @@ class IntakeJob:
         earlier = self.draft() or {}
         if earlier.get("answers"):
             draft["answers"] = earlier["answers"]
+        # These fields are person-confirmed form/chat inputs, never model extraction.
+        for field in ("work_authorization_by_market", "education_for_permits", "job_search"):
+            if field in earlier:
+                draft[field] = earlier[field]
+        from backend.services.intake.authorization import date_proposal
+
+        draft["authorization_proposal"] = date_proposal((draft.get("authorization") or {}).get("valid_until"))
         self._write("draft.json", draft)
         found = (f"{len(draft['education'])} education entr{'y' if len(draft['education']) == 1 else 'ies'}, {len(draft['experience'])} role(s), {len(draft['projects'])} project(s), "
                  f"{sum(len(g.get('skills') or []) for g in draft['skills'])} skills, {len(draft['certifications'])} certification(s), "
@@ -334,30 +341,41 @@ class IntakeJob:
                 if key in changes:
                     targets[key] = str(changes[key] or "").strip()[:200]
             if changes.get("country_pack"):
-                from backend.countries import load_pack
+                from backend.countries import enabled_markets, load_pack
 
-                load_pack(str(changes["country_pack"]))  # refuses an unknown pack
-                draft["country_pack"] = str(changes["country_pack"]).lower()
+                code = str(changes["country_pack"]).strip().lower()
+                pack = load_pack(code)  # refuses an unknown pack
+                if code not in enabled_markets():
+                    raise ValueError(f"{pack.name} is switched off in this copy. See docs/DEVELOPERS.md, \"Re-enabling a market\".")
+                draft["country_pack"] = code
+                draft["target_markets"] = [code]
             if "target_markets" in changes:
-                markets = [str(item).lower() for item in changes["target_markets"]]
-                if not markets or len(markets) != len(set(markets)) or any(item not in {"ie", "us"} for item in markets):
-                    raise ValueError("Choose Ireland, the US, or both markets.")
+                from backend.countries import enabled_markets, load_pack
+
+                supplied = changes["target_markets"]
+                markets = [str(item).strip().lower() for item in supplied] if isinstance(supplied, list) else []
+                offered = enabled_markets()
+                if not markets or len(markets) != len(set(markets)) or any(item not in offered for item in markets):
+                    raise ValueError("Choose from the markets this copy offers: "
+                                     + ", ".join(load_pack(m).name for m in offered) + ".")
                 draft["target_markets"] = markets
                 draft["country_pack"] = markets[0]
             if "work_authorization_by_market" in changes:
+                from backend.countries import known_markets
+
                 values = changes["work_authorization_by_market"]
-                if not isinstance(values, dict) or any(k not in {"ie", "us"} or not isinstance(v, dict) for k, v in values.items()):
-                    raise ValueError("Work authorization must be keyed by ie or us.")
-                normalized = {}
-                for market, value in values.items():
-                    status = value.get("status", "unknown")
-                    citizenship = value.get("citizenship", "unknown")
-                    later = value.get("needs_sponsorship_later", "unknown")
-                    if status not in {"authorized", "needs_sponsorship", "unknown"} or citizenship not in {"citizen", "noncitizen", "unknown"} or later not in {"yes", "no", "unknown"}:
-                        raise ValueError("Choose valid work-authorization, citizenship and future sponsorship answers, or leave them unknown.")
-                    normalized[market] = {"status": status, "citizenship": citizenship,
-                                          "needs_sponsorship_later": later}
+                if not isinstance(values, dict) or any(k not in known_markets() or not isinstance(v, dict) for k, v in values.items()):
+                    raise ValueError("Work authorization must be keyed by a market code such as ie.")
+                from backend.services.intake.authorization import validate_authorization
+
+                normalized = {market: validate_authorization(value, market) for market, value in values.items()}
                 draft["work_authorization_by_market"] = normalized
+            from backend.services.intake.authorization import date_proposal, validate_education, validate_job_search
+
+            for field, validator in (("education_for_permits", validate_education), ("job_search", validate_job_search)):
+                if field in changes:
+                    draft[field] = validator(changes[field])
+            draft["authorization_proposal"] = date_proposal(auth.get("valid_until"))
             self._write("draft.json", draft)
             return draft
 
@@ -470,14 +488,20 @@ def _clean_refs(value, valid: set) -> None:
 
 
 def guess_pack(draft: dict) -> str:
-    """The country the person wants to work in: their targets, then their permission, then where they live."""
-    from backend.countries import code_for
+    """The country the person wants to work in: their targets, then their permission, then where they live.
 
+    Only markets this copy offers are guessed (countries/markets.yml).
+    """
+    from backend.countries import code_for, enabled_markets
+
+    offered = enabled_markets()
     candidates = list((draft.get("targets") or {}).get("countries") or [])
     candidates += [(draft.get("authorization") or {}).get("work_country"), (draft.get("contact") or {}).get("country")]
     for country in candidates:
         if country:
             code = code_for({"location_preferences": {"country": country}})
+            if code not in offered:
+                continue
             if code != "us" or str(country).strip().casefold() in {"us", "usa", "united states", "united states of america", "america"}:
                 return code
-    return "ie"
+    return offered[0]

@@ -41,6 +41,10 @@ class Confirmation(BaseModel):
     confirm: str = Field(default="", max_length=120)
 
 
+class MachineKey(BaseModel):
+    value: str = Field(min_length=1, max_length=400)
+
+
 class ScheduleToggle(BaseModel):
     enabled: bool
     ready_by: str | None = Field(default=None, pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
@@ -169,12 +173,28 @@ def create_shell(profiles: ProfileStore | None = None, schedule: bool = False, f
         return {"app": APP_ID, "version": "2.0.0", "root": str(APP_ROOT), "pid": os.getpid(),
                 "started_at": started_at, "busy": apps.busy(), "profiles": True}
 
+    # ---- AI on this computer, before any profile exists ---------------------------------
+    # Keys belong to the installation (career-dashboard/.env), not to a person: onboarding
+    # checks them before the first build instead of failing half-way through.
+    @api.get("/api/ai/status")
+    def ai_status():
+        from backend.ai import settings as ai_settings
+
+        return ai_settings.machine_status()
+
+    @api.put("/api/ai/keys/{provider}")
+    def save_machine_key(provider: str, data: MachineKey):
+        from backend.ai import settings as ai_settings
+
+        return {**ai_settings.save_machine_key(provider, data.value), "status": ai_settings.machine_status()}
+
     # ---- profiles -------------------------------------------------------------
     def describe(profile: dict) -> dict:
         """A profile plus the market and resume contract shown by the client."""
-        from backend.countries import load_pack
+        from backend.countries import enabled_markets, load_pack
         from backend.resume_contract import contract_for
 
+        profile = {**profile, "offered_markets": enabled_markets()}
         try:
             pack = load_pack(profile.get("country") or "ie") if profile.get("country") or profile.get("legacy") else None
         except ValueError:

@@ -1,0 +1,4 @@
+# Optional, developers only: LangGraph Studio on the synthetic demo profile (langgraph dev, run
+# from career-dashboard/; langgraph.json lists the graphs). See docs/OBSERVABILITY.md.
+-r requirements.txt
+langgraph-cli[inmem]==0.4.32

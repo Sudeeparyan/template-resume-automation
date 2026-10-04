@@ -108,7 +108,8 @@ def test_a_feeds_search_traces_each_site_read_and_each_posting_decided(tmp_path,
     assert {event["kind"] for event in listed["events"]} <= set(observability.TIMELINE)
 
 
-def test_a_research_run_shows_each_call_before_it_answers_and_the_pages_it_cites(tmp_path):
+def test_a_research_run_shows_each_call_before_it_answers_and_the_pages_it_cites(tmp_path, monkeypatch):
+    monkeypatch.setenv("CAREER_FEATURES", "-graph_research")  # the classic three-call research step
     services = ireland_profile(tmp_path)
     job = services.w.add_job(
         "Example Company", "Data Analyst", "Dublin, Ireland", "https://example.org/jobs/analyst",

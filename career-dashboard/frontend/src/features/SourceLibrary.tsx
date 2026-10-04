@@ -14,7 +14,7 @@ import {
 } from "lucide-react";
 import { shellApi, uploadFile } from "../api";
 import { LatestRequest } from "../latestRequest";
-import type { ProfileEntry } from "../profiles";
+import type { EducationPermitFacts, JobSearchPreferences, ProfileEntry } from "../profiles";
 
 export type SourceVersion = {
   version: number;
@@ -47,7 +47,8 @@ export type BuildRun = {
   profile?: { state?: string };
 };
 type MarketCode = "ie" | "us";
-type Authorization = { status: "authorized" | "needs_sponsorship" | "unknown"; citizenship: "citizen" | "noncitizen" | "unknown"; needs_sponsorship_later: "yes" | "no" | "unknown" };
+type Authorization = { status: "authorized" | "needs_sponsorship" | "unknown"; citizenship: "citizen" | "noncitizen" | "unknown"; needs_sponsorship_later: "yes" | "no" | "unknown";
+  permission_type?: string; permission_wording?: string; valid_until_raw?: string; valid_until?: string; valid_until_confirmed?: boolean };
 const UNKNOWN_AUTH: Authorization = { status: "unknown", citizenship: "unknown", needs_sponsorship_later: "unknown" };
 
 type Props = {
@@ -78,20 +79,41 @@ export function etaLabel(low: number | null, high: number | null): string {
   return `${minutes(Math.max(0, low))}–${minutes(Math.max(0, high))} left`;
 }
 
-export function marketSelection(values: string[]): ("ie" | "us")[] {
-  const unique = new Set(values.filter((value): value is "ie" | "us" => value === "ie" || value === "us"));
-  return unique.size ? Array.from(unique) : ["ie"];
+const MARKET_NAMES: Record<MarketCode, string> = { ie: "Ireland", us: "United States" };
+
+/** The markets this copy offers (backend countries/markets.yml); both when an older server does not say. */
+export function offeredMarkets(profile: ProfileEntry): MarketCode[] {
+  const offered = (profile.offered_markets || []).filter((value): value is MarketCode => value === "ie" || value === "us");
+  return offered.length ? offered : ["ie", "us"];
+}
+
+export function marketSelection(values: string[], offered: MarketCode[] = ["ie", "us"]): MarketCode[] {
+  const unique = new Set(values.filter((value): value is MarketCode => offered.includes(value as MarketCode)));
+  return unique.size ? Array.from(unique) : [offered.includes("ie") ? "ie" : offered[0]];
 }
 
 /** Only persisted build inputs affect synchronization; ordinary profile polling preserves edits. */
 export function profileBuildSettings(profile: ProfileEntry) {
+  const saved = marketSelection(profile.target_markets || [profile.country]);
+  const enabled = saved.filter((market) => offeredMarkets(profile).includes(market));
   return {
-    markets: marketSelection(profile.target_markets || [profile.country]),
+    // An entirely dormant profile retains its own country; a rebuild must not move it.
+    markets: enabled.length ? enabled : saved,
     authorization: {
       ie: { ...UNKNOWN_AUTH, ...profile.work_authorization_by_market?.ie },
       us: { ...UNKNOWN_AUTH, ...profile.work_authorization_by_market?.us },
     },
+    education: profile.education_for_permits || {},
+    preferences: profile.job_search || {},
   };
+}
+
+/** Defaults follow dated permit rules; only an edited amount is sent as the person's own floor. */
+export function buildPreferences(settings: JobSearchPreferences): JobSearchPreferences {
+  const result = { ...settings };
+  if (result.salary_floor_source === "permit_rules") delete result.salary_floor_eur;
+  delete result.salary_floor_source;
+  return result;
 }
 
 function lines(value: unknown): string[] {
@@ -126,11 +148,17 @@ export default function SourceLibrary({ profile, notify, onBuilt, compact = fals
   const [noteOpen, setNoteOpen] = useState(false);
   const [markets, setMarkets] = useState<MarketCode[]>(() => profileBuildSettings(profile).markets);
   const [authorization, setAuthorization] = useState<Record<MarketCode, Authorization>>(() => profileBuildSettings(profile).authorization);
+  const [education, setEducation] = useState<EducationPermitFacts>(() => profileBuildSettings(profile).education);
+  const [preferences, setPreferences] = useState<JobSearchPreferences>(() => profileBuildSettings(profile).preferences);
+  const settingsSignature = useRef(JSON.stringify(profileBuildSettings(profile)));
   const savedSettings = JSON.stringify(profileBuildSettings(profile));
   useEffect(() => {
     const saved = JSON.parse(savedSettings) as ReturnType<typeof profileBuildSettings>;
     setMarkets(saved.markets);
     setAuthorization(saved.authorization);
+    setEducation(saved.education);
+    setPreferences(saved.preferences);
+    settingsSignature.current = savedSettings;
   }, [profile.id, savedSettings]);
   const [now, setNow] = useState(() => Date.now());
   const uploadRef = useRef<HTMLInputElement>(null);
@@ -143,17 +171,26 @@ export default function SourceLibrary({ profile, notify, onBuilt, compact = fals
       await reads.run(() => Promise.all([
         shellApi<{ sources: SourceRecord[] }>(base + "/sources"),
         shellApi<{ runs: BuildRun[] }>(base + "/build-runs"),
-      ]), ([sourceData, runData]) => {
+        shellApi<Pick<ProfileEntry, "work_authorization_by_market" | "education_for_permits" | "job_search">>(base + "/build-settings"),
+      ]), ([sourceData, runData, persisted]) => {
         setSources(sourceData.sources || []);
         setRuns(runData.runs || []);
         setLoadError("");
         setLoaded(true);
+        const settings = profileBuildSettings({ ...profile, ...persisted });
+        const signature = JSON.stringify(settings);
+        if (signature !== settingsSignature.current) {
+          settingsSignature.current = signature;
+          setAuthorization(settings.authorization);
+          setEducation(settings.education);
+          setPreferences(settings.preferences);
+        }
       });
     } catch (error) {
       setLoadError((error as Error).message);
       setLoaded(true);
     }
-  }, [base, reads]);
+  }, [base, reads, profile.id, savedSettings]);
 
   useEffect(() => { void load(); return () => reads.invalidate(); }, [load, reads]);
   const latest = runs[0];
@@ -245,13 +282,17 @@ export default function SourceLibrary({ profile, notify, onBuilt, compact = fals
     }
   }
 
-  function chooseMarket(value: "ie" | "us") {
+  const offered = offeredMarkets(profile);
+  const switchedOff = (profile.target_markets || []).filter((code) => !offered.includes(code));
+  const marketUnavailable = markets.some((code) => !offered.includes(code));
+
+  function chooseMarket(value: MarketCode) {
     setMarkets((current) => current.includes(value)
       ? current.length === 1 ? current : current.filter((item) => item !== value)
-      : marketSelection([...current, value]));
+      : marketSelection([...current, value], offered));
   }
 
-  function setAuthorizationField(market: MarketCode, field: keyof Authorization, value: string) {
+  function setAuthorizationField(market: MarketCode, field: keyof Authorization, value: string | boolean) {
     setAuthorization((current) => ({ ...current, [market]: { ...current[market], [field]: value } }));
   }
 
@@ -335,13 +376,28 @@ export default function SourceLibrary({ profile, notify, onBuilt, compact = fals
         <div className="source-section-label">BUILD SETTINGS</div>
         <fieldset className="source-markets" disabled={!!running || !!busy}>
           <legend>Job markets</legend>
-          <label><input type="checkbox" checked={markets.includes("ie")} onChange={() => chooseMarket("ie")} /> Ireland</label>
-          <label><input type="checkbox" checked={markets.includes("us")} onChange={() => chooseMarket("us")} /> United States</label>
+          {offered.length === 1
+            ? <span className="source-market-only">Job market: {MARKET_NAMES[offered[0]]}</span>
+            : offered.map((code) => <label key={code}><input type="checkbox" checked={markets.includes(code)} onChange={() => chooseMarket(code)} /> {MARKET_NAMES[code]}</label>)}
         </fieldset>
+        {switchedOff.length > 0 && <small className="source-muted">
+          {switchedOff.map((code) => MARKET_NAMES[code]).join(", ")} is no longer offered in this copy.
+          {marketUnavailable ? " Create a separate profile for an offered market, or re-enable this market before rebuilding." : ` A rebuild keeps ${markets.map((code) => MARKET_NAMES[code]).join(" and ")}.`}
+        </small>}
         <small className="source-muted">{markets.length === 2 ? "Search both markets; each uses its own work rules." : markets[0] === "us" ? "US roles and US resume format." : "Ireland roles and Irish resume format."}</small>
         <div className="source-authorization">
           {markets.map((market) => <fieldset key={market} disabled={!!running || !!busy}>
             <legend>{market === "ie" ? "Ireland" : "United States"} work eligibility</legend>
+            {market === "ie" && <>
+              <label>Irish permission type<select value={authorization.ie.permission_type || "unknown"} onChange={(event) => setAuthorizationField("ie", "permission_type", event.target.value)}>
+                <option value="unknown">Not confirmed</option><option value="stamp_1g">Stamp 1G</option><option value="stamp_2">Stamp 2</option><option value="stamp_4">Stamp 4</option><option value="irish_or_eea_citizen">Irish, EU/EEA, UK or Swiss citizen</option><option value="csep_holder">Critical Skills permit holder</option><option value="gep_holder">General permit holder</option><option value="stamp_1">Stamp 1</option><option value="stamp_3">Stamp 3</option><option value="other">Other permission</option>
+              </select></label>
+              <label>Permission in your own words<input value={authorization.ie.permission_wording || ""} onChange={(event) => setAuthorizationField("ie", "permission_wording", event.target.value)} /></label>
+              <label>Expiry as supplied<input placeholder="For example DEC2027" value={authorization.ie.valid_until_raw || ""} onChange={(event) => setAuthorization((current) => ({ ...current, ie: { ...current.ie, valid_until_raw: event.target.value, valid_until_confirmed: false } }))} /></label>
+              <label>Exact permission expiry<input type="date" value={authorization.ie.valid_until || ""} onChange={(event) => setAuthorization((current) => ({ ...current, ie: { ...current.ie, valid_until: event.target.value, valid_until_confirmed: false } }))} /></label>
+              <label><input type="checkbox" checked={authorization.ie.valid_until_confirmed === true} disabled={!authorization.ie.valid_until} onChange={(event) => setAuthorizationField("ie", "valid_until_confirmed", event.target.checked)} /> I confirm this exact expiry day from my permission record</label>
+              <small className="source-muted">A month such as DEC2027 does not establish an exact day. Stamp 1G searches wait for your confirmed date.</small>
+            </>}
             <label>Permission to work
               <select value={authorization[market].status} onChange={(event) => setAuthorizationField(market, "status", event.target.value)}>
                 <option value="unknown">Not confirmed</option>
@@ -365,6 +421,19 @@ export default function SourceLibrary({ profile, notify, onBuilt, compact = fals
             </label>
           </fieldset>)}
         </div>
+        {markets.includes("ie") && <fieldset disabled={!!running || !!busy} className="source-authorization">
+          <legend>Permit facts and search preferences</legend>
+          <label>Award date as supplied<input value={education.award_date_raw || ""} onChange={(event) => setEducation({ ...education, award_date_raw: event.target.value, award_date_confirmed: false })} /></label>
+          <label>Exact degree award date<input type="date" value={education.award_date || ""} onChange={(event) => setEducation({ ...education, award_date: event.target.value, award_date_confirmed: false })} /></label>
+          <label><input type="checkbox" checked={education.award_date_confirmed === true} disabled={!education.award_date} onChange={(event) => setEducation({ ...education, award_date_confirmed: event.target.checked })} /> I confirm the award date; this is not an expected graduation date</label>
+          <label>NFQ level<select value={education.nfq_level ?? ""} onChange={(event) => setEducation({ ...education, nfq_level: event.target.value ? Number(event.target.value) : null })}><option value="">Not confirmed</option>{Array.from({ length: 10 }, (_, i) => <option key={i + 1} value={i + 1}>{i + 1}</option>)}</select></label>
+          {([['irish_institution', 'Award from an Irish institution?'], ['relevant_degree', 'Is the degree relevant to your target occupations?']] as const).map(([field, label]) => <label key={field}>{label}<select value={education[field] == null ? "unknown" : String(education[field])} onChange={(event) => setEducation({ ...education, [field]: event.target.value === "unknown" ? null : event.target.value === "true" })}><option value="unknown">Not confirmed</option><option value="true">Yes</option><option value="false">No</option></select></label>)}
+          <label><input type="checkbox" checked={preferences.graduate_search_confirmed === true} onChange={(event) => setPreferences({ ...preferences, graduate_search_confirmed: event.target.checked, seniority: event.target.checked ? ['graduate', 'junior', 'entry'] : [], max_years_required: event.target.checked ? 3 : null })} /> Search graduate and entry-level roles (up to 3 years required)</label>
+          <label>Seniority to search<input value={(preferences.seniority || []).join(', ')} onChange={(event) => setPreferences({ ...preferences, seniority: event.target.value.split(',').map((s) => s.trim()).filter(Boolean) })} /></label>
+          <label>Maximum years required<input type="number" min={0} max={50} value={preferences.max_years_required ?? ''} onChange={(event) => setPreferences({ ...preferences, max_years_required: event.target.value ? Number(event.target.value) : null })} /></label>
+          <label>Salary floor (€ yearly base)<input type="number" min={1} value={preferences.salary_floor_eur ?? ''} placeholder="Default follows dated permit rules" onChange={(event) => setPreferences({ ...preferences, salary_floor_eur: event.target.value ? Number(event.target.value) : undefined, salary_floor_source: event.target.value ? 'person' : 'permit_rules' })} /></label>
+          <label>Salary policy<select value={preferences.salary_policy || 'confirmed_or_estimated'} onChange={(event) => setPreferences({ ...preferences, salary_policy: event.target.value as JobSearchPreferences['salary_policy'] })}><option value="confirmed_or_estimated">Confirmed, or a clearly labelled estimate when none is advertised</option><option value="confirmed_only">Confirmed advertised pay only</option></select></label>
+        </fieldset>}
         {latest && <div className="source-run" aria-live="polite">
           <div className="source-run-top">
             {running ? <LoaderCircle className="spin" size={16} /> : latest.status === "completed" ? <CheckCircle2 size={16} /> : <CircleAlert size={16} />}
@@ -382,7 +451,7 @@ export default function SourceLibrary({ profile, notify, onBuilt, compact = fals
           </div>
         </div>}
       </div>
-      {!running && <button type="button" className="source-build-button" disabled={!activeSources.length || !!busy} onClick={() => void runAction("/build-runs", { target_markets: markets, work_authorization_by_market: Object.fromEntries(markets.map((market) => [market, authorization[market]])) })}>
+      {!running && <button type="button" className="source-build-button" disabled={!activeSources.length || !!busy || marketUnavailable} onClick={() => void runAction("/build-runs", { target_markets: markets, work_authorization_by_market: Object.fromEntries(markets.map((market) => [market, authorization[market]])), education_for_permits: education, job_search: buildPreferences(preferences) })}>
         <Sparkles size={16} /> {profile.state === "ready" ? "Rebuild profile & agents" : "Build Agent for You"}
       </button>}
     </section>

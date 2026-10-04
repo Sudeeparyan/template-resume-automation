@@ -3,7 +3,8 @@ import { useState } from "react";
 import { Badge, Empty } from "./UI";
 import { useMarket } from "../profiles";
 import type { Job } from "../types";
-import { PermitBadge, SalaryBadge } from "./SalaryEvidence";
+import { PermitBadge } from "./PermitBadge";
+import { SalaryBadge } from "./SalaryEvidence";
 export const statuses = [
   "saved",
   "prepared",

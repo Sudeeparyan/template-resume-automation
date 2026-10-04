@@ -17,6 +17,7 @@ from backend.services.resume_layout import ranked_source, set_density, measure_p
 from backend.pdf_compiler import tectonic_executable
 from backend.resume_contract import contract_for
 from backend.ai_marks import clean_pdf, clean_text
+from backend.services.rewrite_guard import evidence_wording
 
 
 LEGACY_PROJECT_SECTION = re.compile(r'\\section\{(?:Selected|Academic) Projects?\}')
@@ -799,16 +800,24 @@ class ResumeStudio:
         return {**result, 'current': True, 'stale': False, 'revision': draft['revision']}
 
     def download(self, job_id, format):
-        if format not in {'pdf', 'tex'}:
-            raise ValueError('Choose pdf or tex')
+        if format not in {'pdf', 'tex', 'docx'}:
+            raise ValueError('Choose pdf, docx or tex')
         draft = self.get(job_id)
         self._require_resume_evidence(job_id, draft['source'])
         job = self.w.get_job(job_id)
         preview = draft.get('preview')
-        if format == 'pdf':
+        if format in ('pdf', 'docx'):
             if not preview or not preview.get('current') or preview.get('revision') != draft['revision']:
-                raise ValueError('PDF download is available only for the current successfully compiled revision')
+                raise ValueError(f'{format.upper()} download is available only for the current successfully compiled revision')
             path = safe_child(self.w.root / 'data/output', preview['path'] + '/resume.pdf')
+            if format == 'docx':
+                # The Word copy is made from the same checked revision as the PDF beside it.
+                from backend import features
+                from backend.services.docx_export import cv_document
+                if not features.enabled('docx_export', self.s):
+                    raise ValueError('Word downloads are switched off on this computer (CAREER_FEATURES).')
+                path = path.with_name('resume.docx')
+                path.write_bytes(cv_document(draft['source'], title=f"CV for {job['title']} at {job['company']}"))
         else:
             folder = safe_child(self.w.root / 'data/output', draft['file_root'])
             path = folder / 'resume.tex'
@@ -861,17 +870,31 @@ class ResumeStudio:
         for review. Model suggestions never become candidate facts by a keep decision.
         """
         from backend.ai.agents.graph import AgentError
+        from backend.countries import require_enabled_markets
+
+        job = self.w.get_job(job_id)
+        require_enabled_markets(self.w.root, job.get('market') or None)
         with self.lock:
             draft = self.open(job_id)
-            job = self.w.get_job(job_id)
             registry = project_registry(self.w.evidence())
-            research = ''
+            research, role_analysis = '', None
             if job['folder']:
                 research_file = self.w.current_folder(job_id) / 'company-research.md'
                 if research_file.exists():
                     # Research is saved as UTF-8; the placeholder career.py writes uses the
                     # platform default, so a stray byte must not stop the tailor.
                     research = research_file.read_text(encoding='utf-8', errors='replace')[:8000]
+                # The research graph's summaries (graphs/research.py): what a strong application shows
+                # for this role, and how the active profile compares. Guidance for ranking only.
+                analysis_file = self.w.current_folder(job_id) / 'role-analysis.json'
+                try:
+                    saved = json.loads(analysis_file.read_text(encoding='utf-8')) if analysis_file.exists() else {}
+                except (OSError, ValueError):
+                    saved = {}
+                if isinstance(saved, dict) and (saved.get('hiring_summary') or saved.get('comparison_summary')):
+                    role_analysis = {'hiring_manager_view': str(saved.get('hiring_summary') or '')[:1500],
+                                     'profile_comparison': str(saved.get('comparison_summary') or '')[:1500],
+                                     'use': 'Ranking guidance only; it is never evidence of what the candidate has done.'}
             never_claim = next((c.get('approved_facts', []) or []
                                 for c in self.w.evidence().get('claims', []) if c.get('id') == 'SKILL-NEVER-001'), [])
             # A profile may reserve a lead project for one company; others allow reuse.
@@ -891,6 +914,11 @@ class ResumeStudio:
                 'verified_skills': sorted(self._verified_skill_pool().values(), key=lambda skill: skill['name'].casefold()),
                 'never_claim': [str(fact) for fact in never_claim],
             }
+            if role_analysis:
+                payload['role_analysis'] = role_analysis
+            from backend import features
+            if not features.enabled('evidence_rewrites', self.s):
+                payload['rewrites_allowed'] = False  # switched off: registered wording only
             # What the role asks for, checked against the active registry (services/fit.py), so the plan
             # proves the must-haves and never treats a genuine gap as a held skill.
             analysis = None
@@ -1111,6 +1139,7 @@ class ResumeStudio:
         contract = contract_for(self.w.root, job.get('market') or None)
         left_out = []
         projects = self._check_tailored_projects(result, registry, job, contract, left_out)
+        self._apply_rewrites(projects, result.rewrites, analysis, left_out)
         skills = self._top_up_skills(self._check_tailored_skills(result, contract, left_out), analysis, left_out)
         tailored = self._write_project_slot(source, 'SelectedProject', projects[0]) if projects else source
         if len(projects) > 1 and '% SECOND_PROJECT_BLOCK_START' in tailored:
@@ -1124,6 +1153,52 @@ class ResumeStudio:
         if illegal:
             raise ValueError('Tailoring may only change Projects and Skills fields, but it also touched: ' + ', '.join(sorted(illegal)))
         return tailored, projects, skills, left_out
+
+    def _apply_rewrites(self, projects, rewrites, analysis, left_out):
+        """Reword a kept project's registered bullets only where services/rewrite_guard.py passes.
+
+        A passing rewording replaces that bullet in this job's draft only (the registry is never
+        changed), its macro is tagged with the project and every evidence id it cites, and the
+        resume item records the registered line beside it. A failing one keeps the registered
+        wording and says why. Experience, education and skills are never reworded.
+        """
+        from backend import features
+        from backend.services import rewrite_guard
+
+        verified = {project['evidence_id']: project for project in projects if project['origin'] == 'verified'}
+        if not rewrites or not verified or not features.enabled('evidence_rewrites', self.s):
+            return
+        evidence = self.w.evidence()
+        texts = evidence_wording(evidence)
+        skills = [skill['name'] for skill in self._verified_skill_pool().values()]
+        never = next((c.get('approved_facts', []) or [] for c in evidence.get('claims', []) if c.get('id') == 'SKILL-NEVER-001'), [])
+        filler = [str(f) for f in (self.w.profile().get('resume_contract') or {}).get('prohibited_filler') or []]
+        terms = [item['text'] for item in ((analysis or {}).get('matrix') or {}).get('requirements') or []]
+        done = {}
+        for rewrite in rewrites:
+            project = verified.get(rewrite.evidence_id)
+            bullets = project['content']['bullets'] if project else []
+            if not project or not 1 <= rewrite.bullet <= len(bullets) or done.get(rewrite.evidence_id, 0) >= 2:
+                continue
+            index, title = rewrite.bullet - 1, project['content']['title']
+            if any(r['bullet'] == rewrite.bullet for r in project['content'].get('rewrites', [])):
+                continue
+            cited = [i for i in dict.fromkeys(map(str, rewrite.cited_ids)) if i in texts and i != rewrite.evidence_id]
+            unknown = [i for i in rewrite.cited_ids if i not in texts]
+            text = ' '.join(clean_text(rewrite.text).split())
+            problems = ([f'it cites {", ".join(map(str, unknown))}, which is not registered evidence'] if unknown else
+                        rewrite_guard.check(bullets[index], text, sources=[texts[i] for i in cited], skills=skills,
+                                            never=never, posting_terms=terms, filler=filler))
+            if problems:
+                left_out.append(f"Kept the registered wording of bullet {rewrite.bullet} of '{title}': the rewording failed the "
+                                f"evidence check ({problems[0]}).")
+                continue
+            project['content']['rewrites'] = [*project['content'].get('rewrites', []),
+                                              {'bullet': rewrite.bullet, 'registered': bullets[index], 'text': text,
+                                               'cited_ids': cited, 'guard': 'passed'}]
+            bullets[index] = text
+            project.setdefault('bullet_tags', {})[index] = cited
+            done[rewrite.evidence_id] = done.get(rewrite.evidence_id, 0) + 1
 
     @staticmethod
     def _write_project_slot(source, slot, project):
@@ -1144,9 +1219,15 @@ class ResumeStudio:
         # Evidence comments attached to replaced definitions must refer to what now fills the slot.
         source = re.sub(r'% EVIDENCE: [^\n]+\n(\\newcommand\{\\' + slot + r'[^\n]+)',
                         lambda match: '% EVIDENCE: ' + tag + '\n' + match[1], source)
+        # A reworded bullet also names the evidence it cites (the validator checks it again).
+        cited = {index: ' '.join([tag, *ids]) for index, ids in (project.get('bullet_tags') or {}).items() if ids}
+        for index, tags in cited.items():
+            name = slot + ('BulletOne', 'BulletTwo', 'BulletThree')[index]
+            source = re.sub(r'% EVIDENCE: [^\n]+\n(\\newcommand\{\\' + name + r'\}[^\n]*)',
+                            lambda match, tags=tags: '% EVIDENCE: ' + tags + '\n' + match[1], source)
         block = '% ' + marker + '_BLOCK_START\n\\textbf{\\' + slot + 'Title} \\hfill \\textit{\\' + slot + 'Context}\n\\begin{resumeitems}\n'
-        for suffix in ['One', 'Two', 'Three'][:len(content['bullets'])]:
-            block += '% EVIDENCE: ' + tag + '\n\\item \\' + slot + 'Bullet' + suffix + '\n'
+        for index, suffix in enumerate(['One', 'Two', 'Three'][:len(content['bullets'])]):
+            block += '% EVIDENCE: ' + cited.get(index, tag) + '\n\\item \\' + slot + 'Bullet' + suffix + '\n'
         block += '\\end{resumeitems}\n% ' + marker + '_BLOCK_END'
         return re.sub(r'% ' + marker + r'_BLOCK_START[\s\S]*?% ' + marker + r'_BLOCK_END', lambda _: block, source, count=1)
 

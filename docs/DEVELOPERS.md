@@ -55,14 +55,40 @@ Claude Code discovers `.claude/skills/`, whose pointer files must keep the same 
 | Gates: market, work permit, never re-apply, fit | `services/sponsorship.py`, `countries/<ie\|us>/`, `services/reapply.py`, `services/fit.py`, `job_quality.py`, `role_titles.py` |
 | Agents and runs (research, tailoring, study plan) | `services/agents.py` (`AgentRunner`), `services/pipeline.py` |
 | Ready-to-submit check (verdict and readiness score) | `services/readiness.py`, `GET /studio/<job>/readiness` |
+| What only the person can do now (Dashboard and morning list) | `services/needs_you.py`, `summary.needs_you` |
 | Resume Studio, page contract, PDF | `services/resume_studio.py`, `resume_contract.py`, `pdf_compiler.py` (Tectonic), `ai_marks.py` |
 | Assistant (one chat, every feature as a tool) | `services/assistant.py`, `services/assistant_tools.py` (`Toolbox`) |
 | AI providers and routing (Kimi Code, Codex, Claude Code, keyed APIs) | `ai/router.py`, `ai/providers.py`, `ai/agents/` |
 | Morning task (Windows Task Scheduler) | `services/schedule_tasks.py` |
+| Tracing (agent runs, AI calls, web requests; local SQLite, optional OTLP) | `telemetry/`, `GET /agents/runs/<id>/spans`, `career trace` ([OBSERVABILITY.md](OBSERVABILITY.md)) |
+| Irish employment-permit rules (dated, with review date) | `countries/ie/permit-rules.yml`, `services/permit_assessment.py` (`freshness`) |
 
 SQLite in each profile owns mutable state; source documents and the evidence registry
 (`data/context/evidence.yml`) are the only candidate evidence. The hiring-manager review and
 company research never see the profile.
+
+### Markets: Ireland only, US dormant
+
+`countries/markets.yml` (`enabled: [ie]`) is the one switch for the markets this copy offers.
+Onboarding, `career setup --market`, the profile list and every search and preparation
+(`require_known_authorization`) refuse a switched-off market; `countries.available()` lists only
+enabled packs, `available(include_disabled=True)` every pack. The US pack, its USCIS data and its
+code paths stay in place and are tested: tests that need them request the `us_enabled` fixture
+(`CAREER_MARKETS=ie,us`). A profile built for a switched-off market keeps its own rules and is
+refused with a message; it is never moved to another country.
+Rebuilding a profile whose only market is disabled is blocked in both the source library
+and intake services. A failed rebuild restores its original registry market selection,
+including dormant markets, as well as its files and job database.
+
+**Re-enabling a market** (for example the US):
+
+1. Add its code to `enabled:` in `countries/markets.yml`.
+2. Copy `countries/us/agent-skill/us-job-sources/` to `.agents/skills/us-job-sources/` and
+   `countries/us/agent-skill/claude-pointer/SKILL.md` to `.claude/skills/us-job-sources/SKILL.md`.
+3. Restore the AGENTS.md routing row, the `find-jobs` source list and the US column of the
+   `tailor-resume` format reference (kept in `countries/us/agent-skill/resume-format-us.md`).
+4. Run the release gate: `validate_workspace.py` fails while the skill folders and the enabled
+   markets disagree.
 
 ## The `career` CLI
 
@@ -79,7 +105,7 @@ Installed provider executables are reported as available, never as authenticated
 | Command | Does |
 |---|---|
 | `career doctor [--profile <id>]` | read-only readiness and concrete next actions, including zero-profile setup |
-| `career setup --name "…" --market ie\|us\|both --work-auth '<json>'` | create a profile from the files in `me/` and run the build (`--profile <id>` rebuilds) |
+| `career setup --name "…" --market ie --work-auth '<json>'` | create a profile from the files in `me/` and run the build (`--profile <id>` rebuilds) |
 | `career status`, `career jobs`, `career activity` | profile summary, saved jobs, event log |
 | `career add --file job.json` | save a posting through the sponsorship and never-re-apply gates |
 | `career update <id> --status … [--application-date]` | record an application outcome |
@@ -88,6 +114,7 @@ Installed provider executables are reported as available, never as authenticated
 | `career ws tailor --job-id <id>` | Resume Studio tailoring (AI when ready) and the fitted PDF |
 | `career ws run --kind research\|resume_match\|study_plan\|discovery … --job-id <id>` | one agent run |
 | `career ws sponsor-check`, `check-reapply`, `ai-status` | gates and AI readiness |
+| `career trace list`, `career trace show <run-id>` | agent run timelines from the profile's local trace file |
 | `career verify-url --url …`, `career check-resume …`, `career check` | link check, resume validator, workspace validator |
 
 A Daily Search run (and the hunt's preparing phase) takes each job end to end, one helper after the
@@ -139,6 +166,100 @@ regression tests and release checks in the template.
 
 ## Tests and the release gate
 
+### Staged Ireland engine
+
+The Ireland engine is being implemented in milestones. M1 provides the market
+switch, dated permit metadata with freshness warnings, removed restricted feed,
+local tracing, rollout switches and a synthetic demo builder. M2 adds the Irish
+data foundation in `backend/permits/`: DETE permit history (tier B ranking, never
+exclusion), the Critical Skills and Ineligible occupation lists, person-confirmed
+permit facts (permission type, exact expiry, award date, NFQ level) and a dated
+permit assessment with a personal salary floor. Their sources and refresh
+commands are in `docs/DATA-SOURCES.md`. M3 adds the discovery core: the shared
+public market store (`backend/market/`), the EURES / JobsIreland reader, a
+politer fetcher (Crawl-delay, Retry-After, backoff, a circuit breaker, ETag
+re-reads, gzip; a page over 3 MB, or a documented job API over 25 MB, is that
+page's error and never trips the breaker), structured ATS pay, market salary estimates with the
+`confirmed_or_estimated` salary policy, and the permit-path evidence score
+(`backend/permits/path_score.py`). HTTPS is verified with the operating system's
+trust store (`truststore`, injected in `backend/__init__.py`). M4 adds the
+employer registry of DETE permit employers' careers boards
+(`backend/market/resolver.py`, `registry.py`, `scripts/build_employer_registry.py`),
+readers for Workable, Recruitee, Personio, Teamtailor and Lever's EU data centre
+(`backend/market/readers/ats.py`), the optional Careerjet and Jooble lead sources
+(`backend/market/readers/aggregators.py`) under one source policy
+(`backend/market/policy.py`), the pasted-link resolver
+(`backend/services/lead_resolver.py`, used by `career add --url` and the
+Assistant) and the Tracker (`backend/market/tracker.py`, the Tracker tab).
+
+M5 and M6 add durable LangGraph workflows in `backend/graphs/` (LangGraph 1.2;
+`runtime.py` is the context every node gets, `checkpoint.py` the per-profile
+`data/agents.db` with strict deserialisation and 30-day pruning, `executor.py` runs or
+resumes a thread `<graph>:<run id>`, `policies.py` retries transient network errors
+only, `history.py` reads a thread checkpoint by checkpoint for the viewer):
+
+- `dossier.py` (CompanyDossierGraph): deterministic DETE/registry/EURES facts, then one
+  web-researching AI call per facet in parallel (`Send`), and a claim is kept only when
+  its quote is on the cited public page word for word (news within 12 months). Shared by
+  every profile through the market store for 30 days.
+- `research.py` (ResearchGraph, `graph_research`): the dossier, then the hiring
+  manager's view (posting and public research only) in parallel with the requirement
+  check, then the profile comparison; writes `company-research.md`,
+  `hiring-manager.md` and `role-analysis.json`, which the tailor reads as ranking
+  guidance.
+- `job_prep.py` (JobPrepGraph v1, `graph_pipeline`): each Daily Search helper is a node
+  running `Pipeline._job_step`, the classic loop's own code, checkpointed per helper;
+  `tests/portable/test_job_prep_graph.py` runs both paths and compares them.
+- `tracker_refresh.py` (TrackerRefresh, `graph_tracker_refresh`, functional API): the
+  public sources re-read for the ready profiles' roles every 6 hours, once per computer
+  (`MarketStore.claim_run`), into the market store only; `career market refresh` runs it
+  by hand.
+
+Documents: `services/docx_export.py` makes the Word CV from the same checked LaTeX
+revision as the PDF and the Word cover letter; `services/cover_letters.py` drafts
+letters with the `cover_letter_writer` specialist from registered evidence and verified
+dossier claims, checks every number, name and skill, and has the `letter_auditor`
+specialist (a second AI that did not write the draft) list any sentence about the person
+the evidence does not state; a draft that fails twice, or whose audit cannot run, gives a
+template from registered sentences. The Daily Search helper `cover_letter` (off by
+default; `pipeline.ON_DEMAND`) runs it per job. `services/rewrite_guard.py` admits a
+reworded project bullet only when it states the same facts (switch: `evidence_rewrites`),
+and `validate_resume.py` re-runs it on the saved source. AI calls queue one per AI app;
+a queued call waits up to `CAREER_AI_SLOT_TIMEOUT` seconds (default 960, longer than one
+web call) and graph fan-out is capped at two branches (`graphs/executor.MAX_CONCURRENCY`).
+The overnight hunt researches comparable pay for jobs that state none (free AI plans only,
+`hunt.PAY_RESEARCH_PER_DAY` a day); under the default salary policy researched pay at or
+above the floor prepares the job with a note to confirm the salary with the recruiter.
+The overnight hunt keeps its own loop (`services/hunt.py`, which already resumes after a
+restart). LangGraph Studio runs the research and dossier graphs on the synthetic demo profile
+(`langgraph.json`, `backend/graphs/studio.py`; see `docs/OBSERVABILITY.md`), and a research
+run can be run again from any checkpoint (`career trace rerun`, or the Checkpoints tab).
+
+`backend/features.py` defines opt-in switches. The profile preference `features`
+accepts booleans by registered name; `CAREER_FEATURES=tracker,-graph_pipeline`
+overrides them for a process. Finished parts default to on, so their switch is an
+off switch (`market_store`, `tracker`, `docx_export`, `evidence_rewrites`, and the two graphs
+that passed live runs on 2026-10-04: `graph_research` on Kimi Code and `graph_tracker_refresh`,
+which needs no AI); `graph_pipeline` stays off until it has run on friends' computers. The
+overnight hunt has no graph switch: it keeps its own resumable loop.
+
+Build the synthetic Irish graduate with the backend Python:
+
+```text
+python career-dashboard/backend/scripts/make_demo_profile.py --as-of 2026-10-03
+```
+
+It writes to ignored `career-dashboard/data/demo/profiles`, with its own registry
+and a synthetic marker. It refuses existing profile data and the users' registry.
+It uses the normal deterministic evidence and resume builder, does not weaken
+the evidence gates, and does not call AI or compile a PDF. Pass its separate
+registry to smoke tools; demo/Studio tools must call `require_synthetic_demo`
+before opening a workspace. Real profiles stay outside these tests.
+
+The rules must be reverified before January 2027: the official remuneration
+roadmap schedules another change then, so the 2026 figures expire after
+2026-12-31, earlier than the original proposed February review date.
+
 ```text
 Check Workspace.cmd                       Windows: everything below, in order
 bash "Check Workspace.command"            macOS
@@ -164,3 +285,8 @@ first, then the same gate on Windows and macOS.
 Only generic code, public country data and the guides are published. Before a commit, run
 `python scripts/scan_release.py`. A fresh clone must start with no profile, database, outputs,
 credentials or application history.
+
+Before sharing a branch, `python scripts/fresh_clone_check.py --branch template-clean` clones the
+committed branch into a temporary folder and checks that every data file, launcher and skill the
+app needs is there and nothing private is; `--full` also installs it into a fresh environment and
+runs the tests. Hosting the app for many people is a separate design: `docs/HOSTING.md`.

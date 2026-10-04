@@ -1,17 +1,17 @@
-# Resume format by country
+# CV format (Ireland)
 
-The job's country decides the format. In App mode the profile's resume contract (page count,
-sections, paper) decides and the app enforces it; follow it rather than this page.
+In App mode the profile's resume contract (page count, sections, paper) decides and the app
+enforces it; follow it rather than this page.
 
-| | Ireland | United States |
-|---|---|---|
-| Called | CV | resume |
-| Paper | A4 | US Letter |
-| Spelling | Irish/UK English (organisation, analyse, modelling) | US English (organization, analyze, modeling) |
-| Length | 1 page for students and graduates, 2 pages with several years of experience | 1 page early career, 2 pages only with long relevant experience |
-| Photo, date of birth, marital status, nationality | never | never |
-| Address | city and country only | city and state only |
-| Work permission | state it only as the person wrote it in their profile, only when they want it shown | the same |
+| | Ireland |
+|---|---|
+| Called | CV |
+| Paper | A4 |
+| Spelling | Irish/UK English (organisation, analyse, modelling) |
+| Length | 1 page for students and graduates, 2 pages with several years of experience |
+| Photo, date of birth, marital status, nationality | never |
+| Address | city and country only |
+| Work permission | state it only as the person wrote it in their profile, only when they want it shown |
 
 When `me/about-me.md` gives a resume length, use it.
 

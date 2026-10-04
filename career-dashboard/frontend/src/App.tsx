@@ -12,6 +12,7 @@ import {
   CheckCircle2,
   LoaderCircle,
   Menu,
+  Radar,
   X,
 } from "lucide-react";
 import { api, shellApi } from "./api";
@@ -22,6 +23,7 @@ import { AskContext, Field, Loading, Modal, NoticeContext } from "./components/U
 import JobDetail from "./components/JobDetail";
 import Dashboard from "./features/Dashboard";
 import DailySearch from "./features/DailySearch";
+import Tracker from "./features/Tracker";
 import ResumeStudio from "./features/ResumeStudio";
 import Assurance from "./features/Assurance";
 import Profile from "./features/Profile";
@@ -34,6 +36,7 @@ const tabs = [
   ["assistant", "Assistant", MessageSquareText, "Your search"],
   ["dashboard", "Dashboard", LayoutDashboard, "Your search"],
   ["daily", "Daily Search", Search, "Your search"],
+  ["tracker", "Tracker", Radar, "Your search"],
   ["resumes", "Resume Studio", FileText, "Your search"],
   ["assurance", "Assurance", ShieldCheck, "Your search"],
   ["profile", "Profile", UserRound, "You"],
@@ -431,6 +434,7 @@ export default function App() {
                     onJob={openStudio}
                     onDaily={() => navigate("daily")}
                     onAdd={() => setAdd(true)}
+                    onGo={navigate}
                   />
                 )}
                 {route === "daily" && (
@@ -442,6 +446,7 @@ export default function App() {
                     onAdd={() => setAdd(true)}
                   />
                 )}
+                {route === "tracker" && <Tracker notify={notify} />}
                 {route === "resumes" && (
                   <ResumeStudio
                     data={data}

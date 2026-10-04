@@ -6,6 +6,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 from concurrent.futures import ThreadPoolExecutor
 
+from backend import features, telemetry
 from backend.services.demo import demo_mode
 
 REPORT_SCHEMA = {
@@ -92,7 +93,7 @@ RUN_KINDS = {"research", "resume_advisor", "email", "discovery", "resume_build",
 # career pages, or every feed and Irish job board the app reads itself (services/job_sources.py).
 DISCOVERY_PRESETS = ("default", "balanced_five", "portals", "feeds")
 # Sources the "feeds" preset reads when a pass names none.
-DEFAULT_FEED_SOURCES = ("tracked", "directory", "gradireland", "jobs_ie", "askmanavi")
+DEFAULT_FEED_SOURCES = ("tracked", "directory", "registry", "eures", "gradireland", "jobs_ie", "careerjet", "jooble")
 # A posting whose rules-only fit is at least this is kept for an AI requirement check
 # when a pass requires one and no free plan is free; below it the rules decide.
 HOLD_FLOOR = 40
@@ -221,6 +222,9 @@ VERIFIED_BY = {
     "ats_feed": "Exact requisition text and location checked against the employer's public ATS feed.",
     "workday_feed": "Exact requisition text and location read from the employer's Workday careers feed.",
     "smartrecruiters_feed": "Exact requisition text and location read from the employer's SmartRecruiters feed.",
+    "workable_feed": "Exact requisition text and location read from the employer's Workable careers feed.",
+    "recruitee_feed": "Exact requisition text and location read from the employer's Recruitee careers feed.",
+    "personio_feed": "Exact requisition text and location read from the employer's Personio job feed.",
     "structured_data": "Full text and location read from the posting page's own schema.org JobPosting data.",
 }
 
@@ -228,15 +232,16 @@ VERIFIED_BY = {
 def verify_discovery_source(job: dict, *, preset: str = "default") -> str:
     """Replace an AI lead with the posting's own published facts, or explain why it is held.
 
-    Greenhouse, Lever, Ashby, Workday and SmartRecruiters postings are read from their
-    feeds; any other page from its schema.org JobPosting data (job boards and most
+    Greenhouse, Lever, Ashby, Workday, SmartRecruiters, Workable, Recruitee and Personio
+    postings are read from their feeds; any other page from its schema.org JobPosting data (job boards and most
     career sites publish it). The caller then checks the selected market against the
     returned location. An AI-supplied country cannot upgrade an ATS location that only
     says "Remote".
     """
     if preset in ("portals", "feeds"):
         return ""  # Already read directly from the employer's feed or the board's own page.
-    from backend.services import job_sources, portals
+    from backend.services import job_sources
+    from backend.services.lead_resolver import posting_link
 
     url = job.get("url", "")
     job.pop("raw_salary", None)
@@ -254,7 +259,7 @@ def verify_discovery_source(job: dict, *, preset: str = "default") -> str:
         job["verification"] = (str(job.get("verification") or "") + " "
                                + VERIFIED_BY.get(official.get("method"), VERIFIED_BY["ats_feed"])).strip()
         return ""
-    if portals.is_public_ats(url) or job_sources.workday_parts(url) or job_sources.smartrecruiters_parts(url):
+    if posting_link(url):
         return "Exact posting could not be read from the employer's ATS feed"
     if _PARTIAL_POSTING.search(str(job.get("verification") or "")):
         return "Full posting is not verifiable from the cited page"
@@ -365,7 +370,10 @@ class AgentRunner:
         self.cache = AgentCache(services)
         self.gateway = AIGateway(services, self.execute)
         self.studio = None
-        self.context = threading.local()
+        from backend.context_local import ContextLocal
+        # The run's provider, model and action, and its trace identity: context-local, so a
+        # graph's parallel nodes (and pools started with telemetry.submit) keep them.
+        self.context = ContextLocal("agent-context")
         self._job_locks = {}
         self._job_locks_guard = threading.Lock()
         self.current_provider = None
@@ -375,13 +383,21 @@ class AgentRunner:
         # them on the free plans (backend/ai/providers.py RouterProvider).
         self.free_only_runs: set[str] = set()
         # What the Agents tab shows: each stage a run enters and each AI call it
-        # makes, with timings. Recorded only for runs on this worker thread.
-        self.trace = threading.local()
+        # makes, with timings. The run id and stage follow the run (context-local);
+        # unwritten lines wait in one buffer per run, shared by its parallel branches.
+        self.trace = ContextLocal("agent-trace")
+        self._trace_pending: dict[str, list] = {}
+        self._trace_flushed: dict[str, float] = {}
+        self._trace_lock = threading.Lock()
         with self.w.connect() as db:
             db.executescript('''
-            CREATE TABLE IF NOT EXISTS agent_run_events(id INTEGER PRIMARY KEY AUTOINCREMENT, run_id TEXT NOT NULL, at TEXT NOT NULL, kind TEXT NOT NULL, label TEXT NOT NULL, detail TEXT NOT NULL DEFAULT '{}');
+            CREATE TABLE IF NOT EXISTS agent_run_events(id INTEGER PRIMARY KEY AUTOINCREMENT, run_id TEXT NOT NULL, at TEXT NOT NULL, kind TEXT NOT NULL, label TEXT NOT NULL, detail TEXT NOT NULL DEFAULT '{}', trace_id TEXT, span_id TEXT, node TEXT);
             CREATE INDEX IF NOT EXISTS idx_agent_run_events_run ON agent_run_events(run_id, id);
             ''')
+            columns = {row[1] for row in db.execute('PRAGMA table_info(agent_run_events)')}
+            for column in ('trace_id', 'span_id', 'node'):
+                if column not in columns:
+                    db.execute(f'ALTER TABLE agent_run_events ADD COLUMN {column} TEXT')
 
     @property
     def current_provider(self):
@@ -418,19 +434,29 @@ class AgentRunner:
         run_id = run_id or getattr(self.trace, "run_id", None)
         if not run_id:
             return
-        pending = self.trace.__dict__.setdefault("pending", [])
-        pending.append((run_id, self.s.now(), kind, str(label)[:200], json.dumps(detail, ensure_ascii=False)))
-        if buffer and len(pending) < 25 and time.monotonic() - self.trace.__dict__.get("flushed", 0) < 2:
-            return
-        self.trace_flush()
+        trace_id, span_id = telemetry.current_ids()
+        line = (run_id, self.s.now(), kind, str(label)[:200], json.dumps(detail, ensure_ascii=False),
+                trace_id, span_id, getattr(self.trace, 'stage', None))
+        with self._trace_lock:
+            pending = self._trace_pending.setdefault(run_id, [])
+            pending.append(line)
+            waiting = buffer and len(pending) < 25 and time.monotonic() - self._trace_flushed.get(run_id, 0) < 2
+        if not waiting:
+            self.trace_flush(run_id)
 
-    def trace_flush(self):
-        pending = self.trace.__dict__.get("pending")
-        if not pending:
+    def trace_flush(self, run_id=None):
+        """Write the run's waiting trace lines (every run's when none is named or current)."""
+        run_id = run_id or getattr(self.trace, "run_id", None)
+        with self._trace_lock:
+            runs = [run_id] if run_id else list(self._trace_pending)
+            lines = [line for run in runs for line in self._trace_pending.pop(run, [])]
+            for run in runs:
+                self._trace_flushed[run] = time.monotonic()
+        if not lines:
             return
-        self.trace.pending, self.trace.flushed = [], time.monotonic()
         with self.w.connect() as db:
-            db.executemany("INSERT INTO agent_run_events(run_id,at,kind,label,detail) VALUES(?,?,?,?,?)", pending)
+            db.executemany("INSERT INTO agent_run_events(run_id,at,kind,label,detail,trace_id,span_id,node) "
+                           "VALUES(?,?,?,?,?,?,?,?)", lines)
 
     def trace_sources(self, report, via="ai"):
         """The pages an AI report says it read, as the trace's sources."""
@@ -441,6 +467,7 @@ class AgentRunner:
         self.trace_flush()
 
     def cached(self, prompt, schema, **options):
+        refresh = bool(options.pop("refresh", False))  # a rerun: ask again instead of reusing the saved answer
         action = options.pop("action", self.current_action)
         provider = options.pop("provider", self.current_provider)
         model = options.pop("model", self.current_model)
@@ -467,7 +494,7 @@ class AgentRunner:
         self.trace_event("ai_start", stage, **trace)
         try:
             result = self.cache.execute(
-                invoke_via_gateway, prompt, schema, served_by=served_by, managed_budget=True,
+                invoke_via_gateway, prompt, schema, served_by=served_by, managed_budget=True, refresh=refresh,
                 provider=selected.id, model=selected_model, action=action, **options
             )
         except Exception as exc:
@@ -495,6 +522,13 @@ class AgentRunner:
     def recover(self):
         from backend.services.task_execution import TaskRepository
         TaskRepository(self.s).recover_expired()
+        if (self.w.root / "data" / "agents.db").exists():
+            try:
+                # Graph checkpoints are kept 30 days (backend/graphs/checkpoint.py).
+                from backend.graphs import checkpoint
+                checkpoint.prune_old(self.w.root)
+            except Exception as error:  # noqa: BLE001 - housekeeping never blocks recovery
+                telemetry.event("graphs.prune_failed", error=telemetry.safe_error(error))
         with self.w.connect() as db:
             if db.execute("SELECT 1 FROM sqlite_master WHERE name='instruction_messages'").fetchone():
                 db.execute("UPDATE instruction_messages SET state='needs_attention',"
@@ -505,20 +539,41 @@ class AgentRunner:
                        "WHERE kind='instruction_interpret' AND state IN ('queued','running')", (self.s.now(),))
             pending = [row[0] for row in db.execute("SELECT id FROM agent_runs WHERE state IN ('queued','running')")]
         for run_id in pending:
-            self.pool.submit(self.run, run_id)
+            telemetry.submit(self.pool, self.run, run_id)
+
+    def _rerun_source(self, kind, job_id, rerun_from):
+        """The earlier run a rerun copies: a finished or stopped research graph run of this same job."""
+        if kind != "research" or not isinstance(rerun_from, dict):
+            raise ValueError("Only a research run can be run again from one of its steps")
+        source, point = str(rerun_from.get("run_id") or ""), str(rerun_from.get("checkpoint_id") or "")
+        with self.w.connect() as db:
+            row = db.execute("SELECT kind, job_id, state FROM agent_runs WHERE id=?", (source,)).fetchone()
+        if not row or row["kind"] != "research" or (row["job_id"] or None) != (job_id or None):
+            raise ValueError("That run is not a research run for this job")
+        if row["state"] in ("queued", "running"):
+            raise ValueError("That run is still going; wait for it to finish first")
+        from backend.graphs import checkpoint, executor
+        from backend.graphs.research import NAME
+
+        if executor.thread_id(NAME, source) not in checkpoint.threads(self.w.root) or not point:
+            raise ValueError("That run has no saved checkpoints to start from (they are kept for 30 days)")
+        return {"run_id": source, "checkpoint_id": point}
 
     def research_salary(self, job_id):
         from backend.services.salary_research import run
         return run(self, job_id)
 
     def enqueue(self, kind, job_id=None, provider=None, model=None, preset="default", count=None, focus=None,
-                free_only=False):
+                free_only=False, rerun_from=None):
         """Queue one run. ``focus`` (discovery only) narrows a pass: the sources or searches it
         covers, a higher fit bar, and whether to hold postings for an AI requirement check.
         A focus marked ``hunt`` belongs to a goal-driven search (services/hunt.py), which sets
-        its own target instead of today's plan."""
+        its own target instead of today's plan. ``rerun_from`` ({run_id, checkpoint_id}, research
+        only) runs an earlier graph run again from one of its checkpoints (graphs/executor.py)."""
         if kind not in RUN_KINDS:
             raise ValueError("Unknown agent action")
+        if rerun_from is not None:
+            rerun_from = self._rerun_source(kind, job_id, rerun_from)
         if not self.s.agent_enabled(kind):
             raise ValueError("This agent is paused. Turn it on in Agents before running it.")
         if kind == "discovery":
@@ -536,11 +591,15 @@ class AgentRunner:
             raise ValueError(
                 "Your daily application target is complete. You can still save individual postings manually."
             )
+        job = self.w.get_job(job_id) if kind in {"research", "resume_advisor", "resume_build", "resume_match", "instruction_interpret", "study_plan", "salary_research"} else None
+        if job is not None:
+            from backend.countries import require_enabled_markets
+
+            require_enabled_markets(self.w.root, job.get("market") or None)
         action = RUN_ACTIONS.get(kind)
         if action:
             chosen, model = self.gateway.resolve(action, provider, model)
             provider = chosen.id
-        job = self.w.get_job(job_id) if kind in {"research", "resume_advisor", "resume_build", "resume_match", "instruction_interpret", "study_plan", "salary_research"} else None
         document_input = None
         if kind in {'resume_build', 'resume_match', 'instruction_interpret'}:
             if self.studio is None:
@@ -565,6 +624,8 @@ class AgentRunner:
         if focus:
             payload = {**payload, "focus": focus}
         payload = {**payload, "_free_only": bool(free_only), "_profile_revision": self.s.profile_revision()}
+        if rerun_from:
+            payload["_rerun_from"] = rerun_from
         encoded_input = json.dumps(payload, sort_keys=True)
         with self.w.connect() as db:
             db.execute("BEGIN IMMEDIATE")
@@ -595,7 +656,7 @@ class AgentRunner:
             )
         if free_only:
             self.free_only_runs.add(id)  # before the worker can pick it up
-        self.pool.submit(self.run, id)
+        telemetry.submit(self.pool, self.run, id)
         return {"id": id, "state": "queued"}
 
     def update(self, id, state, result=None, error=None):
@@ -747,6 +808,23 @@ class AgentRunner:
         return observed
 
     def run(self, id):
+        """One agent run, traced: its AI calls and web requests are the spans under it."""
+        from backend import telemetry
+
+        with self.w.connect() as db:
+            found = db.execute("SELECT kind FROM agent_runs WHERE id=?", (id,)).fetchone()
+        kind = found["kind"] if found else "unknown"
+        with telemetry.bind(profile_root=self.w.root, run={"id": id, "kind": kind}):
+            with telemetry.span(f"agent.run {kind}", **{"career.run_id": id, "career.run_kind": kind}) as current:
+                self._run_worker(id)
+                with self.w.connect() as db:
+                    done = db.execute("SELECT state, error FROM agent_runs WHERE id=?", (id,)).fetchone()
+                if done:
+                    telemetry.set_attributes(current, **{"career.run_state": done["state"]})
+                    if done["state"] == "failed":
+                        telemetry.mark_failed(current, done["error"])
+
+    def _run_worker(self, id):
         from backend.ai import router
 
         self.trace.run_id, self.trace.stage = id, None
@@ -777,14 +855,14 @@ class AgentRunner:
                                        w in str(e).lower() for w in ("timeout", "timed out", "connection", "temporar", "stopped")), retry_after=15)
             except TaskBusy:
                 if not self.stop.is_set():
-                    timer = threading.Timer(30, lambda: None if self.stop.is_set() else self.pool.submit(self.run, id))
+                    timer = threading.Timer(30, telemetry.carry(lambda: None if self.stop.is_set() else telemetry.submit(self.pool, self.run, id)))
                     timer.daemon = True
                     timer.start()
             except Exception as error:
                 task = tasks.enqueue("agent:" + row["kind"], {"run_id": id, "input": payload}, job_id=row.get("job_id"))
                 if task["state"] == "retry" and not self.stop.is_set():
                     self.update(id, "queued", {"stage": "Retrying interrupted stage", "attempt": task["attempts"]}, error=str(error)[:1500])
-                    timer = threading.Timer(16, lambda: None if self.stop.is_set() else self.pool.submit(self.run, id))
+                    timer = threading.Timer(16, telemetry.carry(lambda: None if self.stop.is_set() else telemetry.submit(self.pool, self.run, id)))
                     timer.daemon = True
                     timer.start()
                 else:
@@ -802,10 +880,12 @@ class AgentRunner:
                     self.trace_event("note", "Run completed; its summary could not be refreshed.", error=str(error)[:300])
         finally:
             try:
-                self.trace_flush()
+                self.trace_flush(id)
             except Exception:
                 pass  # the trace is advice; losing a few lines must never fail the worker
-            self.trace.pending = []
+            with self._trace_lock:
+                self._trace_pending.pop(id, None)
+                self._trace_flushed.pop(id, None)
             self.trace.run_id = self.trace.stage = None
             if auto is not None:
                 auto.local.free_only = False
@@ -817,6 +897,13 @@ class AgentRunner:
                 row = dict(
                     db.execute("SELECT * FROM agent_runs WHERE id=?", (id,)).fetchone()
                 )
+            from backend.countries import require_enabled_markets
+
+            if row["kind"] == "discovery":
+                require_enabled_markets(self.w.root)
+            elif row.get("job_id"):
+                job = self.w.get_job(row["job_id"])
+                require_enabled_markets(self.w.root, job.get("market") or None)
             self.current_provider = row.get("provider")
             self.current_model = row.get("model")
             self.current_action = RUN_ACTIONS.get(row["kind"], "document_review")
@@ -992,6 +1079,16 @@ class AgentRunner:
                                  "in any form until it is learned and written into data/context/.\n\n" + plan.get("report", "") + "\n")
                     written = str((folder / "study-plan.md").relative_to(self.w.root))
                 output = {"stage": "Complete", "plan": plan, "path": written, "profile_access": True}
+            elif row["kind"] == "research" and (features.enabled("graph_research", self.s)
+                                                or "_rerun_from" in json.loads(row["input"] or "{}")):
+                # The durable ResearchGraph (backend/graphs/research.py): a verified, shared company
+                # dossier, then the same hiring-manager view and profile comparison as below.
+                from backend.graphs import research as research_graph
+                self.update(id, "running", {"stage": "Researching the company (verified public dossier)"})
+                # A run kept to free plans (the overnight hunt) researches two facets, not four, so a
+                # plan's usage window prepares more jobs; a dossier is shared for 30 days either way.
+                depth = "quick" if json.loads(row["input"] or "{}").get("_free_only") else "standard"
+                output = research_graph.run(self, row, depth=depth)
             elif row["kind"] == "research":
                 role = json.loads(row["input"])
                 self.update(id, "running", {"stage": "Researching the company and role"})
@@ -1423,7 +1520,7 @@ class AgentRunner:
                     )
                     sources = job.get("company_sources", []) + job.get("sponsorship_evidence", [])
                     findings = [job.get("legal_presence", ""), job.get("verification", ""), "Sponsorship evidence: " + json.dumps(job.get("sponsorship_evidence", []))]
-                    if job.get("source_kind") == "job_board":
+                    if job.get("source_kind") in ("job_board", "official_board"):
                         from backend.job_quality import FRAUD
                         from backend.services.job_sources import is_agency
                         # A board posting's own text is the only fraud evidence there is; read it.
@@ -1443,6 +1540,15 @@ class AgentRunner:
                             f"{verdict.h1b_approvals} approved H-1B petitions (fiscal years {', '.join(verdict.h1b_years) or 'on file'})."
                         )
                         sources = sources + [{"title": "USCIS H-1B Employer Data Hub (local copy)", "url": sponsorship.USCIS_HUB_URL, "accessed_at": self.s.today()}]
+                    elif verdict.permit_record.get("found"):
+                        from backend.permits.history import describe
+
+                        record = verdict.permit_record
+                        findings.append("DETE's employment permits issued to companies lists the legal employer "
+                                        + "; ".join(record.get("matched_names") or []) + f" ({describe(record)}). "
+                                        "This is historical employer presence evidence; support for this vacancy is unconfirmed.")
+                        sources = sources + [{"title": "DETE employment permits issued to companies", "url": url,
+                                              "accessed_at": self.s.today()} for url in record.get("source_urls") or []]
                     company_check = quality.assess_company(
                         job["company"], job["url"], sources, findings,
                         job.get("red_flags", []),
@@ -1648,9 +1754,10 @@ class AgentRunner:
                 known.add(record["key"])
         self.update(run_id, "running", {"stage": "Reading " + ", ".join(job_sources.SOURCE_LABELS[s] for s in sources)})
         self.trace_event("note", "No AI for this part: employer career feeds and job boards are read directly.")
-        if "jobs_ie" in sources:
-            for keyword in plan["board_keywords"]:
-                self.trace_event("search", keyword, buffer=True, via="jobs.ie")
+        for board, label in (("jobs_ie", "jobs.ie"), ("eures", "EURES")):
+            if board in sources:
+                for keyword in plan["board_keywords"]:
+                    self.trace_event("search", keyword, buffer=True, via=label)
         postings, coverage = job_sources.harvest(
             self.w.root, sources, title_ok=lambda title: bool(rules.roles.search(title)),
             place_ok=lambda place: any(pack.location_ok(place) for pack in packs),
@@ -1842,6 +1949,20 @@ class AgentRunner:
         except Exception:
             pass  # If even the log write fails, the loop must still survive.
 
+    def _maybe_refresh_market(self):
+        """TrackerRefresh (graphs/tracker_refresh.py), when switched on and due: the shared market
+        store re-read in the background, no AI. Its lease keeps it to one refresh per computer."""
+        if not features.enabled("graph_tracker_refresh", self.s):
+            return
+        from backend.graphs import tracker_refresh
+
+        running = getattr(self, "_market_refresh", None)
+        if (running and running.is_alive()) or not tracker_refresh.due():
+            return
+        self._market_refresh = threading.Thread(target=telemetry.carry(tracker_refresh.run), daemon=True,
+                                                name="career-market-refresh")
+        self._market_refresh.start()
+
     def start_schedule(self):
         def loop():
             while not self.stop.wait(60):
@@ -1857,6 +1978,10 @@ class AgentRunner:
                     self.s.age_applications()
                 except Exception as exc:
                     self._record_schedule_fault("aging_failed", exc)
+                try:
+                    self._maybe_refresh_market()
+                except Exception as exc:
+                    self._record_schedule_fault("market_refresh_failed", exc)
                 config = self.s.pref("email_schedule", {"enabled": False, "hours": 6})
                 gmail = self.s.pref("gmail", {})
                 last = gmail.get("last_synced_at")

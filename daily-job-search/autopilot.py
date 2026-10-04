@@ -467,12 +467,13 @@ def wait_online(journal: Journal, until_epoch: float, *, check=online, sleep=tim
 def ensure_packages(journal: Journal) -> None:
     """The app's Python packages: installed again when one is missing."""
     python = VENV_PY if VENV_PY.exists() else Path(sys.executable)
-    probe = [str(python), "-c", "import fastapi, uvicorn, yaml, pydantic"]
+    probe = [str(python), "-c", "import fastapi, uvicorn, yaml, pydantic, langgraph, langchain_core"]
     try:
         if subprocess.run(probe, capture_output=True, timeout=120).returncode == 0:
             return
         log("Some of the app's Python packages are missing; installing them again.")
-        result = subprocess.run([str(python), "-m", "pip", "install", "-q", "-r", str(APP_ROOT / "requirements.txt")],
+        # The backend's list is the one the launcher installs (career-dashboard/requirements.txt points to it).
+        result = subprocess.run([str(python), "-m", "pip", "install", "-q", "-r", str(BACKEND / "requirements.txt")],
                                 capture_output=True, text=True, timeout=1800)
         if result.returncode == 0 and subprocess.run(probe, capture_output=True, timeout=120).returncode == 0:
             journal.fixed("Missing Python packages were installed again.")
@@ -803,6 +804,33 @@ def _cell(value) -> str:
     return " ".join(str(value or "").split()).replace("|", "/")
 
 
+def pay_line(job: dict) -> str:
+    """Pay as the morning list states it: advertised (the posting's own figure), a market estimate with
+    what to confirm, or not stated. Never presents an estimate as the vacancy's pay."""
+    from backend.services.opportunities import pay_note
+
+    info = job.get("opportunity") or {}
+    pay = info.get("salary") or {}
+    if pay.get("kind") == "advertised" and pay.get("annual_min"):
+        low, high = pay["annual_min"], pay.get("annual_max")
+        currency = pay.get("currency") or "EUR"
+        return f"{currency} {low:,.0f}" + (f"–{high:,.0f}" if high and high != low else "") + " a year (advertised in the posting)"
+    note = pay_note(job)
+    if note:
+        return note
+    if info.get("floor"):
+        return f"Not stated in the posting. Confirm with the recruiter that the base salary is at least EUR {info['floor']:,.0f}."
+    return ""
+
+
+def permit_path_line(job: dict) -> str:
+    """The permit-path evidence score (backend/permits/path_score.py), labelled as what it is."""
+    path = (job.get("opportunity") or {}).get("permit_path") or {}
+    if not isinstance(path.get("score"), (int, float)):
+        return ""
+    return f"{path['score']:.0f}/100 ({path.get('label') or 'Evidence score, not approval likelihood'})"
+
+
 def collect(store, profile: dict, journal: Journal, now: datetime, ready_by: str) -> dict:
     """Everything the morning list shows for one profile, read straight from its database."""
     sys.path[:0] = [p for p in (str(APP_ROOT), str(SCRIPTS)) if p not in sys.path]
@@ -838,12 +866,16 @@ def collect(store, profile: dict, journal: Journal, now: datetime, ready_by: str
 
     def brief(job):
         resume, pending = _readiness(services, job, discovered, cat, preferences)
+        evidence = job.get("sponsor_evidence") or {}
+        record = evidence.get("permit_record") or {}
         return {"id": job["id"], "company": job["company"], "title": job["title"], "location": job.get("location") or "",
                 "fit": job.get("fit_score"), "why": " ".join(str(job.get("fit_rationale") or "").split())[:400],
                 "url": job.get("url") or "", "status": job["status"], "saved_at": job.get("created_at"),
                 "resume": _shown(resume) if resume else None, "folder": job.get("folder") or None,
-                "work_permit": (job.get("sponsor_evidence") or {}).get("sentence") or
-                               (job.get("sponsor_evidence") or {}).get("label") or "",
+                "work_permit": evidence.get("sentence") or evidence.get("label") or "",
+                "permit_quote": evidence.get("sentence") or "",
+                "dete": evidence.get("label") or "" if record.get("found") else "",
+                "pay": pay_line(job), "permit_path": permit_path_line(job),
                 "pending_reasons": pending, "review_required": True}
 
     def by_fit(job):
@@ -878,16 +910,55 @@ def collect(store, profile: dict, journal: Journal, now: datetime, ready_by: str
             "report": progress.get("report"), "no_ai": bool(json.loads(row["config"] or "{}").get("no_ai")),
             "resumed": bool(progress.get("resumed_from")),
         })
+    tracker_alerts = []
+    try:
+        from backend.market import tracker
+        from backend.market.store import MarketStore
+
+        tracker_alerts = [alert for alert in tracker.alerts(services, MarketStore()) if alert["new"]]
+    except Exception:  # noqa: BLE001 - the Tracker is a convenience; the morning list is written regardless
+        tracker_alerts = []
+    try:
+        from backend.permits.timeline import timeline
+
+        permit_dates = timeline(workspace.profile(), on=now.date())
+    except Exception:  # noqa: BLE001 - dated facts are a convenience; the list is written regardless
+        permit_dates = None
+    asks = journal.of("needs_you", pid)
+    try:
+        from backend.services import needs_you
+
+        # The same list as the Dashboard's; this runner reports AI readiness itself.
+        asks += [item["text"] for item in needs_you.items(services) if item["id"] != "ai_setup" and item["text"] not in asks]
+    except Exception:  # noqa: BLE001 - the list is written regardless
+        pass
     return {
         "date": now.date().isoformat(), "updated": now.isoformat(timespec="minutes"),
         "profile": {"id": pid, "name": profile["name"]},
         "new": sorted(fresh, key=by_fit), "to_apply": sorted(to_apply, key=by_fit)[:15],
         "pending": sorted(pending, key=by_fit),
         "to_apply_total": len(to_apply), "applications": {s: counts.get(s, 0) for s in APPLIED},
-        "held": held, "held_top": held_top, "hunts": hunts,
-        "fixed": journal.of("fixed", pid), "needs_you": journal.of("needs_you", pid), "notes": journal.of("note", pid),
+        "held": held, "held_top": held_top, "hunts": hunts, "tracker_alerts": tracker_alerts, "permit_dates": permit_dates,
+        "fixed": journal.of("fixed", pid), "needs_you": asks, "notes": journal.of("note", pid),
         "daily_dir": workspace.daily_dir, "root": root,
     }
+
+
+def permit_dates_lines(found: dict | None) -> list[str]:
+    """Dated facts from the person's confirmed details and the published rules (permits/timeline.py)."""
+    if not found or not found.get("events"):
+        return []
+    lines = ["## Your permit dates", ""]
+    for event in found["events"]:
+        if event["id"] == "gep_lead_time" and not event.get("date"):
+            line = f"- {event['label']}: {event['weeks']} weeks before a job's start date"
+        elif event.get("date"):
+            left = event.get("days_left")
+            line = f"- {event['label']}: {event['date']}" + (f" ({left} days left)" if isinstance(left, int) and left >= 0 else "")
+        else:
+            line = f"- {event['label']}: {event['note']}"
+        lines.append(line + (f" · [source]({event['url']})" if event.get("url") else ""))
+    return lines + ["", "Dates from what you confirmed and the published rules. Not immigration advice.", ""]
 
 
 def render(data: dict, base_url: str) -> str:
@@ -899,6 +970,7 @@ def render(data: dict, base_url: str) -> str:
              f"{applied} application(s) tracked, never suggested again · updated {now.strftime('%H:%M')}", ""]
     if data["needs_you"]:
         lines += ["## Needs you", ""] + [f"- {text}" for text in data["needs_you"]] + [""]
+    lines += permit_dates_lines(data.get("permit_dates"))
     lines += ["## New this morning", ""]
     if not new:
         lines.append("No new job has both current checks and a current tailored PDF ready for your review. "
@@ -909,7 +981,15 @@ def render(data: dict, base_url: str) -> str:
         lines.append(f"{number}. **{job['company']} — {job['title']}** · {job['location']} · {fit}")
         if job["why"]:
             lines.append(f"   - Why: {job['why']}")
-        if job["work_permit"]:
+        if job.get("pay"):
+            lines.append(f"   - Pay: {job['pay']}")
+        if job.get("permit_quote"):
+            lines.append(f"   - The posting says: “{job['permit_quote']}”")
+        if job.get("dete"):
+            lines.append(f"   - Permit record: {job['dete']}")
+        if job.get("permit_path"):
+            lines.append(f"   - Permit-path evidence: {job['permit_path']}")
+        elif job["work_permit"] and not job.get("permit_quote"):
             lines.append(f"   - Work permit: {job['work_permit']}")
         if job["url"]:
             lines.append(f"   - Apply: {job['url']}")
@@ -932,6 +1012,13 @@ def render(data: dict, base_url: str) -> str:
         if data["to_apply_total"] > len(to_apply):
             lines.append(f"\n…and {data['to_apply_total'] - len(to_apply)} more in the dashboard.")
         lines.append("")
+    if data.get("tracker_alerts"):
+        lines += ["## Tracker alerts", ""]
+        for alert in data["tracker_alerts"]:
+            examples = "; ".join(f"{e['title']} at {e['company']}" for e in alert["examples"])
+            lines.append(f"- **{alert['name']}**: {alert['new']} new" + (f" (for example {examples})" if examples else ""))
+        lines += ["", "Open the Tracker in the dashboard for each role's permit facts; these are not checked "
+                      "against your profile yet.", ""]
     if data["held"]:
         lines += [f"## Waiting for the AI requirement check ({data['held']})", "",
                   "These passed every other check; the next run checks them against your profile first. "
@@ -1180,6 +1267,9 @@ def main(argv=None) -> int:
     for path in (str(APP_ROOT), str(SCRIPTS)):
         if path not in sys.path:
             sys.path.insert(0, path)
+    from backend import keep_traces_local
+
+    keep_traces_local()
     if args.background:
         return background(argv)
     journal = Journal()

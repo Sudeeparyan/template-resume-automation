@@ -5,12 +5,23 @@ and a summary in place of the posting. This module reads postings straight from 
 they are published, with the complete text, so the market, work-permit, duplicate,
 legitimacy and requirement checks all see the employer's own words:
 
-* employer feeds: Greenhouse, Lever and Ashby (services/portals.py), plus Workday and
-  SmartRecruiters, for the profile's tracked companies (data/config/portals.yml) and
-  the country's verified employer directory (backend/countries/<code>/employers.yml);
+* employer feeds: Greenhouse, Lever and Ashby (services/portals.py), Workday and
+  SmartRecruiters, and Workable, Recruitee, Personio and Teamtailor (market/readers/ats.py),
+  for the profile's tracked companies (data/config/portals.yml), the country's verified
+  employer directory (backend/countries/<code>/employers.yml) and the employer registry of
+  permit employers (countries/ie/employer-registry.csv, built from DETE's permit data);
+* EURES, the European Commission's portal, for vacancies Ireland's public employment
+  service (JobsIreland) publishes: where employers advertise before a General Employment
+  Permit (market/readers/eures.py);
 * Irish job boards whose pages publish schema.org JobPosting data: gradireland (its
-  sitemap lists every live job), jobs.ie (its search pages), and the askmanavi
-  graduate tracker (which links each role to the employer's own ATS page).
+  sitemap lists every live job) and jobs.ie (its search pages). Both are read for the
+  person's own job search only (personal use);
+* optional aggregators with the person's own key, Careerjet and Jooble: their results are
+  leads, looked up on the employer's own board (market/readers/aggregators.py). How each
+  source may be used is in market/policy.py.
+
+Every posting read is also recorded in the shared public market store (backend/market/),
+which keeps advertised pay for market estimates and, later, the Tracker.
 
 Only titles that name one of the profile's target roles are opened, so a board of
 thousands costs a few dozen requests. The fetcher identifies itself honestly, obeys
@@ -26,10 +37,12 @@ Every function returns postings in the same shape as ``portals.fetch_board``, pl
 from __future__ import annotations
 
 import json
+import random
 import re
 import threading
 import time
 import urllib.robotparser
+import zlib
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from html import unescape
@@ -40,6 +53,7 @@ from urllib.request import Request, urlopen
 
 import yaml
 
+from backend import telemetry
 from backend.paths import COUNTRIES
 from backend.services.portals import board_token, fetch_board, html_to_text, is_public_ats, official_posting
 
@@ -48,23 +62,54 @@ TIMEOUT = 20
 # Seconds between two requests to the same host.
 MIN_INTERVAL = 1.0
 # Documented public job APIs, built for programs to read; robots.txt is for crawlers of web pages.
-PUBLIC_APIS = {"boards-api.greenhouse.io", "api.lever.co", "api.ashbyhq.com", "api.smartrecruiters.com"}
-# Largest body read from one page.
+PUBLIC_APIS = {"boards-api.greenhouse.io", "api.lever.co", "api.eu.lever.co", "api.ashbyhq.com", "api.smartrecruiters.com",
+               "search.api.careerjet.net"}
+# Keyed APIs served from a site's own host: only their API path counts as the API.
+PUBLIC_API_PATHS = {"ie.jooble.org": "/api/"}
+# Largest body read from one page. A larger one is that page's problem (TOO_LARGE), never the host's.
 MAX_BYTES = 3_000_000
+# A documented job API answers with a whole board at once: OpenAI's Ashby board is about 15 MB of
+# JSON and Elastic's Greenhouse board about 8 MB, so the PUBLIC_APIS hosts get a larger limit.
+API_MAX_BYTES = 25_000_000
+TOO_LARGE = "too large to read"
+
+
+def byte_limit(host: str) -> int:
+    """The largest body read from ``host``: more for a documented job API than for a web page."""
+    return API_MAX_BYTES if host in PUBLIC_APIS else MAX_BYTES
+
+
+class PageTooLarge(Exception):
+    """A response body over the byte limit: the page answered, so its host is not counted as failing."""
+
+
+# Politeness towards a struggling host (Fetcher): the longest Retry-After waited out, the
+# longest robots.txt Crawl-delay kept, the cap on backoff, and the failures in a row that
+# make a run leave a host alone.
+RETRY_CAP = 120
+MAX_CRAWL_DELAY = 30.0
+BACKOFF_CAP = 30.0
+BREAKER_FAILURES = 3
+# Hosts that answer "429 Too Many Requests" at one request a second, and the pace they accept.
+HOST_INTERVALS = {"apply.workable.com": 3.0}
 
 SOURCE_LABELS = {
     "tracked": "Your tracked companies",
     "directory": "Employer directory",
+    "registry": "Permit employers (DETE registry)",
+    "eures": "EURES / JobsIreland",
     "gradireland": "gradireland",
     "jobs_ie": "jobs.ie",
-    "askmanavi": "askmanavi graduate tracker",
+    "careerjet": "Careerjet (leads)",
+    "jooble": "Jooble (leads)",
     "held": "Postings held for an AI requirement check",
 }
 # Where a person can see each job board for themselves.
 BOARD_URLS = {"gradireland": "https://gradireland.com", "jobs_ie": "https://www.jobs.ie",
-              "askmanavi": "https://askmanavi.com/graduate-tracker"}
+              "eures": "https://europa.eu/eures/portal/jv-se/home?lang=en", "careerjet": "https://www.careerjet.ie",
+              "jooble": "https://ie.jooble.org"}
 # Sources that only make sense for one market.
-MARKET_SOURCES = {"gradireland": "ie", "jobs_ie": "ie", "askmanavi": "ie"}
+MARKET_SOURCES = {"gradireland": "ie", "jobs_ie": "ie", "eures": "ie", "registry": "ie", "careerjet": "ie", "jooble": "ie"}
 COUNTRY_NAMES = {"ie": "Ireland", "irl": "Ireland", "ireland": "Ireland", "us": "United States", "usa": "United States",
                  "gb": "United Kingdom", "uk": "United Kingdom", "gbr": "United Kingdom"}
 
@@ -72,20 +117,30 @@ COUNTRY_NAMES = {"ie": "Ireland", "irl": "Ireland", "ireland": "Ireland", "us": 
 # ----- fetching ------------------------------------------------------------------------------
 
 class Fetcher:
-    """Polite HTTP: honest user agent, robots.txt, a pause between requests to one host.
+    """Polite HTTP: honest user agent, robots.txt (and its Crawl-delay), a pause between requests
+    to one host, conditional re-reads, and backing off from a host that is struggling.
+
+    * A 429 or 503 with a Retry-After of up to two minutes is waited out and tried once more.
+    * Each failure (a 5xx, a timeout) lengthens the next pause to that host; after
+      ``BREAKER_FAILURES`` in a row the host is left alone for the rest of this fetcher's run.
+    * With a ``cache`` (market/http_cache.py) a GET sends the page's last ETag or Last-Modified,
+      so an unchanged page costs the site a "304 Not Modified".
 
     ``opener(request, timeout)`` is urllib's urlopen; tests hand in a fake.
     """
 
     def __init__(self, *, min_interval: float = MIN_INTERVAL, timeout: int = TIMEOUT, opener=None,
-                 respect_robots: bool = True, sleep: Callable[[float], None] = time.sleep):
+                 respect_robots: bool = True, sleep: Callable[[float], None] = time.sleep, cache=None):
         self.min_interval = min_interval
         self.timeout = timeout
         self.opener = opener or urlopen
         self.respect_robots = respect_robots
         self.sleep = sleep
+        self.cache = cache
         self._last: dict[str, float] = {}
         self._robots: dict[str, urllib.robotparser.RobotFileParser | None] = {}
+        self._delays: dict[str, float] = {}     # robots.txt Crawl-delay, seconds
+        self._failures: dict[str, int] = {}     # consecutive failures per host
         self._lock = threading.Lock()
         self._host_locks: dict[str, threading.Lock] = {}
         self._slots = threading.BoundedSemaphore(4)
@@ -94,60 +149,144 @@ class Fetcher:
 
     def _pace(self, host: str) -> None:
         with self._lock:
-            wait = self._last.get(host, 0.0) + self.min_interval - time.monotonic()
+            interval = max(self.min_interval, self._delays.get(host, 0.0), HOST_INTERVALS.get(host, 0.0))
+            failures = self._failures.get(host, 0)
+            if failures:
+                # Exponential backoff with jitter, so a struggling host is not hit in step.
+                interval += min(BACKOFF_CAP, 2.0 ** failures) * (0.75 + random.random() / 2)
+            wait = self._last.get(host, 0.0) + interval - time.monotonic()
             self._last[host] = time.monotonic() + max(0.0, wait)
         if wait > 0:
+            telemetry.event("paced", host=host, seconds=round(wait, 2))
             self.sleep(wait)
 
-    def _raw(self, url: str, data: bytes | None = None, accept: str = "*/*", content_type: str | None = None):
+    def _succeeded(self, host: str) -> None:
+        with self._lock:
+            self._failures.pop(host, None)
+
+    def _failed(self, host: str) -> None:
+        with self._lock:
+            self._failures[host] = self._failures.get(host, 0) + 1
+
+    def broken(self, host: str) -> bool:
+        """True once a host failed ``BREAKER_FAILURES`` times in a row: it is not asked again this run."""
+        return self._failures.get(host, 0) >= BREAKER_FAILURES
+
+    def _raw(self, url: str, data: bytes | None = None, accept: str = "*/*", content_type: str | None = None,
+             headers: dict | None = None):
         """(status, body text, final url, error)."""
         host = (urlsplit(url).hostname or "").lower()
         with self._lock:
             lock = self._host_locks.setdefault(host, threading.Lock())
         with lock, self._slots:
-            return self._request(url, data, accept, content_type)
+            return self._request(url, data, accept, content_type, headers)
 
-    def _request(self, url, data, accept, content_type):
+    def _request(self, url, data, accept, content_type, headers=None):
         host = (urlsplit(url).hostname or "").lower()
-        self._pace(host)
-        headers = {"User-Agent": USER_AGENT, "Accept": accept, "Accept-Language": "en-IE,en;q=0.8"}
-        if content_type:
-            headers["Content-Type"] = content_type
-        request = Request(url, data=data, headers=headers, method="POST" if data is not None else "GET")
-        self.requests += 1
-        try:
-            with self.opener(request, timeout=self.timeout) as response:
-                raw = response.read(MAX_BYTES)
-                response_headers = getattr(response, "headers", None)
-                charset = response_headers.get_content_charset() if hasattr(response_headers, "get_content_charset") else None
-                return response.status, _decode(raw, charset), response.geturl(), None
-        except HTTPError as exc:
-            return exc.code, "", url, f"HTTP {exc.code}"
-        except (URLError, TimeoutError, OSError) as exc:
-            return None, "", url, f"unreachable ({type(exc).__name__})"
+        method = "POST" if data is not None else "GET"
+        with telemetry.span(f"{method} {host}", **{"http.request.method": method, "url.full": telemetry.safe_url(url),
+                                                   "server.address": host, "career.http.accept": accept}) as current:
+            result = self._send(url, host, method, data, accept, content_type, headers)
+            status, body, _final, error = result
+            telemetry.set_attributes(current, **{"http.response.status_code": status, "career.http.chars": len(body or ""),
+                                                 "error.type": error})
+            if error or (status is not None and status >= 400):
+                telemetry.mark_failed(current, error or f"HTTP {status}")
+            return result
+
+    def _send(self, url, host, method, data, accept, content_type, extra_headers=None):
+        if self.broken(host):
+            telemetry.event("circuit_open", host=host)
+            return None, "", url, f"skipped ({host} failed {BREAKER_FAILURES} times in a row on this pass)"
+        # A request with its own credentials is never answered from (or saved to) the shared page cache.
+        use_cache = self.cache is not None and method == "GET" and not extra_headers
+        cached = self.cache.get(url) if use_cache else None
+        limit = byte_limit(host)
+        for attempt in range(2):
+            self._pace(host)
+            headers = {"User-Agent": USER_AGENT, "Accept": accept, "Accept-Language": "en-IE,en;q=0.8",
+                       "Accept-Encoding": "gzip", **(extra_headers or {})}
+            if content_type:
+                headers["Content-Type"] = content_type
+            if cached:
+                if cached.get("etag"):
+                    headers["If-None-Match"] = cached["etag"]
+                if cached.get("last_modified"):
+                    headers["If-Modified-Since"] = cached["last_modified"]
+            request = Request(url, data=data, headers=headers, method=method)
+            self.requests += 1
+            try:
+                with self.opener(request, timeout=self.timeout) as response:
+                    raw = response.read(limit + 1)
+                    if len(raw) > limit:
+                        raise PageTooLarge()
+                    response_headers = getattr(response, "headers", None)
+                    getter = getattr(response_headers, "get", lambda *_: None)
+                    if str(getter("Content-Encoding") or "").lower() == "gzip":
+                        raw = _gunzip(raw, limit)
+                    charset = response_headers.get_content_charset() if hasattr(response_headers, "get_content_charset") else None
+                    body = _decode(raw, charset)
+                    self._succeeded(host)
+                    if use_cache and response.status == 200:
+                        self.cache.put(url, etag=str(getter("ETag") or ""), last_modified=str(getter("Last-Modified") or ""),
+                                       body=body)
+                    return response.status, body, response.geturl(), None
+            except PageTooLarge:
+                self._succeeded(host)  # the host answered; only this page is too big to read
+                telemetry.event("page_too_large", host=host, limit=limit)
+                return None, "", url, f"{TOO_LARGE} (over {limit / 1_000_000:g} MB)"
+            except HTTPError as exc:
+                if exc.code == 304 and cached:
+                    self._succeeded(host)
+                    telemetry.event("http_cache_hit", host=host)
+                    return 200, cached["body"], url, None
+                if exc.code in (429, 503) and attempt == 0:
+                    wait = _retry_after(exc.headers.get("Retry-After") if exc.headers else None)
+                    if wait is not None:
+                        telemetry.event("retry_after", host=host, status=exc.code, seconds=wait)
+                        self.sleep(wait + random.random())
+                        continue
+                if exc.code == 429 or exc.code >= 500:
+                    self._failed(host)
+                return exc.code, "", url, f"HTTP {exc.code}"
+            except (URLError, TimeoutError, OSError, EOFError, zlib.error) as exc:
+                self._failed(host)
+                return None, "", url, f"unreachable ({type(exc).__name__})"
+        self._failed(host)
+        return None, "", url, "unreachable (the site asked to wait longer than two minutes)"
 
     def allowed(self, url: str) -> bool:
         """robots.txt says this user agent may read the URL (documented public APIs always may)."""
         parts = urlsplit(url)
         host = (parts.hostname or "").lower()
-        if not self.respect_robots or host in PUBLIC_APIS:
+        if not self.respect_robots or host in PUBLIC_APIS or (
+                host in PUBLIC_API_PATHS and parts.path.startswith(PUBLIC_API_PATHS[host])):
             return True
         if host not in self._robots:
             status, body, _, _ = self._raw(f"{parts.scheme}://{parts.netloc}/robots.txt", accept="text/plain")
             parser = urllib.robotparser.RobotFileParser()
             if status == 200:
-                parser.parse(body.splitlines())
+                # Python's parser ends a group at a blank line; major crawlers (and RFC 9309) end it
+                # only at the next User-agent line. europa.eu puts "Crawl-delay: 10" and later
+                # Disallow rules after blank lines inside its "User-agent: *" group.
+                parser.parse([line for line in body.splitlines() if line.strip()])
             elif status in (401, 403):
                 parser.disallow_all = True
             elif status is not None and 400 <= status < 500:
                 parser.allow_all = True
             else:
                 parser = None  # unreachable or a server error: read nothing from this host this run
+            delay = parser.crawl_delay(USER_AGENT) if parser else None
+            if delay:
+                # The site's own pace (europa.eu asks for 10 seconds), capped so one page cannot stall a run.
+                self._delays[host] = min(float(delay), MAX_CRAWL_DELAY)
             self._robots[host] = parser
         parser = self._robots[host]
         ok = bool(parser and parser.can_fetch(USER_AGENT, url))
         if not ok:
             self.refused.append(host)
+            telemetry.event("robots_refused", host=host, url=telemetry.safe_url(url),
+                            reason="robots.txt disallows it" if parser else "robots.txt unreachable")
         return ok
 
     def text(self, url: str, accept: str = "text/html,application/xhtml+xml,application/xml") -> tuple[str | None, str | None]:
@@ -158,18 +297,55 @@ class Fetcher:
             return None, error or f"HTTP {status}"
         return body, None
 
-    def json(self, url: str, payload: dict | None = None) -> tuple[Any, str | None]:
+    def page(self, url: str, accept: str = "text/html,application/xhtml+xml") -> tuple[str | None, str, str | None]:
+        """(body, the URL it ended at after redirects, error): for a pasted link that may redirect."""
+        if not self.allowed(url):
+            return None, url, "the site's robots.txt does not allow automated reading"
+        status, body, final, error = self._raw(url, accept=accept)
+        if error or status != 200:
+            return None, final or url, error or f"HTTP {status}"
+        return body, final or url, None
+
+    def json(self, url: str, payload: dict | None = None, *, headers: dict | None = None) -> tuple[Any, str | None]:
+        """(parsed JSON, error); ``headers`` adds request headers (an API's Authorization), never cached."""
         if not self.allowed(url):
             return None, "the site's robots.txt does not allow automated reading"
         data = json.dumps(payload).encode() if payload is not None else None
         status, body, _, error = self._raw(url, data=data, accept="application/json",
-                                           content_type="application/json" if data is not None else None)
+                                           content_type="application/json" if data is not None else None,
+                                           headers=headers)
         if error or status != 200:
             return None, error or f"HTTP {status}"
         try:
             return json.loads(body), None
         except ValueError:
             return None, "the response was not valid JSON"
+
+
+def _gunzip(raw: bytes, limit: int) -> bytes:
+    """A gzip body, inflated to at most ``limit`` bytes (an oversized one raises PageTooLarge, a damaged one zlib.error)."""
+    inflater = zlib.decompressobj(16 + zlib.MAX_WBITS)
+    body = inflater.decompress(raw, limit)
+    if inflater.unconsumed_tail:
+        raise PageTooLarge()
+    return body
+
+
+def _retry_after(value) -> float | None:
+    """Seconds from a Retry-After header (seconds or an HTTP date); None when absent or over RETRY_CAP."""
+    from email.utils import parsedate_to_datetime
+
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        seconds = float(text)
+    except ValueError:
+        try:
+            seconds = (parsedate_to_datetime(text) - datetime.now(timezone.utc)).total_seconds()
+        except (TypeError, ValueError, IndexError):
+            return None
+    return max(0.0, seconds) if seconds <= RETRY_CAP else None
 
 
 def _decode(raw: bytes, charset: str | None) -> str:
@@ -183,7 +359,9 @@ def _decode(raw: bytes, charset: str | None) -> str:
 
 
 def _default_fetcher() -> Fetcher:
-    return Fetcher()
+    from backend.market.http_cache import HttpCache
+
+    return Fetcher(cache=HttpCache())
 
 
 # ----- the shape every source returns --------------------------------------------------------
@@ -518,8 +696,9 @@ def smartrecruiters_parts(url: str) -> tuple[str, str] | None:
 def read_posting(url: str, fetcher: Fetcher | None = None) -> dict | None:
     """The complete text and location of one posting, read from where it is published.
 
-    Greenhouse, Lever and Ashby through their feeds (portals.official_posting), Workday and
-    SmartRecruiters through theirs, anything else through the page's schema.org JobPosting.
+    Greenhouse, Lever and Ashby through their feeds (portals.official_posting), Workday,
+    SmartRecruiters, Workable, Recruitee and Personio through theirs, anything else
+    (Teamtailor included) through the page's schema.org JobPosting.
     None when the page cannot be read or publishes no structured posting.
     """
     official = official_posting(url, fetcher=fetcher) if fetcher else official_posting(url)
@@ -540,6 +719,11 @@ def read_posting(url: str, fetcher: Fetcher | None = None) -> dict | None:
     if not host or host.endswith("linkedin.com") or host.endswith("indeed.com") or host.endswith("glassdoor.com") \
             or host.endswith("glassdoor.ie") or host.endswith("irishjobs.ie"):
         return None  # these refuse automated reading; the AI's own web reading stands
+    from backend.market.readers import ats
+
+    full = ats.read_posting(url, fetcher)
+    if full:
+        return full
     html, _ = fetcher.text(url)
     found = jsonld_posting(html or "")
     return {**found, "method": "structured_data"} if found else None
@@ -663,79 +847,6 @@ def jobs_ie_jobs(fetcher: Fetcher, keywords: list[str], title_ok: Callable[[str]
     return out, None
 
 
-def _rsc_objects(html: str, marker: str) -> list[dict]:
-    """JSON objects embedded in a Next.js page payload that start with ``marker``."""
-    text = (html or "").replace('\\"', '"').replace("\\\\", "\\")
-    found, decoder = [], json.JSONDecoder()
-    for match in re.finditer(re.escape(marker), text):
-        try:
-            value, _ = decoder.raw_decode(text[match.start():])
-        except ValueError:
-            continue
-        if isinstance(value, dict):
-            found.append(value)
-    return found
-
-
-def askmanavi_jobs(fetcher: Fetcher, title_ok: Callable[[str], bool], place_ok: Callable[[str], bool], *,
-                   details: int = 25, max_age_days: int | None = None, tz: str | None = None,
-                   deadline: float | None = None, coverage=None, skip_posting=None) -> tuple[list[dict], str | None]:
-    """The askmanavi graduate tracker's roles, each read in full from the employer's ATS page it links to."""
-    html, error = fetcher.text("https://askmanavi.com/graduate-tracker")
-    if html is None:
-        return [], error
-    roles = [o for o in _rsc_objects(html, '{"id":"') if o.get("applyUrl") and o.get("title") and o.get("company")]
-    unique = {}
-    for role in roles:
-        url = str(role["applyUrl"])
-        # Greenhouse roles often link to the employer's own site (stripe.com/jobs/search?gh_jid=N);
-        # the tracker's id names the board ("gh-stripe-N"), whose feed has the full posting.
-        board = re.match(r"^gh-([a-z0-9_-]+?)-(\d+)$", str(role.get("id") or ""))
-        if board:
-            url = f"https://job-boards.greenhouse.io/{board.group(1)}/jobs/{board.group(2)}"
-            # The same requisition id the employer's own feed gives it, so the two are one posting.
-            role = {**role, "_requisition": board.group(2)}
-        unique.setdefault(url, role)
-    out, attempts = [], 0
-    key = "board:askmanavi"
-    index = int((coverage.get(key).get("cursor") or {}).get("index", 0)) if coverage else 0
-    for position, (url, role) in enumerate(sorted(unique.items())):
-        if position < index:
-            continue
-        if attempts >= details or (deadline and time.monotonic() > deadline):
-            _checkpoint(coverage, key, {"index": position}, found=len(out))
-            return out, None
-        _checkpoint(coverage, key, {"index": position + 1}, found=len(out))
-        age = age_days(str(role.get("postedDate") or ""))
-        if max_age_days is not None and age is not None and age > max_age_days:
-            continue
-        if not title_ok(str(role["title"])) or (skip_posting and skip_posting({"url": url, "company": role["company"], "title": role["title"], "requisition_id": role.get("_requisition", "")})):
-            continue
-        if not place_ok(str(role.get("location") or "")):
-            continue
-        attempts += 1
-        full = read_posting(url, fetcher)
-        if not full or not place_ok(str(full.get("location") or role.get("location") or "")):
-            continue
-        valid = _parse_date(full.get("valid_through") or "")
-        if valid and valid < datetime.now(timezone.utc):
-            continue
-        sponsorship = str(role.get("visaSponsorship") or "")
-        note = f" askmanavi lists visa sponsorship as {sponsorship}." if sponsorship and sponsorship != "Unknown" else ""
-        out.append(make_posting(role["company"], full.get("title") or role["title"], full.get("url") or url,
-                                full.get("location") or role.get("location") or "", full["description"],
-                                source="askmanavi", source_kind="employer_feed",
-                                vouched=(f"{role['company']} posting read from the employer's own careers system "
-                                         f"({urlsplit(url).hostname}), linked from the askmanavi graduate tracker."),
-                                requisition_id=str(full.get("requisition_id") or role.get("_requisition") or ""),
-                                posted_at=str(role.get("postedDate") or full.get("posted_at") or ""), tz=tz,
-                                raw_salary=full.get("raw_salary"), valid_through=full.get("valid_through", ""),
-                                verification=f"Found on the askmanavi graduate tracker; full text read from the employer's "
-                                             f"own careers page ({full.get('method', 'feed')}).{note}"))
-    _checkpoint(coverage, key, {}, complete=True, found=len(out))
-    return out, None
-
-
 # ----- the employer lists --------------------------------------------------------------------
 
 def directory(code: str) -> dict:
@@ -761,8 +872,13 @@ def row_url(row: dict) -> str:
     ats, token = str(row.get("ats") or "").casefold(), str(row.get("token") or row.get("ats_token") or "")
     if ats == "workday" and row.get("host"):
         return f"https://{row['host']}/{row.get('site') or ''}".rstrip("/")
+    from backend.market.readers import ats as boards
+
+    if ats in boards.KINDS:
+        return boards.careers_url(row)
     base = {"greenhouse": "https://boards.greenhouse.io/", "lever": "https://jobs.lever.co/",
-            "ashby": "https://jobs.ashbyhq.com/", "smartrecruiters": "https://jobs.smartrecruiters.com/"}.get(ats)
+            "lever_eu": "https://jobs.eu.lever.co/", "ashby": "https://jobs.ashbyhq.com/",
+            "smartrecruiters": "https://jobs.smartrecruiters.com/"}.get(ats)
     return base + token if base and token else ""
 
 
@@ -778,6 +894,8 @@ def tracked_row(name: str, url: str) -> dict:
         return {**row, "ats": "greenhouse", "token": path[0]}
     if host == "jobs.lever.co" and path:
         return {**row, "ats": "lever", "token": path[0]}
+    if host == "jobs.eu.lever.co" and path:
+        return {**row, "ats": "lever_eu", "token": path[0]}
     if host == "jobs.ashbyhq.com" and path:
         return {**row, "ats": "ashby", "token": path[0]}
     if host in {"jobs.smartrecruiters.com", "careers.smartrecruiters.com"} and path:
@@ -786,8 +904,14 @@ def tracked_row(name: str, url: str) -> dict:
         sites = [segment for segment in path if not _LOCALE.match(segment)]
         if sites:
             return {**row, "ats": "workday", "host": host, "site": sites[0]}
-    raise ValueError("That link is not a Greenhouse, Lever, Ashby, Workday or SmartRecruiters careers page, so it "
-                     "cannot be read directly. Open the company's careers page and use the link of its job list.")
+    from backend.market.readers import ats
+
+    board = ats.board_row(url)
+    if board:
+        return {**row, **board}
+    raise ValueError("That link is not a Greenhouse, Lever, Ashby, Workday, SmartRecruiters, Workable, Recruitee, "
+                     "Personio or Teamtailor careers page, so it cannot be read directly. Open the company's careers "
+                     "page and use the link of its job list.")
 
 
 def _board_vouch(board: str, found: dict) -> str:
@@ -808,6 +932,17 @@ def employer_rows(root, source: str) -> list[dict]:
                          "_vouched": f"Tracked employer: {row.get('name')} is listed in data/config/portals.yml and this "
                                      "posting was read from its own careers feed."})
         return rows
+    if source == "registry":
+        # Careers boards of employers in DETE's permit records (market/registry.py), minus boards found gone.
+        from backend.market import registry as permit_registry
+        from backend.market.store import MarketStore
+
+        try:
+            gone = MarketStore().gone_boards(days=permit_registry.GONE_DAYS)
+        except Exception as error:  # noqa: BLE001 - the market store is a cache; read every board instead
+            telemetry.event("market.boards_unavailable", error=telemetry.safe_error(error))
+            gone = set()
+        return [row for market in target_markets_for(root) for row in permit_registry.employer_rows(market, gone=gone)]
     from backend.services.source_coverage import Coverage
     registry = Coverage(root)
     rows = []
@@ -830,6 +965,12 @@ def employer_feed(row: dict, fetcher: Fetcher, title_ok, place_ok, *, country: s
     if ats == "smartrecruiters":
         return smartrecruiters_jobs(row, fetcher, title_ok, country=country, tz=tz, deadline=deadline,
                                     coverage=coverage, skip_posting=skip_posting)
+    from backend.market.readers import ats as boards
+
+    if ats in boards.KINDS:
+        board = boards.read_board(row, fetcher, tz=tz)
+        return ([posting for posting in board["postings"] if title_ok(posting["title"]) and place_ok(posting["location"])
+                 and not (skip_posting and skip_posting(posting))], board["error"])
     kind, token = board_token(row)
     if not kind or not token:
         return [], None
@@ -887,7 +1028,7 @@ def harvest(root, sources: list[str], *, title_ok, place_ok, keywords: list[str]
             coverage.append(f"{SOURCE_LABELS['held']}: {added} re-checked")
             progress(SOURCE_LABELS["held"], found=added)
             continue
-        if source in ("tracked", "directory"):
+        if source in ("tracked", "directory", "registry"):
             rows = employer_rows(root, source)
             if not rows:
                 coverage.append(f"{SOURCE_LABELS[source]}: none listed")
@@ -920,7 +1061,7 @@ def harvest(root, sources: list[str], *, title_ok, place_ok, keywords: list[str]
                             skipped += 1
                         else:
                             batch.append(row)
-                    for row, found, error, attempted in pool.map(read_employer, batch):
+                    for row, found, error, attempted in pool.map(telemetry.carry(read_employer), batch):
                         if not attempted:
                             partial = True
                             continue
@@ -936,6 +1077,8 @@ def harvest(root, sources: list[str], *, title_ok, place_ok, keywords: list[str]
                         state = "failed" if error else (registry.get(detail_key).get("state", "partial") if detail_key else "complete")
                         partial = partial or state == "partial"
                         registry.checkpoint("employer:" + row_url(row), {}, state, found=added, error=error or "")
+                        if source == "registry":
+                            note_board(row, error)
                         if error:
                             coverage.append(f"{row.get('name')}: FETCH FAILED ({error})")
                         progress(str(row.get("name") or "Employer"), url=row_url(row), found=added,
@@ -947,18 +1090,33 @@ def harvest(root, sources: list[str], *, title_ok, place_ok, keywords: list[str]
                             f"{matched} new matching postings; {state}"
                             + (f", {skipped} skipped" if skipped else ""))
             continue
-        if source == "gradireland":
+        if source == "eures":
+            from backend.market.readers.eures import eures_jobs
+
+            found, error = eures_jobs(fetcher, keywords, title_ok, place_ok, tz=tz, deadline=deadline,
+                                      coverage=registry, skip_posting=skip_posting)
+        elif source == "gradireland":
             found, error = gradireland_jobs(fetcher, title_ok, place_ok, tz=tz, deadline=deadline, coverage=registry, skip_posting=skip_posting)
         elif source == "jobs_ie":
             found, error = jobs_ie_jobs(fetcher, keywords, title_ok, place_ok, tz=tz, deadline=deadline, coverage=registry, skip_posting=skip_posting)
-        elif source == "askmanavi":
-            found, error = askmanavi_jobs(fetcher, title_ok, place_ok, tz=tz, deadline=deadline, coverage=registry, skip_posting=skip_posting)
+        elif source in ("careerjet", "jooble"):
+            # Optional keyed aggregators: leads looked up on the employer's own board (market/readers/aggregators.py).
+            from backend.market.readers.aggregators import aggregator_jobs
+
+            found, error, note = aggregator_jobs(source, fetcher, keywords, title_ok, place_ok, root=root, tz=tz,
+                                                 deadline=deadline, coverage=registry, skip_posting=skip_posting)
+            added = keep(found)
+            registry.checkpoint("feeds:" + source, {}, "failed" if error else "complete", found=added, error=error or "")
+            coverage.append(f"{SOURCE_LABELS[source]}: " + (f"FETCH FAILED ({error})" if error else note))
+            progress(SOURCE_LABELS[source], url=BOARD_URLS.get(source, ""), found=added, error=str(error or ""))
+            continue
         else:
             coverage.append(f"{source}: unknown source")
             continue
         added = keep(found)
-        if source == "jobs_ie":
-            states = [registry.get("jobs_ie:" + k).get("state", "partial") for k in keywords]
+        if source in ("jobs_ie", "eures"):
+            prefix = "jobs_ie:" if source == "jobs_ie" else "eures:"
+            states = [registry.get(prefix + (k if source == "jobs_ie" else k.casefold())).get("state", "partial") for k in keywords]
             state = "failed" if error else "complete" if states and all(s == "complete" for s in states) else "partial"
         else:
             state = "failed" if error else registry.get("board:" + source).get("state", "partial")
@@ -969,4 +1127,36 @@ def harvest(root, sources: list[str], *, title_ok, place_ok, keywords: list[str]
                  error=str(error or "") if not found else "")
     if fetcher.refused:
         coverage.append("Not read because robots.txt disallows it: " + ", ".join(sorted(set(fetcher.refused))))
+    rechecked = {item.get("url") for item in held or []}  # held from an earlier pass, not read again now
+    record_in_market([item for item in postings if item.get("url") not in rechecked])
     return postings, coverage
+
+
+def note_board(row: dict, error: str | None) -> None:
+    """A registry board that answered "not found" is set aside (market/registry.py GONE_DAYS); one read again is active."""
+    from backend.market.store import MarketStore
+
+    try:
+        if error and error.startswith("HTTP 404"):
+            MarketStore().mark_board({**row, "careers_url": row_url(row)}, "gone")
+        elif not error:
+            MarketStore().mark_board({**row, "careers_url": row_url(row)}, "active")
+    except Exception as failure:  # noqa: BLE001 - board states are a cache of public data
+        telemetry.event("market.board_state_failed", error=telemetry.safe_error(failure))
+
+
+def record_in_market(postings: list[dict]) -> dict | None:
+    """Add what was read to the shared public market store; a store problem never stops a search."""
+    from backend import features
+
+    if not postings or not features.enabled("market_store"):
+        return None
+    from backend.market.store import MarketStore
+
+    try:
+        counts = MarketStore().record_postings(postings)
+    except Exception as error:  # noqa: BLE001 - the market store is a cache of public data
+        telemetry.event("market.record_failed", error=telemetry.safe_error(error))
+        return None
+    telemetry.event("market.recorded", **counts)
+    return counts

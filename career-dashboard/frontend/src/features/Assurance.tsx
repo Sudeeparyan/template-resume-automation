@@ -266,8 +266,15 @@ export default function Assurance({
                     <span className="claim-tags">
                       <Badge tone="green">Evidence {claim.confidence}</Badge>
                       <Badge tone="neutral">{claim.section}</Badge>
+                      {claim.reworded_from && <Badge tone="neutral">Reworded for this role</Badge>}
                     </span>
                     <p className="claim-text">{claim.text}</p>
+                    {claim.reworded_from && (
+                      <p className="small muted">
+                        Your registered wording: “{claim.reworded_from}”. The new wording was checked to state the
+                        same facts and numbers.
+                      </p>
+                    )}
                     <details>
                       <summary>Evidence details</summary>
                       <small>

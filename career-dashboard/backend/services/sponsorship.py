@@ -28,6 +28,7 @@ from typing import Any
 from urllib.parse import urlsplit
 
 from backend.paths import CONFIG, COUNTRIES, DATA
+from backend.permits.history import PermitHistoryIndex
 
 RULES_PATH = CONFIG / "sponsorship.yml"
 TEMPORAL_SPONSORSHIP_REFUSAL = (
@@ -89,6 +90,7 @@ class Verdict:
     h1b_years: list[str] = field(default_factory=list)
     everify: bool = False
     restored: bool = False       # the candidate reviewed the exclusion sentence and restored the posting
+    permit_record: dict = field(default_factory=dict)  # DETE history ranks; it never promises support
     tier_labels: dict = field(default_factory=dict, repr=False)  # a profile's own wording (sponsorship.yml)
 
     @property
@@ -100,6 +102,13 @@ class Verdict:
         return self.screen.sentence if self.excluded else ""
 
     def label(self) -> str:
+        if self.tier == "B" and self.permit_record.get("found"):
+            from backend.permits.history import describe
+
+            names = ", ".join(self.permit_record.get("matched_names") or [])
+            recent = self.permit_record.get("permits_24_months", 0)
+            return (f"DETE permits issued to {names}: {recent:,} in the last 24 months "
+                    f"({describe(self.permit_record)}); posting is silent")
         if self.tier == "B" and self.h1b_approvals:
             years = ", ".join(self.h1b_years) if self.h1b_years else "recent years"
             return f"H-1B history: {self.h1b_approvals:,} approvals ({years}); posting is silent"
@@ -121,6 +130,7 @@ class Verdict:
             "h1b_matched_name": self.h1b_matched_name,
             "h1b_approvals": self.h1b_approvals,
             "h1b_years": self.h1b_years,
+            "permit_record": self.permit_record,
             "everify": self.everify,
             "positive_evidence": self.screen.evidence,
             "restored": self.restored,
@@ -164,6 +174,9 @@ def rules_for(root, market: str | None = None) -> dict[str, Any]:
     custom = root / "data/config" / ("sponsorship.yml" if code == primary else f"sponsorship-{code}.yml")
     path = custom if custom.is_file() else pack.template("sponsorship.yml")
     rules = load_rules(str(path))
+    if not rules["neutral_notices"] and path != pack.template("sponsorship.yml"):
+        # A profile's copy older than the country's notice list still ignores the notices.
+        rules = {**rules, "neutral_notices": load_rules(str(pack.template("sponsorship.yml")))["neutral_notices"]}
     try:
         profile = yaml.safe_load((root / "data/config/profile.yml").read_text(encoding="utf-8")) or {}
     except (OSError, yaml.YAMLError):
@@ -193,7 +206,8 @@ def _compile_rules(path: str, _stamp: int) -> dict[str, Any]:
         cfg = yaml.safe_load(stream) or {}
     compiled: dict[str, Any] = {}
     for group in ("exclude_no_sponsorship", "exclude_cannot_hire", "positive_sponsorship",
-                  "everify_signals", "do_not_exclude_on", "negation_guards", "ambiguous_sponsor_noun"):
+                  "everify_signals", "do_not_exclude_on", "negation_guards", "ambiguous_sponsor_noun",
+                  "neutral_notices"):
         patterns = []
         for raw in cfg.get(group, []) or []:
             # Old profiles contain copied country rules. Retire these unsafe broad
@@ -221,6 +235,8 @@ def _compile_rules(path: str, _stamp: int) -> dict[str, Any]:
     # Optional per-country wording; the defaults are the US wording.
     compiled["labels"] = {**REASON_LABEL, **(cfg.get("labels") or {})}
     compiled["tier_labels"] = dict(cfg.get("tier_labels") or {})
+    compiled["sponsor_index"] = cfg.get("sponsor_index") or ""
+    compiled["tier_b_min_permits"] = max(1, int(cfg.get("tier_b_min_permits") or 1))
     return compiled
 
 
@@ -311,6 +327,17 @@ def _first_unguarded_match(patterns, sentence: str, guards):
     return None
 
 
+def strip_notices(text: str, rules: dict[str, Any]) -> str:
+    """The posting without the statutory notices a job board adds to every advert.
+
+    JobsIreland and EURES append a reminder that non-EEA nationals need a permit. It restates
+    the law; it is not this employer's statement, so it neither excludes nor counts as wording.
+    """
+    for pattern in rules.get("neutral_notices") or []:
+        text = pattern.sub(" ", text)
+    return text
+
+
 def screen(jd_text: str, rules: dict[str, Any] | None = None) -> Screen:
     """Read the posting's own words. Never raises on odd input.
 
@@ -322,6 +349,7 @@ def screen(jd_text: str, rules: dict[str, Any] | None = None) -> Screen:
     """
     rules = rules or load_rules()
     labels = rules.get("labels") or REASON_LABEL
+    jd_text = strip_notices(jd_text or "", rules)
     everify = bool(_first_match(rules["everify_signals"], jd_text or ""))
     positives: list[dict] = []
     for original in _original_sentences(jd_text or ""):
@@ -414,8 +442,9 @@ CREATE TABLE IF NOT EXISTS sponsor_meta (
 """
 
 
-class SponsorIndex:
+class SponsorIndex(PermitHistoryIndex):
     """SQLite cache over the USCIS CSV; rebuilt whenever the CSV changes. Lookups take milliseconds."""
+    kind = "uscis"
 
     def __init__(self, csv_path: Path = SPONSORS_CSV, db_path: Path = INDEX_DB):
         self.csv_path = Path(csv_path)
@@ -541,11 +570,18 @@ class NullIndex:
         return {"employers": 0, "built_at": None, "csv": ""}
 
 
-def index_for(root, market: str | None = None) -> SponsorIndex | NullIndex:
-    """The employer-history index a workspace's country pack uses (USCIS H-1B for the US)."""
+def index_for(root, market: str | None = None) -> PermitHistoryIndex | NullIndex:
+    """The selected country's public employer history (USCIS or Irish DETE)."""
     from backend.countries import pack_for
 
-    return index() if pack_for(root, market).sponsor_index == "uscis" else NullIndex()
+    source = pack_for(root, market).sponsor_index
+    if source == "uscis":
+        return index()
+    if source == "dete":
+        from backend.permits.history import index as dete_index
+
+        return dete_index()
+    return NullIndex()
 
 
 # --------------------------------------------------------------------------
@@ -565,7 +601,7 @@ def resolve_tier(result: Screen, cap_exempt: bool, approvals: int) -> str:
 
 def evaluate(company: str, jd_text: str, url: str = "", location: str = "",
              extra_sentences: list[str] | None = None, employer_type: str = "",
-             rules: dict[str, Any] | None = None, sponsor_index: SponsorIndex | None = None) -> Verdict:
+             rules: dict[str, Any] | None = None, sponsor_index: PermitHistoryIndex | NullIndex | None = None) -> Verdict:
     """Gate a posting. `extra_sentences` lets discovery pass the verbatim restriction wording it found."""
     rules = rules or load_rules()
     text = jd_text or ""
@@ -573,12 +609,27 @@ def evaluate(company: str, jd_text: str, url: str = "", location: str = "",
         text = text + "\n" + "\n".join(s for s in extra_sentences if s)
     result = screen(text, rules)
     cap_exempt, cap_reason = is_cap_exempt(company, domain_of(url), rules, employer_type)
-    history = (sponsor_index or index()).lookup(company, _state_of(location))
-    tier = resolve_tier(result, cap_exempt, int(history.get("approvals") or 0))
+    if sponsor_index is None:
+        # Callers without a profile must explicitly identify their history source.
+        if rules.get("sponsor_index") == "dete":
+            from backend.permits.history import index as dete_index
+
+            sponsor_index = dete_index()
+        elif rules.get("sponsor_index") == "uscis":
+            sponsor_index = index()
+        else:
+            sponsor_index = NullIndex()
+    history = sponsor_index.lookup(company, _state_of(location))
+    is_dete = "permits_24_months" in history
+    approvals = int(history.get("permits_24_months") or 0) if is_dete else int(history.get("approvals") or 0)
+    if is_dete and approvals < int(rules.get("tier_b_min_permits") or 1):
+        approvals = 0
+    tier = resolve_tier(result, cap_exempt, approvals)
     return Verdict(
         tier=tier, screen=result, cap_exempt=cap_exempt, cap_exempt_reason=cap_reason,
-        h1b_found=bool(history.get("found")), h1b_matched_name=history.get("matched_name"),
-        h1b_approvals=int(history.get("approvals") or 0), h1b_years=list(history.get("years") or []),
+        h1b_found=bool(history.get("found")) and not is_dete, h1b_matched_name=history.get("matched_name") if not is_dete else None,
+        h1b_approvals=int(history.get("approvals") or 0) if not is_dete else 0, h1b_years=list(history.get("years") or []) if not is_dete else [],
+        permit_record=history if is_dete else {},
         everify=result.everify, tier_labels=rules.get("tier_labels") or {},
     )
 

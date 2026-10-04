@@ -36,7 +36,7 @@ import {
   statusBadge,
 } from "./profileView";
 
-const PERSONAL_ORDER = ["Contact & identity", "Work authorization", "Career snapshot", "How resumes show these", "Other details"];
+const PERSONAL_ORDER = ["Contact & identity", "Work authorization", "Permit facts", "Career snapshot", "How resumes show these", "Other details"];
 // Within Basics, rows follow a resume header rather than the alphabet.
 const FIELD_ORDER = [
   "full_name", "preferred_name", "email", "phone", "github", "linkedin", "portfolio_url", "location",

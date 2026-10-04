@@ -143,6 +143,9 @@ def build_parser():
 
 
 def main(argv=None):
+    from backend import keep_traces_local
+
+    keep_traces_local()
     parser = build_parser()
     args = parser.parse_args(argv)
     if not 1024 <= args.port <= 65535:
@@ -200,6 +203,10 @@ def main(argv=None):
     if not args.no_browser:
         opener = threading.Thread(target=open_when_ready, args=(url,), daemon=True)
         opener.start()
+    # Every agent run, AI call and web request is traced to local files (docs/OBSERVABILITY.md).
+    from backend import telemetry
+
+    telemetry.setup_tracing()
     # One server for every profile; each profile is its own isolated app under /p/<id>/.
     uvicorn.run(create_shell(schedule=True), host="127.0.0.1", port=args.port, log_level="info")
 

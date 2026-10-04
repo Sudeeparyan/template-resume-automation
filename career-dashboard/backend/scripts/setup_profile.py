@@ -122,8 +122,19 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--from", dest="folder", default=str(REPO / "me"), help="folder with the resume and notes (default: me/)")
     parser.add_argument("--name", help="full name for a new profile (default: 'Full name:' in me/about-me.md)")
     parser.add_argument("--profile", help="an existing profile ID to add files to and rebuild")
-    parser.add_argument("--market", default="", help="ie, us or both (default: the profile's markets, else ie)")
+    parser.add_argument("--market", default="", help="a market this copy offers, e.g. ie (default: the profile's markets, else ie)")
     parser.add_argument("--work-auth", default="", help="JSON keyed by market, or a path to a JSON file")
+    parser.add_argument("--permission-type", help="person-confirmed Irish permission, e.g. stamp_1g")
+    parser.add_argument("--valid-until", help="person-confirmed exact permission expiry, YYYY-MM-DD")
+    parser.add_argument("--award-date", help="person-confirmed actual degree award date, YYYY-MM-DD")
+    parser.add_argument("--nfq-level", type=int, choices=range(1, 11))
+    parser.add_argument("--irish-institution", choices=("yes", "no", "unknown"))
+    parser.add_argument("--relevant-degree", choices=("yes", "no", "unknown"))
+    parser.add_argument("--graduate-search", action="store_true", help="confirm graduate/junior/entry search, up to 3 years required")
+    parser.add_argument("--seniority", help="confirmed search levels, comma separated")
+    parser.add_argument("--max-years-required", type=int)
+    parser.add_argument("--salary-floor-eur", type=float)
+    parser.add_argument("--salary-policy", choices=("confirmed_only", "confirmed_or_estimated"))
     parser.add_argument("--no-build", action="store_true", help="only create the profile and add the files")
     parser.add_argument("--wait-minutes", type=float, default=30, help="how long to wait for the build (default 30)")
     parser.add_argument("--profiles-dir", help=argparse.SUPPRESS)  # tests: a disposable profiles folder
@@ -135,6 +146,13 @@ def main(argv: list[str] | None = None) -> int:
     markets = MARKETS.get(args.market.strip().casefold().replace(" ", "")) if args.market else None
     if args.market and markets is None:
         parser.error("--market must be ie, us or both")
+    if markets:
+        from backend.countries import enabled_markets
+
+        switched_off = [m for m in markets if m not in enabled_markets()]
+        if switched_off:
+            parser.error(f"--market {','.join(switched_off)} is switched off in this copy (it searches "
+                         f"{', '.join(enabled_markets())}); see docs/DEVELOPERS.md, 'Re-enabling a market'")
     authorization = {}
     if args.work_auth:
         text = Path(args.work_auth).read_text(encoding="utf-8") if Path(args.work_auth).is_file() else args.work_auth
@@ -142,6 +160,22 @@ def main(argv: list[str] | None = None) -> int:
             authorization = json.loads(text)
         except ValueError:
             parser.error("--work-auth must be JSON such as {\"ie\": {\"status\": \"authorized\"}}")
+    try:
+        from backend.services.intake.authorization import validate_authorization
+
+        if not isinstance(authorization, dict):
+            raise ValueError("--work-auth must be a market-keyed object.")
+        if args.permission_type or args.valid_until:
+            authorization.setdefault("ie", {})
+            if args.permission_type:
+                authorization["ie"]["permission_type"] = args.permission_type
+            if args.valid_until:
+                authorization["ie"].update(valid_until=args.valid_until, valid_until_raw=args.valid_until,
+                                           valid_until_confirmed=True)
+        authorization = {market: validate_authorization(value, market) for market, value in authorization.items()}
+        args.permit_options = permit_options(args)
+    except ValueError as error:
+        parser.error(str(error))
 
     result: dict = {"added": [], "unchanged": []}
     client, server = client_for(args.profiles_dir)
@@ -186,6 +220,7 @@ def build(client, args, parser, folder: Path, files: list[Path], markets, author
         result["build"] = "skipped (--no-build)"
         return 0
     options = {"work_authorization_by_market": authorization}
+    options.update(getattr(args, "permit_options", {}))
     if markets:
         options["target_markets"] = markets
     run = check(client.post(base + "/build-runs", json=options), "Start the build")
@@ -207,6 +242,30 @@ def build(client, args, parser, folder: Path, files: list[Path], markets, author
     listing = check(client.get("/api/profiles"), "Profiles")["profiles"]
     result["state"] = next((p.get("state") for p in listing if p["id"] == pid), None)
     return 0 if run["status"] == "completed" else 1
+
+
+def permit_options(args) -> dict:
+    """Only explicit CLI arguments are person confirmations; omitted fields remain unknown."""
+    from backend.services.intake.authorization import validate_education, validate_job_search
+
+    education = {}
+    for key in ("nfq_level", "irish_institution", "relevant_degree"):
+        value = getattr(args, key, None)
+        if value is not None:
+            education[key] = value
+    if getattr(args, "award_date", None):
+        education.update(award_date=args.award_date, award_date_raw=args.award_date, award_date_confirmed=True)
+    preferences = {}
+    for key in ("max_years_required", "salary_floor_eur", "salary_policy"):
+        value = getattr(args, key, None)
+        if value is not None:
+            preferences[key] = value
+    if getattr(args, "seniority", None):
+        preferences["seniority"] = [part.strip() for part in args.seniority.split(",") if part.strip()]
+    if getattr(args, "graduate_search", False):
+        preferences["graduate_search_confirmed"] = True
+    return {**({"education_for_permits": validate_education(education)} if education else {}),
+            **({"job_search": validate_job_search(preferences)} if preferences else {})}
 
 if __name__ == "__main__":
     try:

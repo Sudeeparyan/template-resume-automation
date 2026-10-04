@@ -16,7 +16,7 @@ import copy
 import json
 import re
 
-TEXT, TEXTAREA, LIST, NUMBER = "text", "textarea", "list", "number"
+TEXT, TEXTAREA, LIST, NUMBER, BOOLEAN, SELECT = "text", "textarea", "list", "number", "boolean", "select"
 
 
 def _spec(key, label, type=TEXT, **extra):
@@ -133,8 +133,53 @@ PERSONAL_GROUPS = [
     ("Work authorization", {"work_authorization", "sponsorship_need", "citizenship", "availability"}),
     ("Career snapshot", {"current_status", "most_recent_role", "education_summary",
                          "dated_professional_experience"}),
-    ("Job search", {"target_roles", "location_preferences"}),
+    ("Permit facts", {"ie_permit_facts", "education_for_permits"}),
+    ("Job search", {"target_roles", "location_preferences", "job_search"}),
 ]
+
+def _choice(key, label, labels):
+    """A drop-down whose stored values are codes and whose shown words are ``labels``."""
+    return _spec(key, label, SELECT, options=list(labels), option_labels=dict(labels))
+
+
+PERMIT_FORMS = {
+    "ie_permit_facts": [
+        _choice("value.status", "Permission to work", {
+            "unknown": "Not confirmed", "authorized": "I can work in Ireland now",
+            "needs_sponsorship": "An employer must get me a permit first"}),
+        _choice("value.citizenship", "Citizenship", {
+            "unknown": "Not confirmed", "citizen": "Irish, EU/EEA, UK or Swiss citizen",
+            "noncitizen": "Not a citizen of those countries"}),
+        _choice("value.needs_sponsorship_later", "Employer permit needed now or later", {
+            "unknown": "Not sure", "yes": "Yes", "no": "No, never"}),
+        _choice("value.permission_type", "Irish permission", {
+            "unknown": "Not sure", "stamp_1g": "Stamp 1G (graduate)", "stamp_2": "Stamp 2 (student)",
+            "stamp_4": "Stamp 4", "irish_or_eea_citizen": "Irish, EU/EEA, UK or Swiss citizen",
+            "csep_holder": "Critical Skills Employment Permit", "gep_holder": "General Employment Permit",
+            "stamp_1": "Stamp 1 (other)", "stamp_3": "Stamp 3", "other": "Other"}),
+        _spec("value.permission_wording", "Permission in your own words"),
+        _spec("value.valid_until_raw", "Expiry as supplied"),
+        _spec("value.valid_until", "Exact expiry day", placeholder="YYYY-MM-DD"),
+        _spec("value.valid_until_confirmed", "I confirm the exact expiry day", BOOLEAN),
+    ],
+    "education_for_permits": [
+        _spec("value.award_date_raw", "Award date as supplied"),
+        _spec("value.award_date", "Exact degree award date", placeholder="YYYY-MM-DD"),
+        _spec("value.award_date_confirmed", "I confirm the award date (not expected graduation)", BOOLEAN),
+        _spec("value.nfq_level", "NFQ level", NUMBER),
+        _spec("value.irish_institution", "Award from an Irish institution", BOOLEAN),
+        _spec("value.relevant_degree", "Degree relevant to target occupations", BOOLEAN),
+    ],
+    "job_search": [
+        _spec("value.salary_floor_eur", "Yearly base salary floor (€)", NUMBER),
+        _choice("value.salary_policy", "Pay a job must show", {
+            "confirmed_or_estimated": "Advertised pay, or an estimate (market data or researched comparable pay) when none is advertised",
+            "confirmed_only": "Advertised pay only"}),
+        _spec("value.graduate_search_confirmed", "Search graduate and entry-level roles", BOOLEAN),
+        _spec("value.seniority", "Seniority to search", LIST),
+        _spec("value.max_years_required", "Maximum years required", NUMBER),
+    ],
+}
 
 SKILL_TIER = re.compile(r"05-skills\.md\s*>\s*(.+)$")
 
@@ -189,6 +234,8 @@ def _as_text(value) -> str:
 
 
 def _typed(value, type):
+    if type == BOOLEAN:
+        return value if isinstance(value, bool) else None
     if type == LIST:
         return _as_list(value)
     if type == NUMBER:
@@ -229,6 +276,8 @@ def _value_type(value):
 def form_for(item) -> list[dict]:
     """The form for an existing entry: its kind's form, or one field per part of a mapping."""
     if _structured_personal(item):
+        if item["data"].get("field") in PERMIT_FORMS:
+            return [SCHEMAS["personal"][0]] + PERMIT_FORMS[item["data"]["field"]]
         value = item["data"]["value"]
         return [SCHEMAS["personal"][0]] + [
             _spec("value." + key, humanize(key), _value_type(part)) for key, part in value.items()
@@ -248,6 +297,10 @@ def fields_for(item) -> dict:
     kind, data = item["kind"], item.get("data") or {}
     values = {"title": label_for(item)}
     if _structured_personal(item):
+        special = PERMIT_FORMS.get(data.get("field"))
+        if special:
+            return {**values, **{spec["key"]: _typed(data["value"].get(spec["key"].split(".", 1)[1]), spec["type"])
+                                for spec in special}}
         for key, part in data["value"].items():
             values["value." + key] = _typed(part, _value_type(part))
         return values
@@ -282,6 +335,16 @@ def derive_summary(kind, values) -> str:
 
 
 def _clean(value, spec):
+    if spec["type"] == BOOLEAN:
+        from backend.services.intake.authorization import optional_bool
+
+        return optional_bool(value, spec["label"])
+    if spec["type"] == SELECT:
+        if value in (None, ""):
+            return spec["options"][0]
+        if value not in spec["options"]:
+            raise ValueError(f"{spec['label']}: choose one of the offered answers.")
+        return value
     if spec["type"] == LIST:
         if not isinstance(value, (list, str)):
             raise ValueError(f"{spec['label']} must be a list of lines")
@@ -325,7 +388,11 @@ def apply_fields(kind, fields, old=None):
     title = _as_text(values.get("title")).strip()
     if kind == "personal":
         if old and _structured_personal(old):
-            value = {key: values["value." + key] for key in old["data"]["value"]}
+            if old["data"].get("field") in PERMIT_FORMS:
+                value = {**old["data"]["value"], **{spec["key"].split(".", 1)[1]: values.get(spec["key"])
+                         for spec in PERMIT_FORMS[old["data"]["field"]]}}
+            else:
+                value = {key: values["value." + key] for key in old["data"]["value"]}
         elif isinstance(values.get("value"), list):
             value = values["value"]
         else:

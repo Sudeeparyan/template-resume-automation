@@ -17,6 +17,9 @@ from backend.services.intake.coverage import ledger  # noqa: E402
 from backend.services.intake.build import authorization_mode, build_profile, build_registry, draft_authorization_mode, file_set, preferred_locations  # noqa: E402
 from backend.services.sponsorship import rules_for  # noqa: E402
 
+# US and dual-market builds: the dormant US market is switched on for this module.
+pytestmark = pytest.mark.usefixtures("us_enabled")
+
 
 def _draft(status="authorized", later="unknown"):
     return {

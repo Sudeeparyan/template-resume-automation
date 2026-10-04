@@ -1,9 +1,8 @@
 ---
 name: tailor-resume
 description: >-
-  Make an honest resume tailored to one job, from the person's own evidence only, in the job
-  country's format (A4 CV for Ireland, US Letter resume for the US), as PDF and DOCX, then audit
-  it like a recruiter. Use for "make a resume for this job", a pasted posting or link, or for each
+  Make an honest resume tailored to one job, from the person's own evidence only, as an Irish A4
+  CV, in PDF and DOCX, then audit it like a recruiter. Use for "make a resume for this job", a pasted posting or link, or for each
   job that find-jobs keeps.
 ---
 
@@ -32,15 +31,22 @@ pending evidence reconciliation before tailoring. Use the exact selected profile
 saved job ID in every command below:
 
 ```text
-career add --file job.json --profile <profile-id>
+career add --url <posting link> --profile <profile-id>
+career add --file job.json --profile <profile-id>    (instead, when you have the full text as JSON)
 career ws fit --job-id <job-id> --profile <profile-id>
 career ws run --kind research --job-id <job-id> --profile <profile-id>
 career ws tailor --job-id <job-id> --profile <profile-id>
 career ws run --kind resume_match --job-id <job-id> --profile <profile-id>
+career ws docx --job-id <job-id> --profile <profile-id>
+career ws cover-letter --job-id <job-id> --profile <profile-id>
 career ws run --kind study_plan --job-id <job-id> --profile <profile-id>
 ```
 
-`career add` JSON: `company`, `title`, `location`, `url`, the full `description`. `career ws
+The `--url` form resolves the link to the employer's own posting first (an applicant-tracking
+feed, the page's structured posting, or the one employer posting an aggregator page links to)
+and reads its full text; when it answers `needs_employer_link` or `needs_details`, ask the person
+for what it names instead of guessing. `career add` JSON: `company`, `title`, `location`, `url`,
+the full `description`. `career ws
 tailor` tailors with the AI app signed in on the computer and uses the research; with no AI ready
 it ranks and fits registered evidence only (`tailored_by_ai` says which, so say so). Report the
 PDF path, pages, coverage, ATS score, gaps and the match review. AI-suggested skills or proposed
@@ -50,6 +56,20 @@ Keeping a suggestion in Assurance alone does not supply that evidence.
 Read the independent review's `verdict` and `issues`, not just the run's completed state.
 Only `pass` with no unresolved issues passes that check; `review`, `blocked` or a legacy
 report without a verdict needs attention before the resume is offered as ready.
+
+The tailor may reword up to two bullets of a registered project in the posting's words; the app
+keeps a rewording only when it states the same numbers and names no tool, employer or date that
+the evidence does not hold, and the resume check tests it again (the registry itself never
+changes). `left_out` says when a rewording was refused and the registered line kept.
+`career ws docx` writes a Word copy of the current checked PDF revision (same content; it refuses
+when the PDF is out of date). `career ws cover-letter` drafts a letter from registered evidence
+and verified company facts with the AI, checks every number, name and skill in it, has a second
+AI that did not write it flag any sentence about the person the evidence does not state, and
+otherwise builds one from the person's registered sentences (`method` says which; `note` says why
+an AI draft was set aside); it saves `.md` and `.docx` and never mentions visas or permits. The
+Daily Search and overnight hunt can write one per job when the person switches on the "Cover
+letter" helper (off by default). Give the person the paths and ask them to read the letter
+before using it.
 
 ## AI-only mode
 
@@ -63,7 +83,7 @@ report without a verdict needs attention before the resume is offered as ready.
    employer, date, degree and number exactly as in the evidence. When a number would help but the
    evidence has none, leave it out and ask the person for it afterwards; never estimate one.
 4. **Make the files** in the job's folder (`my-jobs/<date>/NN-company-role/`), named
-   `<First>-<Last>-CV` (Ireland) or `<First>-<Last>-Resume` (US):
+   `<First>-<Last>-CV`:
    - a `.docx` (easy for them to edit) and a `.pdf` (to upload). Use your document tools: for
      example the docx and pdf skills in Claude, Python with python-docx or reportlab, or your
      app's file export. When you can make only one, make the DOCX and say so. When you cannot

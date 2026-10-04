@@ -161,6 +161,97 @@ def test_verified_rewrites_and_mislabeled_skills_cannot_add_claims(tmp_path, mon
     assert all(row["evidence_id"] != "FORGED-ID" for row in studio.items(job["id"]))
 
 
+def test_a_reworded_bullet_is_kept_only_when_it_states_the_same_facts(tmp_path, monkeypatch):
+    services, studio, job, _, evidence = studio_fixture(tmp_path, monkeypatch)
+    plan = SuggestedItemsTeam(evidence).run("job_tailor", {})
+    plan["rewrites"] = [
+        {"evidence_id": "PROJ-001", "bullet": 1, "text": "Used Python and SQL for the report tool.", "cited_ids": ["SKILL-001"]},
+        {"evidence_id": "PROJ-002", "bullet": 1, "text": "Used Python and Apache Kafka for the data checker.", "cited_ids": []},
+        {"evidence_id": "PROJ-002", "bullet": 1, "text": "Used Python for the data checker.", "cited_ids": ["FORGED-ID"]},
+    ]
+    team = type("FixedTeam", (), {"run": lambda self, name, payload: plan})()
+    result = studio.tailor(job["id"], team)
+    source = result["source"]
+    assert "{Used Python and SQL for the report tool.}" in source
+    assert "% EVIDENCE: PROJ-001 SKILL-001\n\\newcommand{\\SelectedProjectBulletOne}" in source
+    assert "Apache Kafka" not in source and "{Used Python for data checker.}" in source
+    assert any("Kept the registered wording of bullet 1 of 'Data checker'" in note for note in result["left_out"])
+    reworded = next(row for row in studio.items(job["id"]) if row["evidence_id"] == "PROJ-001")
+    assert reworded["content"]["rewrites"] == [{"bullet": 1, "registered": "Used Python for report tool.",
+                                                "text": "Used Python and SQL for the report tool.",
+                                                "cited_ids": ["SKILL-001"], "guard": "passed"}]
+    assert evidence["projects"][0]["resume_content"]["bullets"] == ["Used Python for report tool."]  # registry unchanged
+    assert not studio.resume_evidence_problem(job["id"], source)
+    from backend.services.assurance import build_assurance
+
+    claims = build_assurance(services, studio, job["id"])["claims"]
+    shown = next(claim for claim in claims if claim["text"] == "Used Python and SQL for the report tool.")
+    assert shown["reworded_from"] == "Used Python for report tool." and shown["evidence_status"] == "verified"
+
+
+def test_switching_rewording_off_keeps_the_registered_wording(tmp_path, monkeypatch):
+    services, studio, job, _, evidence = studio_fixture(tmp_path, monkeypatch)
+    monkeypatch.setenv("CAREER_FEATURES", "-evidence_rewrites")
+    plan = SuggestedItemsTeam(evidence).run("job_tailor", {})
+    plan["rewrites"] = [{"evidence_id": "PROJ-001", "bullet": 1, "text": "Used Python and SQL for the report tool.",
+                         "cited_ids": ["SKILL-001"]}]
+    seen = []
+    team = type("Recorder", (), {"run": lambda self, name, payload: seen.append(payload) or plan})()
+    source = studio.tailor(job["id"], team)["source"]
+    assert seen[0]["rewrites_allowed"] is False
+    assert "Used Python and SQL" not in source and "{Used Python for report tool.}" in source
+    reworded = next(row for row in studio.items(job["id"]) if row["evidence_id"] == "PROJ-001")
+    assert not reworded["content"].get("rewrites")
+
+
+def test_the_tailor_gets_the_research_graphs_role_analysis_as_ranking_guidance(tmp_path, monkeypatch):
+    services, studio, job, _, evidence = studio_fixture(tmp_path, monkeypatch)
+    folder = services.w.root / "data/output/sample-job"
+    with services.w.connect() as db:
+        db.execute("UPDATE jobs SET folder=? WHERE id=?", ("data/output/sample-job", job["id"]))
+    (folder / "role-analysis.json").write_text(json.dumps({"hiring_summary": "Strong applications show SQL reporting.",
+                                                           "comparison_summary": "The profile shows Python reporting."}),
+                                               encoding="utf-8")
+    seen = []
+    plan = SuggestedItemsTeam(evidence).run("job_tailor", {})
+    team = type("Recorder", (), {"run": lambda self, name, payload: seen.append(payload) or plan})()
+    studio.tailor(job["id"], team)
+    assert seen[0]["role_analysis"]["hiring_manager_view"] == "Strong applications show SQL reporting."
+    assert "never evidence" in seen[0]["role_analysis"]["use"]
+
+
+def test_the_resume_check_accepts_a_reworded_bullet_only_while_the_rewording_check_passes():
+    from validate_resume import validate_selected_project
+
+    evidence = {"claims": [{"id": "SKILL-001", "category": "skill", "status": "user_reported",
+                            "approved_facts": ["SQL", "Power BI"]}],
+                "projects": [{"id": "PROJ-001", "status": "user_reported", "resume_content": {
+                    "title": "Sales dashboards", "context": "Personal project",
+                    "bullets": ["Built 12 dashboards for 40 store managers.", "Cleaned weekly sales files with Python."]}}]}
+
+    def source_with(bullet, tags="PROJ-001 SKILL-001"):
+        lines = []
+        for suffix, value, tag in (("ID", "PROJ-001", "PROJ-001"), ("Title", "Sales dashboards", "PROJ-001"),
+                                   ("Context", "Personal project", "PROJ-001"), ("BulletOne", bullet, tags),
+                                   ("BulletTwo", "Cleaned weekly sales files with Python.", "PROJ-001")):
+            lines += [f"% EVIDENCE: {tag}", f"\\newcommand{{\\SelectedProject{suffix}}}{{{value}}}"]
+        lines += ["% SELECTED_PROJECT_BLOCK_START", "\\textbf{\\SelectedProjectTitle} \\hfill \\textit{\\SelectedProjectContext}",
+                  "\\begin{resumeitems}", "\\item \\SelectedProjectBulletOne", "\\item \\SelectedProjectBulletTwo",
+                  "\\end{resumeitems}", "% SELECTED_PROJECT_BLOCK_END"]
+        return "\n".join(lines)
+
+    failures = []
+    found = validate_selected_project(source_with("Built 12 Power BI dashboards for 40 store managers."), evidence, "PROJ-001", failures)
+    assert failures == [] and found["reworded_bullets"] == [1] and found["content_matches_registry"]
+    for bullet, tags, problem in (("Built 15 Power BI dashboards for 40 store managers.", "PROJ-001 SKILL-001", "numbers changed"),
+                                  ("Built 12 Tableau dashboards for 40 store managers.", "PROJ-001", "tableau"),
+                                  ("Built 12 Power BI dashboards for 40 store managers.", "SKILL-001", "not tagged with its own project"),
+                                  ("Built 12 Power BI dashboards for 40 store managers.", "PROJ-001 SKILL-009", "not usable")):
+        failures = []
+        validate_selected_project(source_with(bullet, tags), evidence, "PROJ-001", failures)
+        assert failures and failures[0].startswith("Selected project bullets do not match") and problem in failures[0], failures
+
+
 def test_never_claim_list_is_not_a_verified_skill_pool(tmp_path, monkeypatch):
     services, studio, _, _, evidence = studio_fixture(tmp_path, monkeypatch)
     evidence["claims"].append({"id": "SKILL-NEVER-001", "category": "constraint", "status": "user_reported",

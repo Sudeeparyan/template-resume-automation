@@ -62,16 +62,25 @@ export type Opportunity = {
     observed_at: string;
   };
   salary_state: "meets_floor" | "below_floor" | "needs_confirmation" | "unknown";
-  section: "salary_matches" | "researched_leads" | "needs_research" | "below_floor";
+  section: "salary_matches" | "estimated_matches" | "researched_leads" | "needs_research" | "below_floor";
+  salary_policy?: "confirmed_or_estimated" | "confirmed_only";
+  /** A market estimate for a posting that states no pay (backend/market/salary_estimates.py); never this vacancy's pay. */
+  estimate?: { kind: "estimated"; currency: "EUR"; role_family: string; level: string; p25: number; median: number; p75: number; observations: number; employers: number; window_days: number; label: string } | null;
   permit: {
     state: "needs_confirmation" | "obstacle" | "criteria_checked";
     summary: string;
-    checks: { id: string; label: string; state: "pass" | "unknown" | "fail"; note: string }[];
+    checks: { id: string; label: string; state: "pass" | "unknown" | "fail"; note: string; url?: string }[];
     sources: { url: string; title: string }[];
+    /** Dated facts only (backend/permits/timeline.py): a confirmed expiry, the graduate window, lead times. */
+    timeline?: { as_of: string; events: PermitDate[]; disclaimer: string };
   };
   floor: number;
   sponsorship: { state: string; quote: string };
+  /** backend/permits/path_score.py: public evidence for a permit route, 0-100; not approval likelihood. */
+  permit_path?: { score: number; label: string; version: string; threshold: number; disclaimer: string;
+    parts: { id: string; points: number; max: number; reason: string }[] };
 };
+export type PermitDate = { id: string; label: string; date: string | null; days_left: number | null; note: string; url?: string };
 export type SponsorTier = "S" | "A" | "B" | "C";
 export type SponsorEvidence = {
   tier?: SponsorTier | "EXCLUDED";
@@ -117,7 +126,15 @@ export type CoverLetter = {
   version: number;
   content: string;
   path: string;
+  /** The Word copy under data/output ("" when Word copies are switched off). */
+  docx_path?: string;
   created_at: string;
+  /** "ai": drafted by the AI and checked against the evidence; "template": registered sentences. */
+  method?: "ai" | "template";
+  evidence_ids?: string[];
+  company_facts?: { text: string; quote: string; url: string }[];
+  /** Why an AI draft was set aside, when it was. */
+  note?: string;
   review_required: boolean;
 };
 export type Report = {
@@ -197,6 +214,8 @@ export type AssuranceClaim = {
   evidence_ids: string[];
   line?: number | null;
   note?: string;
+  /** A project bullet reworded for this job: its registered wording (the rewording passed the evidence check). */
+  reworded_from?: string | null;
 };
 export type AssuranceReport = {
   job_id: string;
@@ -250,6 +269,10 @@ export type Summary = {
     ghosted: number;
   };
   activity: { id: number; action: string; occurred_at: string; details: any }[];
+  /** Workspace-wide notices, for example Irish permit thresholds that are due for review. */
+  notices?: { id: string; level: "warning" | "info"; text: string }[];
+  /** What only the person can do now (backend/services/needs_you.py), most urgent first. */
+  needs_you?: NeedsYouItem[];
 };
 export type Knowledge = {
   id: string;
@@ -266,12 +289,15 @@ export type Knowledge = {
 export type ProfileFieldSpec = {
   key: string;
   label: string;
-  type: "text" | "textarea" | "list" | "number";
+  type: "text" | "textarea" | "list" | "number" | "boolean" | "select";
+  options?: string[];
+  /** The words shown for each stored option value. */
+  option_labels?: Record<string, string>;
   required?: boolean;
   placeholder?: string;
   hint?: string;
 };
-export type ProfileFieldValue = string | number | null | string[];
+export type ProfileFieldValue = string | number | boolean | null | string[];
 /** A knowledge row plus the readable view the Profile page renders. */
 export type ProfileEntry = Knowledge & {
   label: string;
@@ -672,3 +698,84 @@ export type HuntInfo = HuntStatus & {
   memory: { outcomes: Record<string, number>; rejected_by_stage: Record<string, number>; held: number };
   ai: { ready: boolean; wakes_at: string | null; wakes_text: string | null; note: string };
 };
+
+/** One Tracker row: an Irish posting the app read, with its permit evidence (market/tracker.py). */
+export type TrackerRow = {
+  key: string;
+  title: string;
+  company: string;
+  url: string;
+  location: string;
+  counties: string[];
+  region: string;
+  posting_type: string;
+  level: string;
+  role_family: string;
+  years_required: number | null;
+  closing_date: string;
+  posted_at: string;
+  first_seen: string;
+  last_seen: string;
+  salary: { kind: string; min: number | null; max: number | null; currency: string; period: string; quote: string };
+  statement: string;
+  statement_quote: string;
+  on_eures: boolean;
+  source: string;
+  source_label: string;
+  source_kind: string;
+  lead: boolean;
+  attribution: string;
+  sources: number;
+  permits: { permits_24m: number | null; legal_names: string[]; by_year: Record<string, number> };
+  tags: string[];
+  mine: { job_id: string; status: string } | null;
+  excluded: boolean;
+};
+
+export type TrackerResult = {
+  rows: TrackerRow[];
+  total: number;
+  all: number;
+  facets: {
+    type: Record<string, number>;
+    statement: Record<string, number>;
+    county: Record<string, number>;
+    dete: { yes: number };
+    new: number;
+    closing_soon: number;
+    leads: number;
+  };
+  filters: Record<string, string>;
+  updated: string;
+  note: string;
+  floor_eur: number;
+};
+
+export type TrackerAlert = {
+  id: string;
+  name: string;
+  filters: Record<string, string>;
+  created_at: string;
+  seen_at: string;
+  matches: number;
+  new: number;
+  examples: { title: string; company: string; key: string }[];
+};
+
+export type JobSourceStatus = {
+  id: string;
+  kind: string;
+  label: string;
+  ready: boolean;
+  missing: string;
+  terms: string;
+  personal_use_only?: boolean;
+  attribution?: string;
+  attribution_url?: string;
+  key_page?: string;
+  budget?: { per_day: number; lifetime?: number };
+  used?: { today: number; lifetime: number };
+  keys: { name: string; saved: boolean; saved_in: string }[];
+};
+
+export type NeedsYouItem = { id: string; text: string; where: "profile" | "settings" | "daily"; url?: string; job_ids?: string[] };

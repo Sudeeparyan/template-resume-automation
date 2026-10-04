@@ -404,10 +404,23 @@ class Assistant:
             db.execute("INSERT INTO assistant_messages(id,message,response,state,steps,data,created_at,updated_at,conversation_id) VALUES(?,?,?,?,?,?,?,?,?)",
                        (key, message, "Working on it.", "processing", "[]", "{}", stamp, stamp, self.conversation_id(db)))
         if self.pool:
-            self.pool.submit(self._process, key)
+            from backend import telemetry
+
+            telemetry.submit(self.pool, self._traced, key)
         else:
-            self._process(key)
+            self._traced(key)
         return self.get(key)
+
+    def _traced(self, id: str) -> None:
+        from backend import telemetry
+
+        with telemetry.bind(profile_root=self.w.root, run={"id": f"assistant:{id}", "kind": "assistant"}):
+            with telemetry.span("assistant.turn", **{"career.assistant_message": id}) as current:
+                self._process(id)
+                row = self.get(id)
+                telemetry.set_attributes(current, **{"career.run_state": row["state"]})
+                if row["state"] == "failed":
+                    telemetry.mark_failed(current, row.get("response"))
 
     def _process(self, id: str) -> None:
         row = self.get(id)
@@ -633,7 +646,22 @@ class Assistant:
 
     # ---- Paste a posting -> resume --------------------------------------------
     def _from_link(self, id, url):
+        from backend.services import lead_resolver
+
         self._step(id, "Fetching the posting page", agent="discovery")
+        # The employer's own posting first: an ATS feed, the page's structured posting, or the one
+        # employer posting an aggregator page links to (services/lead_resolver.py).
+        resolved = lead_resolver.resolve(url)
+        if resolved["status"] == "read":
+            posting = lead_resolver.to_posting(resolved)
+            self._finish_step(id, "done", f"{len(posting['description']):,} characters read from the posting's own source"
+                              + (" (reached from the pasted link)" if resolved.get("via") else ""))
+            fields = {key: posting[key] for key in ("company", "title", "location") if posting[key]}
+            return self._prepare_posting(id, posting["description"][:100_000], url=posting["url"], fields=fields)
+        if resolved.get("site"):
+            self._finish_step(id, "failed", resolved["reason"])
+            self.s.set_pref("assistant_pending", None)
+            return "needs_input", resolved["reason"], {"intent": "posting_link_unreadable", "url": url}
         page = self.quality.fetcher(url)
         text = (page or {}).get("text") or ""
         if len(text) < 300:

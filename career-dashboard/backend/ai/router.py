@@ -282,7 +282,11 @@ def route(root, *, tier: str, attempt, needs: dict | None = None, policy: dict |
     policy = normalise(policy)
     ready_map = ready_map if ready_map is not None else ready_providers(root)
     book = book or limits.HealthBook(root)
+    from backend import telemetry
+
     candidates, skipped = _plan(root, policy, tier, needs or {}, ready_map, book)
+    telemetry.event("route.plan", tier=tier, candidates=[p for p, _ in candidates],
+                    skipped=[f"{p}: {why}" for p, why in skipped])
     errors = []
     first = None
     for provider, model in candidates:
@@ -290,6 +294,7 @@ def route(root, *, tier: str, attempt, needs: dict | None = None, policy: dict |
             blocked = paid_gate(provider)
             if blocked:
                 skipped.append((provider, blocked))
+                telemetry.event("route.skip", provider=provider, reason=telemetry.safe_error(blocked))
                 continue
         first = first or (provider, model)
         try:
@@ -300,11 +305,14 @@ def route(root, *, tier: str, attempt, needs: dict | None = None, policy: dict |
                 book.rest_for_limit(provider, message, paid=is_paid(provider))
             else:
                 book.record(provider, False, message)
+            telemetry.event("route.failed", provider=provider, model=model, limit=limits.is_limit(message),
+                            reason=telemetry.safe_error(error))
             errors.append((provider, message))
             if not policy["allow_fallbacks"]:
                 raise
             continue
         book.record(provider, True)
+        telemetry.event("route.served", provider=provider, model=model, after_failures=len(errors))
         if errors and on_switch:
             on_switch({"from_provider": first[0], "from_model": first[1], "to_provider": provider,
                        "to_model": model, "reason": errors[-1][1][:300]})

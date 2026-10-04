@@ -11,7 +11,7 @@ import pytest
 
 from backend.ai import usage_recorder
 from backend.services.agent_cache import AgentCache, paid_calls_today, paid_invocation
-from backend.services.task_execution import LeaseLost, TaskBusy, TaskRepository, invocation_slot
+from backend.services.task_execution import LeaseLost, TaskBusy, TaskRepository, invocation_slot, slot_timeout
 
 
 def service_at(root, limit=10):
@@ -226,3 +226,13 @@ def test_global_slots_allow_two_providers_but_serialize_each_provider():
             job.result(timeout=5)
     with invocation_slot("codex", timeout=0.1):
         pass  # all permits were released
+
+
+def test_a_queued_call_waits_longer_than_one_web_call_unless_configured(monkeypatch):
+    monkeypatch.delenv("CAREER_AI_SLOT_TIMEOUT", raising=False)
+    assert slot_timeout() > 900  # a web call may take 900 seconds; the next one must outwait it
+    monkeypatch.setenv("CAREER_AI_SLOT_TIMEOUT", "1200")
+    assert slot_timeout() == 1200
+    for bad in ("soon", "0", "-5"):
+        monkeypatch.setenv("CAREER_AI_SLOT_TIMEOUT", bad)
+        assert slot_timeout() == 960

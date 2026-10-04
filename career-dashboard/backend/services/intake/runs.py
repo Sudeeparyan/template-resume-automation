@@ -114,7 +114,9 @@ class BuildRuns:
         if not draft:
             raise ValueError("Read the documents and review what was found first.")
         selected = {"target_markets": draft.get("target_markets") or [draft.get("country_pack") or "ie"],
-                    "work_authorization_by_market": draft.get("work_authorization_by_market") or {}}
+                    "work_authorization_by_market": draft.get("work_authorization_by_market") or {},
+                    "education_for_permits": draft.get("education_for_permits") or {},
+                    "job_search": draft.get("job_search") or {}}
         selected.update(options or {})
         return self._start(selected, reviewed_draft=True)
 
@@ -129,20 +131,42 @@ class BuildRuns:
         return result
 
     def _start(self, options: dict, *, reviewed_draft: bool) -> dict:
+        from backend.countries import enabled_markets, known_markets, load_pack
+
         current = self.profiles.get(self.profile_id)
-        markets = options.get("target_markets") or current.get("target_markets") or ([current["country"]] if current.get("country") else ["ie"])
-        if not isinstance(markets, list) or not markets or len(markets) != len(set(markets)) or any(m not in {"ie", "us"} for m in markets):
-            raise ValueError("Choose Ireland, the US, or both markets.")
+        # Re-read the selected profile: Profile page edits may be newer than registry metadata.
+        settings_path = self.job.root / "data/config/profile.yml"
+        if settings_path.is_file():
+            import yaml
+
+            saved = yaml.safe_load(settings_path.read_text(encoding="utf-8")) or {}
+            current = {**current, **{key: saved[key] for key in
+                       ("work_authorization_by_market", "education_for_permits", "job_search") if key in saved}}
+        offered = enabled_markets()
+        offer_text = "Choose from the markets this copy offers: " + ", ".join(load_pack(m).name for m in offered) + "."
+        chosen = options.get("target_markets")
+        markets = chosen if chosen is not None else (current.get("target_markets") or ([current["country"]] if current.get("country") else [offered[0]]))
+        if not isinstance(markets, list) or not markets or len(markets) != len(set(markets)) or any(m not in known_markets() for m in markets):
+            raise ValueError(offer_text)
+        if chosen is not None and any(m not in offered for m in chosen):
+            raise ValueError(offer_text)
+        # An older profile keeps the markets this copy still offers; it is never moved to another country.
+        markets = [m for m in markets if m in offered]
+        if not markets:
+            raise ValueError("This profile was built for a market this copy no longer offers. " + offer_text)
         authorization = options.get("work_authorization_by_market")
         if authorization is None or not authorization:
             authorization = current.get("work_authorization_by_market") or {}
-        if not isinstance(authorization, dict) or any(k not in {"ie", "us"} or not isinstance(v, dict) for k, v in authorization.items()):
-            raise ValueError("Work authorization must be keyed by ie or us.")
-        for value in authorization.values():
-            if (value.get("status", "unknown") not in {"authorized", "needs_sponsorship", "unknown"}
-                    or value.get("citizenship", "unknown") not in {"citizen", "noncitizen", "unknown"}
-                    or value.get("needs_sponsorship_later", "unknown") not in {"yes", "no", "unknown"}):
-                raise ValueError("Choose valid work-authorization, citizenship and future sponsorship answers, or leave them unknown.")
+        if not isinstance(authorization, dict) or any(k not in known_markets() or not isinstance(v, dict) for k, v in authorization.items()):
+            raise ValueError("Work authorization must be keyed by a market code such as ie.")
+        from backend.services.intake.authorization import validate_authorization, validate_education, validate_job_search
+
+        authorization = {market: validate_authorization(value, market) for market, value in authorization.items()}
+        education = validate_education(options.get("education_for_permits", current.get("education_for_permits") or {}))
+        preferences = dict(options.get("job_search", current.get("job_search") or {}))
+        if "job_search" not in options and preferences.get("salary_floor_source") == "permit_rules":
+            preferences.pop("salary_floor_eur", None)
+        preferences = validate_job_search(preferences)
         with self.lock:
             if self.thread and self.thread.is_alive():
                 raise ValueError("This profile already has a build in progress.")
@@ -156,7 +180,8 @@ class BuildRuns:
                    "eta_seconds_low": 60, "eta_seconds_high": 150, "flags": [], "errors": [],
                    "completed_profile_revision": None, "started_at": _now(), "updated_at": _now(),
                    "source_snapshot": snapshot, "target_markets": markets,
-                   "work_authorization_by_market": authorization, "reviewed_draft": reviewed_draft}
+                   "work_authorization_by_market": authorization, "education_for_permits": education,
+                   "job_search": preferences, "reviewed_draft": reviewed_draft}
             runs = self._read()
             runs.append(run)
             self._write(runs)
@@ -177,7 +202,9 @@ class BuildRuns:
         if before["status"] not in {"failed", "stopped", "interrupted"}:
             raise ValueError("Only a failed, stopped or interrupted build can be retried.")
         options = {"target_markets": before["target_markets"],
-                   "work_authorization_by_market": before.get("work_authorization_by_market") or {}}
+                   "work_authorization_by_market": before.get("work_authorization_by_market") or {},
+                   "education_for_permits": before.get("education_for_permits") or {},
+                   "job_search": before.get("job_search") or {}}
         if before.get("reviewed_draft"):
             if self.job.library.active_snapshot() != before["source_snapshot"]:
                 raise ValueError("Sources changed since this reviewed build. Read them again before retrying.")
@@ -296,7 +323,9 @@ class BuildRuns:
             self._phase(run_id, "indexing")
             run = self.get(run_id)
             changes = {"target_markets": run["target_markets"],
-                       "work_authorization_by_market": run.get("work_authorization_by_market") or {}}
+                       "work_authorization_by_market": run.get("work_authorization_by_market") or {},
+                       "education_for_permits": run.get("education_for_permits") or {},
+                       "job_search": run.get("job_search") or {}}
             draft = self.job.draft() or {}
             flags = []
             if not (draft.get("contact") or {}).get("full_name"):
@@ -308,6 +337,8 @@ class BuildRuns:
                 flags.append("Needs clarification: " + str(question)[:200])
             for market in run["target_markets"]:
                 auth = (run.get("work_authorization_by_market") or {}).get(market) or {}
+                if market == "ie" and auth.get("permission_type") == "stamp_1g" and not auth.get("valid_until_confirmed"):
+                    flags.append("Stamp 1G expiry is not confirmed. Confirm the exact day before searching or preparing jobs.")
                 if auth.get("status", "unknown") == "unknown":
                     flags.append(f"Work authorization for {market.upper()} is unknown. Confirm it before eligibility decisions.")
                 elif (auth.get("status") == "authorized" and auth.get("citizenship") != "citizen"
@@ -348,11 +379,7 @@ class BuildRuns:
                 self.apps.close(self.profile_id)
                 if backup is not None:
                     self._restore(backup, old_files, db_exists, generated)
-                    self.profiles.update(self.profile_id, state=prior_profile["state"],
-                                         name=prior_profile["name"], initials=prior_profile["initials"],
-                                         target_markets=prior_profile.get("target_markets") or [prior_profile.get("country") or "ie"],
-                                         work_authorization_by_market=prior_profile.get("work_authorization_by_market") or {},
-                                         built_at=prior_profile.get("built_at"))
+                    self.profiles.restore_build_metadata(self.profile_id, prior_profile)
                     if prior_profile["state"] == "ready":
                         self.apps.app(self.profile_id)
                 run = self._one(self._read(), run_id)

@@ -32,13 +32,22 @@ sources. The shared `me/` inbox should contain only the selected person's files.
 Read every document in `me/`. Fill `me/about-me.md` with what the documents already state (name,
 email, phone, city, links). Then ask, in a single message, only what is still empty or unclear:
 
-1. The country to search: Ireland, the United States or both (Ireland when they have no
-   preference).
-2. Their permission to work in each chosen country, and whether they will need sponsorship later.
+1. This copy searches the Republic of Ireland only (`career-dashboard/backend/countries/markets.yml`);
+   say so if they mention another country.
+2. Their permission to work in Ireland (for example Stamp 1G and the date it ends), and whether
+   they will need an employer to get them an employment permit later.
    Offer the choices from `about-me.example.md`. "Not sure" is a valid answer: say that jobs which
    depend on it will wait. Never guess this answer from a nationality, a school or an address.
+   For Stamp 1G, record the permission type and ask them to confirm the exact expiry day
+   from their permission record. A date such as `DEC2027` is only a month: the app can propose
+   `2027-12-31`, but that is not saved as the expiry unless they confirm the actual day.
+   Keep their original wording separately. Never infer permission from their degree or location.
 3. The 2 to 4 job titles they want. Suggest titles that their documents support; they confirm.
 4. Level, places or remote work, and anything to avoid (optional).
+   Ask whether they want graduate and entry-level searches with up to 3 years required;
+   use those limits only if they confirm. Ask for the actual award date, NFQ level, whether
+   the awarding institution is Irish, and whether the degree is relevant to their target
+   occupations. Leave each unknown when they are unsure; expected graduation is not an award.
 5. The morning list: how many jobs (5), ready by when (07:30), and whether to email the list to
    their own address (no, unless they say yes).
 
@@ -49,7 +58,7 @@ Write each answer into `me/about-me.md` in their words.
 **App mode.** Run
 
 ```text
-career setup --name "<Full name>" --market <ie|us|both> --work-auth '<json>'
+career setup --name "<Full name>" --market ie --work-auth '<json>'
 ```
 
 The JSON is keyed by market: `{"ie": {"status": "...", "citizenship": "...",
@@ -57,13 +66,27 @@ The JSON is keyed by market: `{"ie": {"status": "...", "citizenship": "...",
 
 | They said | status | citizenship |
 |---|---|---|
-| citizen (Ireland: Irish or EU/EEA; US: citizen) | `authorized` | `citizen` |
-| US green-card holder | `authorized` | `noncitizen` |
-| a current permission or visa that lets them work | `authorized` | `noncitizen` |
-| an employer must get them a permit or sponsor them | `needs_sponsorship` | `noncitizen` |
+| Irish or EU/EEA citizen | `authorized` | `citizen` |
+| Stamp 4 (or another permission to live and work without a permit) | `authorized` | `noncitizen` |
+| a current permission that lets them work, for example Stamp 1G | `authorized` | `noncitizen` |
+| an employer must get them an employment permit | `needs_sponsorship` | `noncitizen` |
 
-A green card must not be recorded as citizenship. Preserve the person's exact permission
+Stamp 4 must not be recorded as citizenship. Preserve the person's exact permission
 wording in their source notes and confirm their future-sponsorship answer separately.
+
+The Build settings and Profile page have a **Permit facts** form. Raw dates remain verbatim;
+only person-confirmed exact ISO dates enter threshold and timeline checks. The extractor never
+confirms normalized facts. For explicit confirmed chat answers, the CLI also accepts
+`--permission-type stamp_1g --valid-until YYYY-MM-DD --award-date YYYY-MM-DD --nfq-level 9
+--irish-institution yes --relevant-degree yes`. Pass only answers the person actually gave.
+`--graduate-search` applies their confirmed graduate-search preference. `--seniority`,
+`--max-years-required`, `--salary-floor-eur` and `--salary-policy` accept explicit preferences.
+The default floor follows the dated permit rules and changes when a confirmed graduate
+window ends; an explicit personal floor is retained. With `--salary-policy
+confirmed_or_estimated` (the default) a job is prepared when its advertised pay reaches the
+floor or, when the posting states no pay, a labelled market estimate or researched comparable
+pay does (the person then confirms the base salary with the recruiter); `confirmed_only`
+prepares advertised pay only.
 
 `needs_sponsorship_later` is `yes` or `no`. Leave out any field they are unsure of; it stays
 unknown and blocks job searches until answered. On Windows, save the JSON in a private file

@@ -136,9 +136,29 @@ def test_a_closed_posting_gets_nothing_more_and_no_folder(tmp_path, monkeypatch)
 def test_the_morning_hunt_uses_the_same_helpers_by_default():
     from backend.services.hunt import DEFAULTS
 
-    assert DEFAULTS["steps"] == {step: True for step in STEP_IDS}
+    assert DEFAULTS["steps"] == {step: step != "cover_letter" for step in STEP_IDS}  # letters are on demand
     assert pipeline_module.DEFAULT_STEPS == DEFAULTS["steps"]
     assert STEP_IDS[0] == "posting" and STEP_IDS[-1] == "ready"
+    assert STEP_IDS.index("pdf") < STEP_IDS.index("cover_letter") < STEP_IDS.index("review")
+
+
+def test_the_cover_letter_helper_writes_a_checked_letter(tmp_path, monkeypatch):
+    from backend.services import cover_letters
+
+    services = ireland_profile(tmp_path)
+    job = services.add_posting(posting(1), source="discovery")["job"]
+    seen = {}
+
+    def generate(svc, job_id, *, team=None):
+        seen.update(job_id=job_id, team=team)
+        return {"version": 1, "method": "template", "path": "letters/cover-letter-v1.md"}
+
+    monkeypatch.setattr(cover_letters, "generate", generate)
+    pipeline = Pipeline(services, ScriptedRunner(services, []), OpenOnly())
+    monkeypatch.setattr(pipeline, "_team", lambda config: "team")
+    done = pipeline._cover_letter(job["id"], {"provider": "auto", "model": "auto"})
+    assert seen == {"job_id": job["id"], "team": "team"}
+    assert done["note"].startswith("Cover letter v1: built from your registered sentences") and done["method"] == "template"
 
 
 # ----- the ready-to-submit check ----------------------------------------------------------------------

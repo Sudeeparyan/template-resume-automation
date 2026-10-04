@@ -64,7 +64,8 @@ def test_every_skill_is_well_formed_and_claude_lists_the_same_one():
     skills = shared_skills()
     assert {p.name for p in skills} >= {"career-setup", "find-jobs", "tailor-resume", "morning-jobs",
                                         "track-applications", "profile-intake", "interview-prep",
-                                        "verify-job-url", "ireland-job-sources", "us-job-sources"}
+                                        "verify-job-url", "ireland-job-sources"}
+    assert "us-job-sources" not in {p.name for p in skills}, "the US market is switched off (countries/markets.yml)"
     for skill in skills:
         meta = front_matter(skill / "SKILL.md")
         assert meta["name"] == skill.name

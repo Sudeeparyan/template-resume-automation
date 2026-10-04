@@ -194,27 +194,6 @@ def test_jobs_ie_search_results_are_read_from_each_posting_page():
     assert found[0]["company"] == "Acme" and found[0]["requisition_id"] == "1"
 
 
-def test_askmanavi_roles_are_read_from_the_employers_own_feed(monkeypatch):
-    roles = [{"id": "gh-acme-555", "city": "Dublin", "title": "Data Analyst", "company": "Acme",
-              "applyUrl": "https://acme.example/careers?gh_jid=555", "location": "Dublin, Ireland",
-              "postedDate": "2099-01-01", "visaSponsorship": "Yes"},
-             {"id": "wd-acme-x", "city": "Dublin", "title": "Nurse", "company": "Acme",
-              "applyUrl": "https://acme.wd1.myworkdayjobs.com/External/job/Dublin/Nurse_R9", "location": "Dublin"}]
-    payload = json.dumps(roles, separators=(",", ":")).replace('"', '\\"')
-    html = '<script>self.__next_f.push([1,"' + payload + '"])</script>'
-    pages = {"https://askmanavi.com/robots.txt": "User-agent: *\nAllow: /\nDisallow: /api/\n",
-             "https://askmanavi.com/graduate-tracker": html}
-
-    pages["https://boards-api.greenhouse.io/v1/boards/acme/jobs/555"] = {
-        "content": "<p>SQL and Power BI for the insights team.</p>", "location": {"name": "Dublin"}}
-    found, _ = job_sources.askmanavi_jobs(fetcher(pages), TITLE, IRELAND.location_ok)
-    assert len(found) == 1
-    posting = found[0]
-    assert posting["url"] == "https://job-boards.greenhouse.io/acme/jobs/555"
-    assert posting["requisition_id"] == "555" and "Power BI" in posting["description"]
-    assert "visa sponsorship as Yes" in posting["verification"]
-
-
 def test_an_ai_lead_on_a_job_board_gets_the_boards_own_text(monkeypatch):
     monkeypatch.setattr(job_sources, "read_posting", lambda url, fetcher=None: {
         "description": "Full posting: SQL, Power BI, stakeholder reporting.", "location": "Galway, Ireland",

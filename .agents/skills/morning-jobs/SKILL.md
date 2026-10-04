@@ -40,17 +40,24 @@ at their fit bar, skipping everything already in `my-jobs/tracker.csv`. Then rea
 ```text
 Good morning <first name>. <n> new jobs for <date>.
 
-Needs you: <only when they must act, for example sign in or answer a question>
+Needs you: <the list's Needs you lines, only when they must act: sign in, confirm a permit date, ...>
+Permit dates: <in App mode, the list's "Your permit dates" lines, e.g. Stamp 1G expiry and days left>
 
 1. <Title>, <Company> (<Location>). Fit <score>
    Why: <one line>. Gap: <one line or "none">
-   Permit: <quoted sentence, or "not mentioned">
+   Pay: <the list's Pay line: advertised, a market estimate to confirm, or not stated>
+   Permit: <quoted sentence, or "not mentioned">; <the DETE permit record line when the list has one>;
+   <the Permit-path evidence line, e.g. "62/100 (Evidence score, not approval likelihood)">
    Apply: <link>
    Resume: <path to the PDF>
 ...
 Still to apply: <n>. Best three: <company, role>; ...
 Nothing was submitted and no one was contacted.
 ```
+
+Copy the Pay, permit and date lines as the list writes them: an estimate is never the vacancy's
+pay, a DETE record never promises a permit, the permit-path score counts public evidence and is
+never a chance of approval, and none of it is immigration advice.
 
 **Email (only when asked).** When `me/about-me.md` says "Email me the morning list: yes" and an
 email tool is connected (for example Gmail), send this same text to the person's own address from

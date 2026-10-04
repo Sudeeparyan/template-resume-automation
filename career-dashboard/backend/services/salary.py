@@ -3,13 +3,16 @@ from __future__ import annotations
 
 import math
 import re
-from datetime import date, datetime, timezone
+from datetime import date
 from urllib.parse import urlsplit
 
-VERSION = "ie-salary-1"
-DEFAULT_FLOOR = 36000
+VERSION = "ie-salary-2"
+DEFAULT_FLOOR = 36605
 AMOUNT = r"\d{1,3}(?:[,\s]\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?\s*[kK]?"
 MONEY = re.compile(r"(?P<currency>€|EUR\b|£|GBP\b|\$|USD\b)\s*(?P<low>" + AMOUNT + r")(?:\s*(?:-|–|—|to)\s*(?:€|EUR\b|£|GBP\b|\$|USD\b)?\s*(?P<high>" + AMOUNT + r"))?", re.I)
+# The least anyone is paid for each period. A smaller figure is a slip at the source (HubSpot's
+# Greenhouse range once read "€73,85 – €105,60" a year): unreadable, never rescaled into a guess.
+PLAUSIBLE_MINIMUM = {"YEAR": 1000, "MONTH": 100, "WEEK": 25, "HOUR": 1}
 
 
 def _number(value):
@@ -37,6 +40,56 @@ def _period(text):
     return "UNKNOWN"
 
 
+_INTERVALS = {"YEAR": "YEAR", "YEARLY": "YEAR", "ANNUAL": "YEAR", "ANNUALLY": "YEAR", "MONTH": "MONTH", "MONTHLY": "MONTH",
+              "WEEK": "WEEK", "WEEKLY": "WEEK", "HOUR": "HOUR", "HOURLY": "HOUR", "Y": "YEAR", "M": "MONTH", "W": "WEEK",
+              "H": "HOUR", "PER-YEAR-SALARY": "YEAR", "PER-MONTH-SALARY": "MONTH", "PER-WEEK-SALARY": "WEEK",
+              "PER-HOUR-WAGE": "HOUR", "1 YEAR": "YEAR", "1 MONTH": "MONTH", "1 WEEK": "WEEK", "1 HOUR": "HOUR"}
+
+
+def structured(raw_salary):
+    """(currency, low, high, period, quote) from an ATS or aggregator pay field, or None.
+
+    Greenhouse ``pay_input_ranges``, Lever ``salaryRange``, Ashby ``compensation``, Recruitee
+    ``salary`` and Careerjet's salary fields. The period is the source's own (an unstated one stays UNKNOWN, so no annual
+    figure is derived); only base salary counts, never equity, bonus or commission.
+    """
+    if isinstance(raw_salary, list):  # Greenhouse: one range per location or currency
+        ranges = [r for r in raw_salary if isinstance(r, dict) and (r.get("min_cents") or r.get("max_cents"))]
+        chosen = next((r for r in ranges if str(r.get("currency_type") or "").upper() == "EUR"), ranges[0] if ranges else None)
+        if not chosen:
+            return None
+        words = f"{chosen.get('title') or ''} {_plain_text(chosen.get('blurb'))}"
+        low, high = (_number(chosen.get(k)) for k in ("min_cents", "max_cents"))
+        return (str(chosen.get("currency_type") or "").upper(), low / 100 if low else None, high / 100 if high else None,
+                _period(words), f"Greenhouse pay range: {words.strip() or 'base pay'} {chosen.get('min_cents')}-{chosen.get('max_cents')} cents")
+    if not isinstance(raw_salary, dict):
+        return None
+    if "interval" in raw_salary and ("min" in raw_salary or "max" in raw_salary):  # Lever salaryRange
+        interval = _INTERVALS.get(str(raw_salary.get("interval") or "").upper(), "UNKNOWN")
+        return (str(raw_salary.get("currency") or "").upper(), _number(raw_salary.get("min")), _number(raw_salary.get("max")),
+                interval, f"Lever salary range: {raw_salary}")
+    components = raw_salary.get("summaryComponents") or [c for tier in raw_salary.get("compensationTiers") or []
+                                                          if isinstance(tier, dict) for c in tier.get("components") or []]
+    salaried = [c for c in components if isinstance(c, dict) and str(c.get("compensationType") or "").casefold() == "salary"]
+    if salaried:  # Ashby compensation
+        part = salaried[0]
+        return (str(part.get("currencyCode") or "").upper(), _number(part.get("minValue")), _number(part.get("maxValue")),
+                _INTERVALS.get(str(part.get("interval") or "").upper(), "UNKNOWN"),
+                f"Ashby compensation: {part.get('summary') or raw_salary.get('compensationTierSummary') or part}")
+    if "period" in raw_salary and "currency" in raw_salary and ("min" in raw_salary or "max" in raw_salary):  # Recruitee
+        return (str(raw_salary.get("currency") or "").upper(), _number(raw_salary.get("min")), _number(raw_salary.get("max")),
+                _INTERVALS.get(str(raw_salary.get("period") or "").upper(), "UNKNOWN"), f"Recruitee salary: {raw_salary}")
+    if "salary_min" in raw_salary or "salary_max" in raw_salary:  # Careerjet
+        return (str(raw_salary.get("salary_currency_code") or "").upper(), _number(raw_salary.get("salary_min")),
+                _number(raw_salary.get("salary_max")), _INTERVALS.get(str(raw_salary.get("salary_type") or "").upper(), "UNKNOWN"),
+                f"Careerjet salary: {raw_salary.get('salary') or raw_salary}")
+    return None
+
+
+def _plain_text(value) -> str:
+    return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", str(value or ""))).strip()
+
+
 def unknown(url="", observed_at=""):
     return {"kind": "unknown", "currency": "", "minimum": None, "maximum": None,
             "annual_min": None, "annual_max": None, "period": "UNKNOWN", "hours_per_week": None,
@@ -44,13 +97,22 @@ def unknown(url="", observed_at=""):
 
 
 def extract(description, raw_salary=None, url="", observed_at=""):
-    """Parse JobPosting.baseSalary or explicit pay text; never guess a currency or pay period."""
-    stamp = observed_at or datetime.now(timezone.utc).isoformat(timespec="seconds")
+    """Parse JobPosting.baseSalary or explicit pay text; never guess a currency or pay period.
+
+    `observed_at` is when the pay was read from its source; without one the result has no date,
+    so a re-read of the same job gives the same answer and nothing claims a check that never ran.
+    """
+    stamp = observed_at or ""
     text = str(description or "")
     result = unknown(url, stamp)
     hours = re.search(r"\b(\d{1,2}(?:\.\d+)?)\s*(?:hours?|hrs?)\s*(?:per|a|each|/)\s*week", text, re.I)
     hours = float(hours[1]) if hours and 0 < float(hours[1]) <= 80 else None
-    if isinstance(raw_salary, dict) and raw_salary.get("currency") and raw_salary.get("value") is not None:
+    fields = structured(raw_salary)
+    if fields and fields[0] and (fields[1] or fields[2]):
+        currency, low, high, period, quote = fields
+        result.update(kind="advertised", currency=_currency(currency), minimum=low, maximum=high,
+                      period=period, quote=quote, components="base")
+    elif isinstance(raw_salary, dict) and raw_salary.get("currency") and raw_salary.get("value") is not None:
         value = raw_salary["value"]
         data = value if isinstance(value, dict) else {"value": value}
         low = _number(data.get("minValue", data.get("value")))
@@ -91,6 +153,9 @@ def extract(description, raw_salary=None, url="", observed_at=""):
         return result
     if result["minimum"] and result["maximum"] and result["minimum"] > result["maximum"]:
         return unknown(url, stamp)
+    smallest = PLAUSIBLE_MINIMUM.get(result["period"])
+    if smallest and any(value is not None and value < smallest for value in (result["minimum"], result["maximum"])):
+        return unknown(url, stamp)
     # FTE figures are not actual annual earnings without an explicit fraction.
     fte = bool(re.search(r"\b(pro[- ]?rata|full[- ]time equivalent|FTE)\b", result["quote"], re.I))
     factors = {"YEAR": 1, "MONTH": 12, "WEEK": 52, "HOUR": hours * 52 if hours else None}
@@ -111,6 +176,30 @@ def assess(salary, floor=DEFAULT_FLOOR):
     if low is not None and low >= floor:
         return "meets_floor"
     return "needs_confirmation"
+
+
+def floor_for(profile=None, *, on=None):
+    """Keep a person's preference; refresh a default when its graduate window ends."""
+    profile = profile if isinstance(profile, dict) else {}
+    search = profile.get("job_search") or {}
+    search = search if isinstance(search, dict) else {}
+    value = search.get("salary_floor_eur")
+    if search.get("salary_floor_source") != "permit_rules" and isinstance(value, (int, float)) \
+            and not isinstance(value, bool) and math.isfinite(value) and value > 0:
+        return value
+    from backend.permits.assessment import personal_floor
+
+    return personal_floor(profile, on=on)
+
+
+POLICIES = ("confirmed_or_estimated", "confirmed_only")
+
+
+def policy_for(profile=None):
+    """Which pay evidence lets a job be prepared: advertised only, or advertised or a labelled market estimate."""
+    search = (profile or {}).get("job_search") if isinstance(profile, dict) else None
+    policy = search.get("salary_policy") if isinstance(search, dict) else None
+    return policy if policy in POLICIES else POLICIES[0]
 
 
 def research(observations, *, on=None):

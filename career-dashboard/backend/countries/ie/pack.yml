@@ -12,9 +12,11 @@ paper: a4
 paper_label: A4
 resume_word: CV
 spelling: Irish/UK English spelling (modelling, specialising, analyse, organisation)
-# No public employer index is bundled for Ireland yet, so sponsorship tiers are
-# A (the posting offers a permit) or C (silent); nothing is excluded for lack of history.
-sponsor_index:
+# DETE's "employment permits issued to companies" (countries/ie/sponsors-dete.csv) ranks a
+# silent posting B when the employer had permits in the last 24 months. History only ranks:
+# nothing is excluded for lack of it; only a posting's own words exclude.
+sponsor_index: dete
+sponsor_history: ranks
 
 messages:
   location_screen: "An Irish location is not established by this posting; only roles in Ireland are pursued."
@@ -139,4 +141,5 @@ discovery:
   legal_presence_example: The CRO lists Acme Analytics Limited, company number 123456, registered in Cork
   boards: >-
     Greenhouse, Lever, Ashby, Workday, SmartRecruiters, gradireland.com, IrishJobs.ie, Jobs.ie,
-    publicjobs.ie, JobsIreland.ie, the askmanavi graduate tracker, LinkedIn Jobs (Ireland), Indeed Ireland
+    publicjobs.ie, JobsIreland.ie and EURES (where employers advertise for the permit labour market test),
+    LinkedIn Jobs (Ireland), Indeed Ireland

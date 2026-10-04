@@ -6,6 +6,7 @@ from __future__ import annotations
 import io
 import hashlib
 import json
+import re
 import sys
 import time
 import urllib.error
@@ -315,6 +316,10 @@ def test_the_morning_list_shows_new_jobs_what_is_left_and_what_was_applied(tmp_p
     text = (w.daily_dir / "MORNING-JOBS.md").read_text(encoding="utf-8")
     assert "**Acme Analytics — Data Analyst** · Dublin, Ireland · fit 82/100" in text
     assert "Why: Fit 82/100. Meets 3 of 3 must-haves." in text and "Apply: https://jobs.example/acme/1" in text
+    assert "Pay: EUR 42,000 a year (advertised in the posting)" in text
+    assert re.search(r"Permit-path evidence: \d+/100 \(Evidence score, not approval likelihood\)", text)
+    assert "## Your permit dates" in text and "Published GEP application lead time: 12 weeks before a job's start date" in text
+    assert "Not immigration advice." in text and text.index("## Your permit dates") < text.index("## New this morning")
     assert autopilot._shown(fresh_pdf) in text and "review before applying" in text
     assert "## Still to apply" in text and "| 71 | Birch Data | BI Analyst |" in text
     assert "Cedar Labs" not in text.split("## Your applications")[0]
@@ -568,3 +573,27 @@ def test_a_list_written_in_the_evening_shows_that_days_search(tmp_path, monkeypa
     text = (services.w.daily_dir / "MORNING-JOBS.md").read_text(encoding="utf-8")
     assert "Acme Analytics — Data Analyst" in text.split("## How the search went")[0]
     assert "No hunt ran" not in text and "looked at 11 postings, saved 1 of 5" in text
+
+
+def test_the_morning_list_shows_tracker_alerts_with_new_matches(tmp_path):
+    from backend.market import tracker
+    from backend.market.store import MarketStore
+    from backend.services import job_sources
+
+    services = ireland_profile(tmp_path)
+    tracker.save_alert(services, "Data roles in Cork", {"county": "Cork"})
+    alerts = services.pref(tracker.ALERTS)
+    alerts[0]["seen_at"] = "2000-01-01T00:00:00+00:00"
+    services.set_pref(tracker.ALERTS, alerts)
+    MarketStore().record_postings([job_sources.make_posting(
+        "Acme Analytics", "Data Analyst", "https://boards.greenhouse.io/acme/jobs/9", "Cork, Ireland",
+        "Report with SQL.", source="directory", source_kind="employer_feed")])
+
+    class Store:
+        def root_for(self, _id):
+            return services.w.root
+
+    result = autopilot.collect(Store(), PROFILE, autopilot.Journal(), at(9), "09:00")
+    assert [alert["new"] for alert in result["tracker_alerts"]] == [1]
+    report = autopilot.render(result, "http://127.0.0.1:8000")
+    assert "## Tracker alerts" in report and "**Data roles in Cork**: 1 new (for example Data Analyst at Acme Analytics)" in report

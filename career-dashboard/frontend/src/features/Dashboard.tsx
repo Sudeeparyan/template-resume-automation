@@ -16,7 +16,9 @@ import { AskAssistant, Badge, Empty, Modal, Field, Running } from "../components
 import { JobList } from "../components/JobList";
 import { PlanEditor, WeekCard } from "../components/WeekPlan";
 import { RemoveJobDialog } from "./RemoveJob";
-import type { Summary, Mail, Job, CoverLetter, ExcludedJob } from "../types";
+import { TrackerAlertsNotice } from "./Tracker";
+import { CoverLetterView } from "../components/CoverLetterView";
+import type { Summary, Mail, Job, CoverLetter, ExcludedJob, NeedsYouItem } from "../types";
 type Props = {
   data: Summary;
   refresh: () => Promise<void>;
@@ -24,7 +26,30 @@ type Props = {
   onJob: (id: string) => void;
   onDaily: () => void;
   onAdd: () => void;
+  onGo?: (route: string) => void;
 };
+
+const NEEDS_YOU_PAGES: Record<NeedsYouItem["where"], string> = { profile: "Profile", settings: "Settings", daily: "Daily Search" };
+
+/** What only the person can do now, with the page that resolves each item. */
+export function NeedsYou({ items, onGo }: { items: NeedsYouItem[]; onGo?: (route: string) => void }) {
+  if (!items.length) return null;
+  return (
+    <section className="card needs-you" aria-label="Needs you">
+      <h3>Needs you</h3>
+      <ul>
+        {items.map((item) => (
+          <li key={item.id}>
+            {item.text}{" "}
+            {item.url && <a href={safeUrl(item.url)} target="_blank" rel="noreferrer">Official page ↗</a>}{" "}
+            {onGo && <button type="button" className="link-button" onClick={() => onGo(item.where)}>Open {NEEDS_YOU_PAGES[item.where]}</button>}
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
 export default function Dashboard({
   data,
   refresh,
@@ -32,6 +57,7 @@ export default function Dashboard({
   onJob,
   onDaily,
   onAdd,
+  onGo,
 }: Props) {
   const [mail, setMail] = useState<Mail | null>(null);
   const [section, setSection] = useState("applications");
@@ -129,6 +155,13 @@ export default function Dashboard({
           </button>
         </div>
       </div>
+      {(data.notices || []).map((notice) => (
+        <div className={notice.level === "warning" ? "callout warning" : "callout"} role="status" key={notice.id}>
+          {notice.text}
+        </div>
+      ))}
+      <NeedsYou items={data.needs_you || []} onGo={onGo} />
+      <TrackerAlertsNotice />
       <div className="metrics">
         {[
           [BriefcaseBusiness, data.counts.applied, "Applications recorded"],
@@ -562,33 +595,7 @@ export default function Dashboard({
           </form>
         </Modal>
       )}
-      {coverLetter && (
-        <Modal
-          title={`${coverLetter.company} · Cover letter`}
-          onClose={() => setCoverLetter(null)}
-        >
-          <div className="callout warning">
-            Draft only. Read it against the job description before sending.
-          </div>
-          <div className="cover-letter-preview">{coverLetter.content}</div>
-          <div className="actions">
-            <button
-              className="secondary"
-              onClick={() => navigator.clipboard.writeText(coverLetter.content)}
-            >
-              Copy letter
-            </button>
-            <a
-              className="primary"
-              href={fileUrl(coverLetter.path)}
-              target="_blank"
-              rel="noreferrer"
-            >
-              Open saved file ↗
-            </a>
-          </div>
-        </Modal>
-      )}
+      {coverLetter && <CoverLetterView letter={coverLetter} onClose={() => setCoverLetter(null)} />}
     </>
   );
 }

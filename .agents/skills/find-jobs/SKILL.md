@@ -48,8 +48,10 @@ last chat. Resolve pending profile reconciliation before reusing its evidence or
    fewer jobs are ready, state the actual count and the recorded reason. Do not fabricate a
    score, permit quote or file path. If the run is still active, say that and return to its result.
 
-To add one posting the person found themselves: save it as JSON (`company`, `title`, `location`,
-`url`, full `description`) and run `career add --file job.json --profile <profile-id>`, then
+To add one posting the person found themselves: run `career add --url <link> --profile <profile-id>`
+(it reads the employer's own posting; a LinkedIn or Indeed link needs the employer's link or the
+full text instead), or save it as JSON (`company`, `title`, `location`, `url`, full `description`)
+and run `career add --file job.json --profile <profile-id>`, then
 `career ws fit --job-id <job-id> --profile <profile-id>` and
 `career prepare <job-id> --profile <profile-id>`, or use `tailor-resume`. Use the returned job ID;
 the profile ID identifies the person and must never be replaced by a job ID.
@@ -60,7 +62,7 @@ Work from `me/profile.md`, `me/about-me.md` and `my-jobs/tracker.csv` (create it
 from `my-jobs/README.md` when missing).
 
 1. **Plan the search.** For each target title and country, use the sources in
-   `ireland-job-sources` or `us-job-sources`. Use every tool you have: web search and page
+   `ireland-job-sources`. Use every tool you have: web search and page
    fetching, job-board connectors (for example Indeed, Dice or ZipRecruiter when connected) and
    employer career pages. Prefer postings from the last 30 days.
 2. **Open every posting** from its own page (the employer's site or its applicant-tracking page)

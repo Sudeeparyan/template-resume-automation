@@ -25,10 +25,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from backend.paths import APP_ROOT, PROFILES
+from backend.countries import known_markets
 
 ID_PATTERN = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?$")
 STATES = {"onboarding", "ready"}
-MARKETS = {"ie", "us"}
+# Every country pack in the code; which ones a person may choose is countries/markets.yml.
+MARKETS = set(known_markets())
 
 
 class ProfileError(ValueError):
@@ -152,7 +154,10 @@ class ProfileStore:
                 profile_id = base_id[: 40 - len(suffix)].strip("-") + suffix
                 n += 1
             self.skeleton(self.base / profile_id)
-            entry = {"id": profile_id, "name": name, "country": "ie", "target_markets": ["ie"],
+            from backend.countries import enabled_markets
+
+            market = enabled_markets()[0]
+            entry = {"id": profile_id, "name": name, "country": market, "target_markets": [market],
                      "work_authorization_by_market": {}, "state": "onboarding", "locked": False,
                      "created_at": _now()}
             data["profiles"].append(entry)
@@ -176,11 +181,37 @@ class ProfileStore:
                     if "state" in fields and fields["state"] not in STATES:
                         raise ProfileError("Unknown profile state")
                     if "target_markets" in fields:
-                        markets = fields["target_markets"]
-                        if not isinstance(markets, list) or not markets or any(m not in MARKETS for m in markets):
-                            raise ProfileError("Choose Ireland, the US, or both.")
+                        from backend.countries import enabled_markets, load_pack
+
+                        markets, offered = fields["target_markets"], enabled_markets()
+                        if not isinstance(markets, list) or not markets or any(m not in offered for m in markets):
+                            raise ProfileError("Choose from the markets this copy offers: "
+                                               + ", ".join(load_pack(m).name for m in offered) + ".")
                         fields["target_markets"] = list(dict.fromkeys(markets))
                         fields["country"] = fields["target_markets"][0]
+                    profile.update(fields, updated_at=_now())
+                    self._write(data)
+                    return self._public(profile)
+        raise ProfileError("No such profile. Pick one from the profile menu.")
+
+    def restore_build_metadata(self, profile_id: str, before: dict) -> dict:
+        """Roll back a failed build, including previously selected dormant markets.
+
+        Only the build service uses this saved registry snapshot; ordinary edits still
+        require enabled markets through update(). No candidate files are changed here.
+        """
+        if before.get("id") != profile_id:
+            raise ProfileError("The build snapshot belongs to another profile.")
+        fields = {key: before.get(key) for key in ("state", "name", "initials", "built_at",
+                                                  "target_markets", "work_authorization_by_market")}
+        markets = fields["target_markets"] or [before.get("country") or "ie"]
+        if not isinstance(markets, list) or any(market not in MARKETS for market in markets):
+            raise ProfileError("The saved build snapshot has unknown markets.")
+        fields["target_markets"], fields["country"] = markets, markets[0]
+        with self._lock:
+            data = self._read()
+            for profile in data["profiles"]:
+                if profile["id"] == profile_id:
                     profile.update(fields, updated_at=_now())
                     self._write(data)
                     return self._public(profile)

@@ -14,6 +14,7 @@ import { api } from "../api";
 import { Badge, Field } from "../components/UI";
 import { PROVIDER_LABEL } from "./Agents";
 import AutoRoute from "./AutoRoute";
+import JobSources from "./JobSources";
 import { ProfileSettings } from "../profiles";
 import type { RouteEndpoint, RoutePolicy } from "../types";
 
@@ -766,6 +767,7 @@ export default function Settings({
           </button>
         </div>
       </details>
+      <JobSources notify={notify} />
       <section className="card spaced">
         <div className="section-title">
           <h2><Mail size={18} /> Optional Gmail connection</h2>

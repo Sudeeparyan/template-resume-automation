@@ -12,6 +12,25 @@ def digest(text):
     return hashlib.sha256(str(text or "").encode()).hexdigest()
 
 
+def permit_statement(text):
+    """What a posting itself says about permits: refuses, supports, ambiguous or silent, with its sentence.
+
+    The country's rules only (never a person's), so the shared market store records the same view.
+    """
+    text = str(text or "")
+    rules = sponsorship.load_rules(str(load_pack("ie").template("sponsorship.yml")))
+    checked = sponsorship.screen(text, rules)
+    statement = {"state": "refuses" if checked.verdict == "EXCLUDED" else "supports" if checked.reason == "explicit_sponsorship" else "silent",
+                 "quote": checked.sentence}
+    own_words = sponsorship.strip_notices(text, rules)  # a board's statutory permit notice is not the employer's
+    accepted = re.search(r"[^.\n]*stamp\s*1\s*g\s+(?:holders?\s+)?(?:are\s+)?(?:welcome|considered|accepted|eligible)[^.\n]*", own_words, re.I)
+    if accepted:
+        statement["current_permission_quote"] = accepted[0].strip()
+    if statement["state"] == "silent" and re.search(r"\b(sponsorship|employment permit|work permit)\b", own_words, re.I):
+        statement["state"] = "ambiguous"
+    return statement
+
+
 def evaluate(job, profile=None):
     if job.get("market") != "ie":
         return None
@@ -27,19 +46,27 @@ def evaluate(job, profile=None):
                          url=job.get("url", ""), observed_at=meta.get("observed_at", ""))
     if pay["kind"] == "unknown" and current:
         pay = salary.research(meta.get("salary_research") or [])
-    checked = sponsorship.screen(text, sponsorship.load_rules(str(load_pack("ie").template("sponsorship.yml"))))
-    statement = {"state": "refuses" if checked.verdict == "EXCLUDED" else "supports" if checked.reason == "explicit_sponsorship" else "silent",
-                 "quote": checked.sentence}
-    accepted = re.search(r"[^.\n]*stamp\s*1\s*g\s+(?:holders?\s+)?(?:are\s+)?(?:welcome|considered|accepted|eligible)[^.\n]*", text, re.I)
-    if accepted:
-        statement["current_permission_quote"] = accepted[0].strip()
-    if statement["state"] == "silent" and re.search(r"\b(sponsorship|employment permit|work permit)\b", text, re.I):
-        statement["state"] = "ambiguous"
-    state = salary.assess(pay)
+    statement = permit_statement(text)
+    floor = salary.floor_for(profile)
+    policy = salary.policy_for(profile)
+    state = salary.assess(pay, floor)
     section = "below_floor" if state == "below_floor" else "salary_matches" if state == "meets_floor" and pay["kind"] == "advertised" else "researched_leads" if state == "meets_floor" and pay["kind"] == "researched" else "needs_research"
-    return {"salary": pay, "salary_state": state, "section": section, "floor": salary.DEFAULT_FLOOR,
-            "sponsorship": statement, "permit": permit_assessment.assess(job, pay, profile or {}, statement),
-            "valid_through": meta.get("valid_through") if current else None, "policy_version": salary.VERSION}
+    estimate = None
+    if pay["kind"] == "unknown":
+        from backend.market import normalize
+        from backend.market.salary_estimates import estimate as market_estimate
+
+        estimate = market_estimate(normalize.role_family(job.get("title") or ""), normalize.level(job.get("title") or "", text))
+        if estimate and estimate["median"] >= floor and section == "needs_research":
+            section = "estimated_matches"
+    result = {"salary": pay, "salary_state": state, "section": section, "floor": floor, "salary_policy": policy,
+              "estimate": estimate, "sponsorship": statement, "permit": permit_assessment.assess(job, pay, profile or {}, statement),
+              "valid_through": meta.get("valid_through") if current else None, "policy_version": salary.VERSION}
+    from backend.permits import path_score
+
+    # Scored against the permit threshold that applies to the person, not their own (higher) preference.
+    result["permit_path"] = path_score.score({**job, "posting_metadata": meta}, result, result["permit"]["personal_floor_eur"])
+    return result
 
 
 def record(services, job_id, values):
@@ -49,9 +76,11 @@ def record(services, job_id, values):
     if meta.get("jd_hash") != current_hash:
         meta = {}  # Neither old JSON-LD nor old research describes a changed vacancy.
     meta = {**meta, "jd_hash": current_hash, "observed_at": services.now()}
-    for key in ("raw_salary", "valid_through", "posted_at"):
+    for key in ("raw_salary", "valid_through", "posted_at", "source"):
         if values.get(key) is not None:
             meta[key] = values[key]
+    if values.get("on_eures"):
+        meta["on_eures"] = True  # where it was advertised: a permit-route signal (permits/path_score.py)
     # Raw JSON-LD is retained; an unvalidated model-produced salary object is never trusted.
     with services.w.connect() as db:
         db.execute("UPDATE jobs SET posting_metadata=? WHERE id=?", (json.dumps(meta, ensure_ascii=False), job_id))
@@ -64,9 +93,33 @@ def preparation_issue(job):
     if info["sponsorship"]["state"] == "refuses":
         return "The posting explicitly refuses the required permit support."
     if info["section"] == "below_floor":
-        return "Advertised pay is below the EUR 36,000 discovery floor."
+        if (info.get("salary") or {}).get("kind") == "researched":
+            return (f"Comparable published pay for this role is below the EUR {info['floor']:,.0f} discovery floor; "
+                    "the vacancy's own pay is unconfirmed.")
+        return f"Advertised pay is below the EUR {info['floor']:,.0f} discovery floor."
     if info["section"] == "researched_leads":
-        return "This is a researched salary lead; confirm the vacancy's actual pay before automatic preparation."
+        # Comparable pay from two independent dated sources (services/salary_research.py) is an estimate too.
+        if info.get("salary_policy") == "confirmed_or_estimated":
+            return None  # prepared, with a note to confirm the actual pay (pay_note)
+        return "Only researched comparable pay shows this role's pay; your settings prepare advertised pay only."
+    if info["section"] == "estimated_matches":
+        if info.get("salary_policy") == "confirmed_or_estimated":
+            return None  # prepared, with a note to confirm the actual pay (pay_note)
+        return "Only a market estimate shows this role's pay; your settings prepare advertised pay only."
     if info["section"] != "salary_matches":
-        return "The vacancy's annual pay is not confirmed at EUR 36,000 or above."
+        return f"The vacancy's annual pay is not confirmed at EUR {info['floor']:,.0f} or above."
     return None
+
+
+def pay_note(job):
+    """What to confirm about pay before applying, when the posting itself does not settle it ('' otherwise)."""
+    info = job.get("opportunity") or {}
+    if info.get("section") == "estimated_matches" and info.get("estimate"):
+        estimate = info["estimate"]
+        return (f"This posting states no salary. {estimate['label']} Typical range EUR {estimate['p25']:,}-{estimate['p75']:,} "
+                f"(median EUR {estimate['median']:,}). Confirm with the recruiter that the base salary is at least "
+                f"EUR {info['floor']:,.0f} before you apply.")
+    if info.get("section") == "researched_leads":
+        return (f"The salary here is from comparable published pay, not this vacancy. Confirm with the recruiter that "
+                f"the base salary is at least EUR {info['floor']:,.0f} before you apply.")
+    return ""

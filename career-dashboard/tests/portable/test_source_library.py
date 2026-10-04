@@ -84,6 +84,10 @@ class FakeProfiles:
         self.value.update(fields)
         return dict(self.value)
 
+    def restore_build_metadata(self, _profile_id, before):
+        self.value = dict(before)
+        return dict(self.value)
+
 
 class FakeApps:
     def __init__(self):

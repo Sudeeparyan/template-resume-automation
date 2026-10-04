@@ -196,13 +196,14 @@ export function formatSeconds(seconds?: number) {
   return formatMinutes(seconds / 60);
 }
 
-const ALL_STEPS = ["posting", "research", "tailor", "pdf", "review", "study_plan", "ready"];
+const ALL_STEPS = ["posting", "research", "tailor", "pdf", "cover_letter", "review", "study_plan", "ready"];
 const only = (...on: string[]) => Object.fromEntries(ALL_STEPS.map((id) => [id, on.includes(id)]));
 
 /** The quick picks: which helpers each one switches on. */
 export const QUICK_PICKS: { id: string; label: string; steps: Record<string, boolean> }[] = [
-  // "Find 5 jobs" means 5 jobs taken end to end, the same helpers as the morning run.
-  { id: "recommended", label: "End to end (recommended)", steps: only(...ALL_STEPS) },
+  // "Find 5 jobs" means 5 jobs taken end to end, the same helpers as the morning run. Cover letters
+  // are written on demand, so no quick pick switches them on.
+  { id: "recommended", label: "End to end (recommended)", steps: only(...ALL_STEPS.filter((id) => id !== "cover_letter")) },
   { id: "resumes", label: "Just resumes", steps: only("posting", "tailor", "pdf", "ready") },
   { id: "find", label: "Just find jobs", steps: only() },
 ];

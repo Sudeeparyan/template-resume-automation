@@ -13,7 +13,7 @@ fill in what you know. Leave a line empty when you are not sure: your AI app wil
 
 ## The jobs I want
 
-- Country to search: Ireland | United States | both
+- Country to search: Ireland (this copy searches the Republic of Ireland)
 - Job titles I want (2 to 4):
 - Level: internship | graduate | junior | mid | senior
 - Where: cities, remote, hybrid:
@@ -22,12 +22,10 @@ fill in what you know. Leave a line empty when you are not sure: your AI app wil
 
 ## Permission to work
 
-Answer for each country you chose. "Not sure" is fine: jobs that depend on it wait until you know.
+"Not sure" is fine: jobs that depend on it wait until you know.
 
 - Ireland: Irish or EU/EEA citizen | I have a permission to work (for example Stamp 1G or Stamp 4)
   until ____ | I need an employer to get me a permit | not sure
-- United States: US citizen or green card | I have a visa that lets me work (for example F-1 OPT
-  or H-1B) until ____ | I need an employer to sponsor me | not sure
 - Will I need sponsorship later?: yes | no | not sure
 
 ## My morning list

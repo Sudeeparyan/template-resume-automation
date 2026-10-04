@@ -6953,6 +6953,27 @@ nav button:disabled {
   padding: 2px 18px 18px;
   scrollbar-width: thin;
 }
+.graph-steps h4 {
+  margin: 12px 0 6px;
+}
+.graph-steps ol {
+  margin: 0;
+  padding-left: 20px;
+}
+.graph-steps li {
+  margin-bottom: 8px;
+}
+.graph-preview {
+  max-height: 120px;
+  overflow: auto;
+  margin: 4px 0;
+  padding: 6px 8px;
+  background: #f5f7f6;
+  border-radius: 6px;
+  font-size: 11px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
 .trace-steps {
   list-style: none;
   margin: 0;
@@ -7386,3 +7407,248 @@ nav button:disabled {
     background: none;
   }
 }
+
+/* Agent run timeline (features/TraceTimeline.tsx): one row per step, AI call or web request. */
+.timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.timeline-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 38%;
+  align-items: center;
+  column-gap: 10px;
+  border-radius: 6px;
+}
+.timeline-row:hover {
+  background: #f1f5f3;
+}
+.timeline-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 4px 6px;
+  border: 0;
+  background: none;
+  text-align: left;
+  font-size: 12.5px;
+  color: #172b29;
+}
+.timeline-label > span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.timeline-label > small {
+  color: #5f716d;
+  font-variant-numeric: tabular-nums;
+}
+.timeline-track {
+  position: relative;
+  height: 8px;
+  background: #eef2f0;
+  border-radius: 4px;
+}
+.timeline-bar {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  min-width: 2px;
+  border-radius: 4px;
+  background: #9fb8b1;
+}
+.kind-run .timeline-bar {
+  background: #123e36;
+}
+.kind-ai .timeline-bar {
+  background: #67934d;
+}
+.kind-http .timeline-bar {
+  background: #3d7fa6;
+}
+.kind-route .timeline-bar {
+  background: #b5c7a4;
+}
+.timeline-row.failed .timeline-bar {
+  background: #b2463c;
+}
+.timeline-row.failed .timeline-label > span {
+  color: #b2463c;
+}
+.timeline-detail {
+  grid-column: 1 / -1;
+  margin: 0 6px 8px 26px;
+  padding: 8px 10px;
+  border-left: 2px solid #dce8dd;
+  font-size: 12.5px;
+  color: #33504b;
+}
+.timeline-detail p {
+  margin: 0 0 4px;
+}
+.timeline-detail ul {
+  margin: 4px 0;
+  padding-left: 18px;
+}
+.timeline-detail a {
+  word-break: break-all;
+}
+.timeline-answer {
+  max-height: 260px;
+  overflow: auto;
+  margin: 6px 0 0;
+  padding: 8px;
+  background: #f5f7f8;
+  border-radius: 6px;
+  font-size: 11.5px;
+  white-space: pre-wrap;
+}
+@media (max-width: 640px) {
+  .timeline-row {
+    grid-template-columns: 1fr;
+  }
+  .timeline-track {
+    margin: 0 6px 6px 26px;
+  }
+}
+
+/* Onboarding: an AI for this computer before the first build (features/AISetup.tsx). */
+.ai-setup h2 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.ai-setup-list {
+  margin: 4px 0 8px;
+  padding-left: 18px;
+}
+.ai-setup-key {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px;
+}
+.ai-setup-key label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 200px;
+  flex: 1 1 200px;
+}
+.ai-setup .small.success {
+  color: #1d6b45;
+}
+.ai-setup .small.error {
+  padding: 6px 8px;
+  border-radius: 6px;
+}
+
+/* Permit-path evidence beside the permit checks (components/SalaryEvidence.tsx). */
+.permit-path ul {
+  margin: 4px 0 12px;
+  padding-left: 18px;
+}
+
+/* ---- Tracker: Irish roles with their permit facts ---- */
+.tracker-filter-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 0 16px;
+}
+.tracker-filter-grid .field {
+  margin: 10px 0;
+}
+.tracker-switches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+  margin: 6px 0 14px;
+  font-size: 13px;
+  color: #334f43;
+}
+.tracker-switches label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.tracker-filters .actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.tracker-filters a.secondary {
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+}
+.tracker-alert-form {
+  display: flex;
+  gap: 8px;
+  margin: 0 0 16px;
+}
+.tracker-alert-form input {
+  flex: 1;
+  min-width: 0;
+}
+.tracker-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.tracker-row {
+  padding: 14px 4px;
+  border-top: 1px solid #edf0ee;
+}
+.tracker-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+.tracker-head p {
+  margin: 4px 0 8px;
+}
+.tracker-actions {
+  flex-shrink: 0;
+  max-width: 260px;
+  text-align: right;
+}
+.tracker-row .chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.tracker-row details {
+  margin-top: 8px;
+}
+.permit-facts {
+  margin-top: 8px;
+  padding: 10px 12px;
+  border-left: 3px solid #cfe0d6;
+  background: #f7faf8;
+}
+.permit-facts p {
+  margin: 6px 0;
+}
+@media (max-width: 640px) {
+  .tracker-head {
+    flex-direction: column;
+  }
+  .tracker-actions {
+    max-width: none;
+    text-align: left;
+  }
+  .tracker-alert-form {
+    flex-direction: column;
+  }
+}
+
+/* Dashboard: what only the person can do now (backend/services/needs_you.py) */
+.needs-you { border-left: 4px solid #d8a85a; background: #fff6e9; color: #5d3f12; }
+.needs-you h3 { margin: 0 0 0.4rem; }
+.needs-you ul { margin: 0; padding-left: 1.1rem; }
+.needs-you li { margin: 0.35rem 0; }

@@ -43,7 +43,7 @@ SOURCES = [
              "matches get their must-haves checked, on a free plan."},
     {"id": "feeds", "label": "Job boards + employer feeds", "ai": False,
      "what": "Reads your company list, a verified list of employers hiring in your market and, for Ireland, "
-             "gradireland, jobs.ie and the askmanavi graduate tracker, with the full posting text. The search itself "
+             "gradireland and jobs.ie, with the full posting text. The search itself "
              "uses no AI; the best matches get their requirements checked on a free plan."},
 ]
 SOURCE_IDS = [source["id"] for source in SOURCES]
@@ -79,14 +79,20 @@ STEPS = [
      "what": "Re-reads the posting's own page before any work starts. A closed posting gets nothing more. No AI."},
     {"id": "research", "label": "Research & hiring-manager fit", "ai": True, "web": True,
      "minutes": 4.0, "tokens": 30000, "budget_calls": 3,
-     "what": "Three agents: public company research, a hiring manager's view of the role (it never sees you), "
-             "then your evidence against both. The resume tailor uses it."},
+     "what": "Public company research where every fact is checked word for word on the page it cites (kept "
+             "30 days for every job at that employer), a hiring manager's view of the role (it never sees you), "
+             "then your evidence against both. The resume tailor and cover letter use it."},
     {"id": "tailor", "label": "Tailor resume", "ai": True, "web": False,
      "minutes": 3.0, "tokens": 22000, "budget_calls": 0,
      "what": "Selects your evidenced Projects and Skills for this job. Learning gaps stay outside the resume."},
     {"id": "pdf", "label": "Resume PDF", "ai": False, "web": False,
      "minutes": 0.5, "tokens": 0, "budget_calls": 0,
      "what": "Builds the PDF and checks it against the profile's page contract. No AI."},
+    {"id": "cover_letter", "label": "Cover letter", "ai": True, "web": False,
+     "minutes": 2.0, "tokens": 14000, "budget_calls": 0,
+     "what": "Drafts a letter from your registered evidence and the verified company facts; every number, name "
+             "and sentence about you is checked, otherwise it is built from your own registered sentences. "
+             "Saved with a Word copy. Off unless you switch it on."},
     {"id": "review", "label": "Independent review", "ai": True, "web": False,
      "minutes": 1.5, "tokens": 12000, "budget_calls": 1,
      "what": "A fresh AI reads only the finished PDF and the posting, never your profile, and says what is met, "
@@ -102,7 +108,10 @@ STEPS = [
 STEP_IDS = [step["id"] for step in STEPS]
 STEP = {step["id"]: step for step in STEPS}
 # Every helper by default: "find 5 jobs" means 5 jobs taken end to end. The morning run uses the same.
-DEFAULT_STEPS = {step: True for step in STEP_IDS}
+# Cover letters are written on demand (most Irish applications do not ask for one), so that helper is
+# off until the person switches it on.
+ON_DEMAND = ("cover_letter",)
+DEFAULT_STEPS = {step: step not in ON_DEMAND for step in STEP_IDS}
 # One Daily Search makes at most this many search passes: the chosen one, then focused web
 # passes while it is still short of the jobs asked for.
 MAX_FIND_PASSES = 3
@@ -510,7 +519,9 @@ class Pipeline:
                     (id, "queued", json.dumps(config), json.dumps(progress), now, now))
                 self.w.record_event(db, "pipeline_started", run_id=id, **config)
             self._remember(config)
-            self.thread = threading.Thread(target=self._run, args=(id,), name="career-pipeline", daemon=True)
+            from backend import telemetry
+
+            self.thread = threading.Thread(target=telemetry.carry(self._traced), args=(id,), name="career-pipeline", daemon=True)
             self.thread.start()
         return self.get(id)
 
@@ -528,8 +539,10 @@ class Pipeline:
         if rows:
             def resume():
                 for row in rows:
-                    self._run(row["id"])
-            self.thread = threading.Thread(target=resume, name="career-pipeline-recovery", daemon=True)
+                    self._traced(row["id"])
+            from backend import telemetry
+
+            self.thread = threading.Thread(target=telemetry.carry(resume), name="career-pipeline-recovery", daemon=True)
             self.thread.start()
 
     def get(self, id: str) -> dict | None:
@@ -567,6 +580,19 @@ class Pipeline:
         with self.w.connect() as db:
             row = db.execute("SELECT stop_requested FROM pipeline_runs WHERE id=?", (id,)).fetchone()
         return bool(row and row[0])
+
+    def _traced(self, id: str) -> None:
+        from backend import telemetry
+
+        with telemetry.bind(profile_root=self.w.root, run={"id": f"pipeline:{id}", "kind": "pipeline"}):
+            with telemetry.span("pipeline.run", **{"career.pipeline_id": id}) as current:
+                self._run(id)
+                with self.w.connect() as db:
+                    row = db.execute("SELECT state,error FROM pipeline_runs WHERE id=?", (id,)).fetchone()
+                if row:
+                    telemetry.set_attributes(current, **{"career.run_state": row["state"]})
+                    if row["state"] == "failed":
+                        telemetry.mark_failed(current, row["error"])
 
     def _run(self, id: str) -> None:
         with self.w.connect() as db:
@@ -683,38 +709,57 @@ class Pipeline:
         self._save(id, progress)
 
     def _job(self, id, config, progress, job, steps, number, total) -> None:
-        stopped, opened = None, False
+        """Every switched-on helper for one job, in order. With the ``graph_pipeline`` feature the same
+        steps run as JobPrepGraph (backend/graphs/job_prep.py), checkpointed after each helper."""
+        from backend import features
+
+        if features.enabled("graph_pipeline", self.s):
+            from backend.graphs import job_prep
+
+            job_prep.run(self, id, config, progress, job, steps, number, total)
+            return
+        state = {"stopped": None, "opened": False}
         for step in steps:
-            if self._stop_requested(id):
-                job["steps"][step] = {"state": "skipped"}
-                continue
-            if stopped:
-                job["steps"][step] = {"state": "skipped", "note": stopped}
-                continue
-            try:
-                from backend.services.opportunities import preparation_issue
-                issue = preparation_issue(self.w.get_job(job["id"]))
-                if step != "posting" and issue:
-                    raise JobStopped(issue)
-                opened = open_draft(self.studio, job["id"], step, opened)
-            except Exception as exc:
-                stopped = "Could not open this job's resume: " + str(exc)[:500]
-                job["steps"][step] = {"state": "failed", "error": stopped}
-                self._save(id, progress)
-                continue
-            progress["stage"] = f"{STEP[step]['label']} for {job['company']} (job {number} of {total})"
-            job["steps"][step] = {"state": "running", "started_epoch": time.time()}
+            state = self._job_step(id, config, progress, job, step, number, total, state)
+
+    def _job_step(self, id, config, progress, job, step, number, total, state) -> dict:
+        """One helper for one job, as the classic loop and JobPrepGraph both run it.
+
+        ``state`` carries why the job stopped (its later helpers are skipped) and whether its draft
+        is open; the updated state is returned. The job's progress entry is written in place.
+        """
+        stopped, opened = state.get("stopped"), state.get("opened", False)
+        if self._stop_requested(id):
+            job["steps"][step] = {"state": "skipped"}
+            return {"stopped": stopped, "opened": opened}
+        if stopped:
+            job["steps"][step] = {"state": "skipped", "note": stopped}
+            return {"stopped": stopped, "opened": opened}
+        try:
+            from backend.services.opportunities import preparation_issue
+            issue = preparation_issue(self.w.get_job(job["id"]))
+            if step != "posting" and issue:
+                raise JobStopped(issue)
+            opened = open_draft(self.studio, job["id"], step, opened)
+        except Exception as exc:
+            stopped = "Could not open this job's resume: " + str(exc)[:500]
+            job["steps"][step] = {"state": "failed", "error": stopped}
             self._save(id, progress)
-            started = time.time()
-            try:
-                done = self.run_step(step, job["id"], config)
-                job["steps"][step] = step_entry(done, round(time.time() - started, 1))
-            except JobStopped as exc:
-                stopped = str(exc)
-                job["steps"][step] = {"state": "failed", "seconds": round(time.time() - started, 1), "error": stopped}
-            except Exception as exc:
-                job["steps"][step] = {"state": "failed", "seconds": round(time.time() - started, 1), "error": str(exc)[:600]}
-            self._save(id, progress)
+            return {"stopped": stopped, "opened": opened}
+        progress["stage"] = f"{STEP[step]['label']} for {job['company']} (job {number} of {total})"
+        job["steps"][step] = {"state": "running", "started_epoch": time.time()}
+        self._save(id, progress)
+        started = time.time()
+        try:
+            done = self.run_step(step, job["id"], config)
+            job["steps"][step] = step_entry(done, round(time.time() - started, 1))
+        except JobStopped as exc:
+            stopped = str(exc)
+            job["steps"][step] = {"state": "failed", "seconds": round(time.time() - started, 1), "error": stopped}
+        except Exception as exc:
+            job["steps"][step] = {"state": "failed", "seconds": round(time.time() - started, 1), "error": str(exc)[:600]}
+        self._save(id, progress)
+        return {"stopped": stopped, "opened": opened}
 
     def _web_choice(self, config):
         """Steps that search the web run on the chosen AI when it can; otherwise the app picks one that can."""
@@ -747,6 +792,15 @@ class Pipeline:
                          persona=persona_for(self.w.root), route=route)
 
     def run_step(self, step: str, job_id: str, config: dict) -> dict:
+        from backend import telemetry
+
+        if step not in STEP:
+            raise ValueError("Unknown helper: " + step)
+        with telemetry.bind(profile_root=self.w.root):
+            with telemetry.span(f"pipeline.step {step}", **{"career.node": step, "career.job_id": job_id}):
+                return self._run_step(step, job_id, config)
+
+    def _run_step(self, step: str, job_id: str, config: dict) -> dict:
         """One helper (any of STEP_IDS) for one saved job, outside a Daily Search run.
 
         The overnight hunt (services/hunt.py) prepares the jobs it saves through the same
@@ -860,6 +914,15 @@ class Pipeline:
         note = f"{items.get('verified', 0)} items from your profile evidence"
         warnings = result.get("warnings") or []
         return {"note": note + (". " + warnings[0] if warnings else "")}
+
+    def _cover_letter(self, job_id, config) -> dict:
+        from backend.services import cover_letters
+
+        letter = cover_letters.generate(self.s, job_id, team=self._team(config))
+        how = ("an AI draft that passed every check" if letter["method"] == "ai"
+               else "built from your registered sentences")
+        return {"note": f"Cover letter v{letter['version']}: {how}. Review it before you send it.",
+                "path": letter["path"], "method": letter["method"]}
 
     def _study_plan(self, job_id, config) -> dict:
         provider, model = self._web_choice(config)

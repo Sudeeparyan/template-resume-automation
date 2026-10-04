@@ -211,4 +211,8 @@ def _run_once(prompt: str, schema: dict, *, model: str, web: bool, system: str |
 
 def invoke(prompt: str, schema: dict, **options) -> dict:
     """The provider-gateway shape: just the parsed object."""
-    return run(prompt, schema, **options)[0]
+    from backend import telemetry
+
+    result, usage = run(prompt, schema, **options)
+    telemetry.record_usage((usage or {}).get("input_tokens"), (usage or {}).get("output_tokens"))
+    return result

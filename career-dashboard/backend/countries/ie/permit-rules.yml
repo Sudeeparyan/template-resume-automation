@@ -1,23 +1,100 @@
-version: ie-2026-03-v1
+version: ie-2026-03-v2
 effective_from: '2026-03-01'
-verified_at: '2026-10-02'
-review_after: '2026-11-01'
+verified_at: '2026-10-03'
+# The official roadmap schedules the next figures for January 2027 (amounts TBD).
+# Stop relying on the 2026 figures from January 1; the app warns 30 days before.
+review_after: '2026-12-31'
 # Discovery guidance only. Exceptions, employer facts and occupation classification
-# require confirmation; a salary threshold is never approval to work.
+# require confirmation; a salary threshold is never approval to work. These are the
+# official rules as published by the Department of Enterprise, Tourism and Employment
+# (DETE) and Immigration Service Delivery: information, not immigration advice.
+#
+# The v1 keys of each route (annual, graduate_annual, graduate_condition, url) stay as they
+# were; `thresholds`, `lmnt` and the sections below add the conditions each figure needs.
 routes:
   gep:
     title: General Employment Permit
     annual: 36605
     graduate_annual: 34009
-    graduate_condition: Relevant Irish third-level degree awarded in the previous 12 months
+    graduate_condition: Relevant Irish third-level degree at NFQ Level 8 or above awarded in the 12 months before the permit application
     url: https://enterprise.gov.ie/en/what-we-do/workplace-and-skills/employment-permits/permit-types/general-employment-permit/
+    thresholds:
+      - id: standard
+        annual: 36605
+        requires: {occupation_not: ineligible}
+      - id: irish_graduate
+        annual: 34009
+        requires: {occupation_not: ineligible, degree_within_months: 12, irish_institution: true, relevant_degree: true, min_nfq_level: 8}
+    base_weekly_hours: 39
+    remuneration_note: Annual figures are based on a 39-hour week; confirm weekly hours and qualifying remuneration with DETE.
+    other_thresholds_note: Specific horticulture, meat-processing and care roles have separate published thresholds; this graduate-search summary is not a complete list of exceptions.
+    lmnt:
+      required: true
+      minimum_continuous_days: 28
+      url: https://enterprise.gov.ie/en/what-we-do/workplace-and-skills/employment-permits/employment-permit-eligibility/labour-market-needs-test/
+      text: >-
+        Labour Market Needs Test: the employer advertises the vacancy with the Department of Social
+        Protection's employment services (JobsIreland) and the EURES network, plus one other online
+        platform, for at least 28 continuous days on both before applying. An EURES listing alone
+        does not establish that the test was completed.
+      exemptions:
+        - {salary_at_least: 68911}
+        - {occupation_list: critical}
+        - {recommended_by: [IDA Ireland, Enterprise Ireland]}
+      other_exemptions_note: Other exemptions include specified dependent-care and recent-redundancy circumstances; check the route's official page.
+    application_lead_weeks: 12
+    application_lead_text: DETE says employment-permit applications must be received at least 12 weeks before the proposed start date.
+    initial_years: 2
   csep:
     title: Critical Skills Employment Permit
     annual: 40904
     graduate_annual: 36848
-    graduate_condition: Relevant qualifying degree awarded in the previous 12 months and eligible occupation
+    graduate_condition: Relevant recognised degree at Level 8 or above (or equivalent) awarded in the 12 months before the permit application, for an occupation on the Critical Skills list
     minimum_contract_months: 24
+    base_weekly_hours: 39
+    remuneration_note: Annual figures are based on a 39-hour week; confirm weekly hours and qualifying remuneration with DETE.
+    other_thresholds_note: Specified public-sector roles follow the applicable pay agreement; nursing and midwifery have qualification provisions.
     url: https://enterprise.gov.ie/en/what-we-do/workplace-and-skills/employment-permits/permit-types/critical-skills-employment-permit/
+    thresholds:
+      - id: critical_occupation
+        annual: 40904
+        requires: {occupation_list: critical, relevant_degree: true}
+      - id: critical_occupation_graduate
+        annual: 36848
+        requires: {occupation_list: critical, degree_within_months: 12, relevant_degree: true, min_nfq_level: 8}
+      - id: other_occupation
+        annual: 68911
+        requires: {occupation_not: ineligible}
+        note: Applies to non-ineligible occupations, including Critical Skills occupations; relevant qualifications or necessary experience and the public-interest condition still require confirmation. The DETE checklist gives a minimum of EUR 68,911; the route page says over that figure, so confirm the exact boundary with DETE.
+# Routes shown for completeness; rarely relevant to a graduate's own job search.
+other_routes:
+  ict:
+    title: Intra-Company Transfer Employment Permit
+    annual: 49523
+    trainee_annual: 36605
+    note: Transfers of senior management or key personnel within one company group.
+    url: https://enterprise.gov.ie/en/what-we-do/workplace-and-skills/employment-permits/permit-types/intra-company-transfer-employment-permit/
+employer_rules:
+  eea_ratio:
+    text: >-
+      At least half of the employer's employees must be EEA nationals (the 50:50 rule). A supported
+      start-up registered with Revenue within the last two years can have a waiver; other narrow
+      exceptions also require confirmation on the official route page.
+    url: https://enterprise.gov.ie/en/what-we-do/workplace-and-skills/employment-permits/permit-types/general-employment-permit/
+stamp_1g:
+  title: Third Level Graduate Programme (Stamp 1G)
+  facts:
+    - Graduates with a Level 8 award from a recognised Irish awarding body can receive 12 months, subject to the programme's conditions and seven-year aggregate student-permission limit.
+    - Graduates with a Level 9 or above award can receive 12 months initially and a further 12 months subject to conditions, including seeking suitable graduate work and the eight-year aggregate student-permission limit.
+    - The programme can be used on at most two occasions; re-entry after a previous award requires a higher award and the other programme conditions.
+    - Graduate Stamp 1G permits full-time employment while valid; operating a business and self-employment are not allowed.
+  url: https://www.irishimmigration.ie/my-situation-has-changed-since-i-arrived-in-ireland/third-level-graduate-programme/
+  employment_conditions_url: https://www.irishimmigration.ie/registering-your-immigration-permission/information-on-registering/immigration-permission-stamps/
+sources:
+  thresholds_roadmap: https://enterprise.gov.ie/en/publications/publication-files/employment-permits-minimum-annual-remuneration-outcome-of-the-roadmap-review-2025.pdf
+  statistics: https://enterprise.gov.ie/en/what-we-do/workplace-and-skills/employment-permits/statistics/
+  gep_checklist: https://enterprise.gov.ie/en/Publications/Publication-files/General-Employment-Permits-Checklist.pdf
+  csep_checklist: https://enterprise.gov.ie/en/publications/publication-files/critical-skills-employment-permits-checklist.pdf
 occupation_sources:
   - title: Critical Skills Occupations List
     url: https://enterprise.gov.ie/en/what-we-do/workplace-and-skills/employment-permits/employment-permit-eligibility/highly-skilled-eligible-occupations-list/

@@ -28,7 +28,13 @@ def test_strategy_rotation_is_read_only_and_all_roles_counties_are_present(tmp_p
     passes = search_plan.strategies(tmp_path, sources="ai", plan=plan)
     assert not (tmp_path / "data").exists()
     county_passes = [p for p in passes if "county" in p]
-    assert len(county_passes) == 26 * 5
+    # "Anywhere in Ireland": the six largest markets for each role the AI searches for (the first AI_ROLES).
+    assert len(county_passes) == len(search_plan.LARGEST_MARKETS) * search_plan.AI_ROLES
+    assert [p["county"] for p in county_passes[:2]] == ["Dublin", "Cork"]
+    assert search_plan.preferred_counties([]) == list(search_plan.LARGEST_MARKETS)
+    named = search_plan.strategies(tmp_path, sources="ai", plan={**plan, "counties": {"ie": ["Galway"]}})
+    assert {p["county"] for p in named if "county" in p} == {"Galway"}
+    assert search_plan.preferred_counties(["Sandyford, Dublin 18", "Ballincollig, Co. Cork"]) == ["Dublin", "Cork"]
     year = datetime.now(ZoneInfo("Europe/Dublin")).year
     grad = next(p for p in passes if p["id"] == "ai:ie:graduate")
     assert str(year + 1) in " ".join(grad["queries"])

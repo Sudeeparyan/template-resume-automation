@@ -204,7 +204,15 @@ function FormField({
   return (
     <div className={spec.type === "textarea" ? "wide-field" : ""}>
       <Field label={spec.label + (spec.required ? " (required)" : "")}>
-        {spec.type === "textarea" ? (
+        {spec.type === "boolean" ? (
+          <select value={value == null ? "unknown" : String(value)} onChange={(e) => onChange(e.target.value === "unknown" ? null : e.target.value === "true")}>
+            <option value="unknown">Not confirmed</option><option value="true">Yes</option><option value="false">No</option>
+          </select>
+        ) : spec.type === "select" ? (
+          <select value={text || spec.options?.[0]} onChange={(e) => onChange(e.target.value)}>
+            {spec.options?.map((option) => <option key={option} value={option}>{spec.option_labels?.[option] ?? option.replaceAll("_", " ")}</option>)}
+          </select>
+        ) : spec.type === "textarea" ? (
           <textarea rows={5} maxLength={30000} value={text} placeholder={spec.placeholder} onChange={(e) => onChange(e.target.value)} />
         ) : (
           <input

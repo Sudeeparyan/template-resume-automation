@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import threading
 import time
 import uuid
@@ -57,13 +58,27 @@ this while waiting for a queued agent: the worker needs the same job slot.
                 _job_locks.pop(key, None)
 
 
+SLOT_TIMEOUT = 960  # one web call's own limit (900 s, backend/ai/*_cli.py) and a minute
+
+
+def slot_timeout() -> float:
+    """How long a call waits for its provider's slot: ``CAREER_AI_SLOT_TIMEOUT`` seconds, else SLOT_TIMEOUT."""
+    try:
+        value = float(os.environ.get("CAREER_AI_SLOT_TIMEOUT") or SLOT_TIMEOUT)
+    except ValueError:
+        return SLOT_TIMEOUT
+    return value if value > 0 else SLOT_TIMEOUT
+
+
 @contextmanager
-def invocation_slot(provider: str, *, timeout: float = 300):
+def invocation_slot(provider: str, *, timeout: float | None = None):
     """At most two AI calls per process, and one per actual provider.
 
 The router and specialist adapter can both wrap a call; same-provider nesting
-does not reserve twice. Acquire only around an actual endpoint invocation.
+does not reserve twice. Acquire only around an actual endpoint invocation. A call
+queued behind another on the same provider waits for it (``slot_timeout()``).
 """
+    timeout = slot_timeout() if timeout is None else timeout
     held = _held_provider.get()
     if held == provider:
         yield

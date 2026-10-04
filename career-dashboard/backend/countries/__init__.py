@@ -8,10 +8,16 @@ owns and can edit its rules; the pack itself is never written.
 
 A workspace's pack comes from `country_pack` in its profile.yml, else from
 `location_preferences.country`. Each profile selects its own pack independently.
+
+Which packs this copy offers is one switch, `countries/markets.yml` (`enabled: [ie]`);
+the environment variable CAREER_MARKETS (for example "ie,us") overrides it for
+development and tests. A pack that is switched off stays in the code: its profiles keep
+their own rules, but searching is refused until the market is enabled again.
 """
 
 from __future__ import annotations
 
+import os
 import re
 from dataclasses import dataclass, field
 from functools import lru_cache
@@ -23,6 +29,7 @@ import yaml
 from backend.paths import COUNTRIES
 
 DEFAULT_CODE = "ie"
+MARKETS_FILE = COUNTRIES / "markets.yml"
 
 
 @dataclass(frozen=True)
@@ -63,8 +70,15 @@ class Pack:
 
     @property
     def sponsor_index(self) -> str | None:
-        """'uscis' when the USCIS H-1B employer history applies; None otherwise."""
+        """The public employer history this country uses ('uscis', 'dete'); None without one."""
         return self.data.get("sponsor_index") or None
+
+    @property
+    def sponsor_history_required(self) -> bool:
+        """True where mid-size and large employers need a public sponsorship record to be listed
+        (the US H-1B history). Elsewhere history only ranks: a silent posting is never dropped
+        for an employer's missing record (Ireland's DETE permits)."""
+        return self.data.get("sponsor_history") == "required"
 
     @property
     def tier_labels(self) -> dict:
@@ -150,19 +164,56 @@ def load_pack(code: str) -> Pack:
     return Pack(code=code, name=str(data.get("name") or code.upper()), data=data)
 
 
-def available() -> list[Pack]:
-    return [load_pack(p.name) for p in sorted(COUNTRIES.iterdir()) if (p / "pack.yml").is_file()]
+def known_markets() -> tuple[str, ...]:
+    """Every country pack in this copy, switched on or not."""
+    return tuple(sorted(p.name for p in COUNTRIES.iterdir() if (p / "pack.yml").is_file()))
+
+
+def enabled_markets() -> list[str]:
+    """The markets this copy offers, in preference order (never empty)."""
+    try:
+        stamp = MARKETS_FILE.stat().st_mtime_ns
+    except OSError:
+        stamp = 0
+    return list(_enabled(os.environ.get("CAREER_MARKETS", ""), stamp))
+
+
+@lru_cache(maxsize=8)
+def _enabled(override: str, stamp: int) -> tuple[str, ...]:
+    if override.strip():
+        wanted = [code.strip().lower() for code in override.split(",")]
+    else:
+        try:
+            data = yaml.safe_load(MARKETS_FILE.read_text(encoding="utf-8")) or {}
+        except (OSError, yaml.YAMLError):
+            data = {}
+        wanted = [str(code).strip().lower() for code in (data.get("enabled") or [])] if isinstance(data, dict) else []
+    known = known_markets()
+    return tuple(dict.fromkeys(code for code in wanted if code in known)) or (DEFAULT_CODE,)
+
+
+def is_enabled(code: str | None) -> bool:
+    return str(code or "").strip().lower() in enabled_markets()
+
+
+def available(include_disabled: bool = False) -> list[Pack]:
+    """The packs a person can choose from (all packs in the code with include_disabled)."""
+    return [load_pack(code) for code in (known_markets() if include_disabled else enabled_markets())]
 
 
 def code_for(profile: dict | None) -> str:
-    """The pack a profile uses: `country_pack`, else its target country's name."""
+    """The pack a profile uses: `country_pack`, else its target country's name.
+
+    Switched-off packs still resolve, so an older profile keeps its own rules instead of
+    silently becoming another country's profile.
+    """
     profile = profile if isinstance(profile, dict) else {}
     code = str(profile.get("country_pack") or "").strip().lower()
     if code and (COUNTRIES / code / "pack.yml").is_file():
         return code
     country = str((profile.get("location_preferences") or {}).get("country") or "").strip().casefold()
     if country:
-        for pack in available():
+        for pack in available(include_disabled=True):
             if country in {n.casefold() for n in pack.names} or country == pack.code:
                 return pack.code
     return DEFAULT_CODE
@@ -179,12 +230,33 @@ def target_markets_for(root) -> list[str]:
     configured = profile.get("target_markets")
     if not isinstance(configured, list) or not configured:
         configured = [code_for(profile)]
-    markets = [str(code).lower() for code in configured if str(code).lower() in {"ie", "us"}]
-    return list(dict.fromkeys(markets)) or [DEFAULT_CODE]
+    known = known_markets()
+    markets = list(dict.fromkeys(str(code).lower() for code in configured if str(code).lower() in known))
+    # Switched-off markets drop out; a profile that only has switched-off markets keeps
+    # them, so require_enabled_markets can say so instead of searching another country.
+    return [code for code in markets if is_enabled(code)] or markets or [DEFAULT_CODE]
+
+
+def require_enabled_markets(root, market: str | None = None) -> None:
+    """Searching and preparing need at least one market this copy offers."""
+    markets = [market] if market else target_markets_for(root)
+    if not any(is_enabled(code) for code in markets):
+        names = ", ".join(load_pack(code).name for code in markets)
+        offered = ", ".join(load_pack(code).name for code in enabled_markets())
+        raise ValueError(f"This profile searches {names}, which this copy no longer offers (it searches {offered}). "
+                         "Create a separate profile for an offered market, or see docs/DEVELOPERS.md, \"Re-enabling a market\".")
 
 
 def require_known_authorization(root, market: str | None = None) -> None:
-    """New profiles must supply eligibility facts before screening or applications."""
+    """New profiles must supply eligibility facts before screening or applications.
+
+    A market this copy no longer offers is refused first: its searches stay off.
+    """
+    if market and not is_enabled(market):
+        raise ValueError(f"{load_pack(market).name} is switched off in this copy, so its jobs are not searched or "
+                         "prepared. See docs/DEVELOPERS.md, \"Re-enabling a market\".")
+    if not market:
+        require_enabled_markets(root)
     path = Path(root) / "data/config/profile.yml"
     try:
         profile = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
@@ -202,6 +274,9 @@ def require_known_authorization(root, market: str | None = None) -> None:
         if (facts["status"] == "authorized" and facts["citizenship"] != "citizen"
                 and facts.get("needs_sponsorship_later") not in {"yes", "no"}):
             raise ValueError(f"Confirm whether employer sponsorship will be needed later for {load_pack(code).name} in Assistant → Profile sources → Build settings, then rebuild before eligibility-dependent actions.")
+        if code == "ie" and facts.get("permission_type") == "stamp_1g" and (
+                not facts.get("valid_until") or facts.get("valid_until_confirmed") is not True):
+            raise ValueError("Confirm the exact Stamp 1G expiry date in Build settings before searching or preparing jobs.")
         if facts["status"] == "authorized" and facts.get("valid_until"):
             from datetime import date, datetime
             from zoneinfo import ZoneInfo

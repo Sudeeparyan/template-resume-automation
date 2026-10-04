@@ -23,6 +23,8 @@ my-jobs/*
 # Runtime state and secrets never belong in the shared template.
 **/.venv/
 **/.runtime/
+# Tools the launcher downloads (a pinned Tectonic); never committed.
+career-dashboard/backend/.tools/
 **/__pycache__/
 **/.pytest_cache/
 **/node_modules/
@@ -49,6 +51,8 @@ my-jobs/*
 career-dashboard/profiles/
 career-dashboard/output/
 career-dashboard/data/
+# `langgraph dev` (LangGraph Studio, demo profile only) keeps its run state here.
+career-dashboard/.langgraph_api/
 career-dashboard/tests/*
 !career-dashboard/tests/portable/
 !career-dashboard/tests/portable/**

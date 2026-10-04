@@ -12,8 +12,11 @@ simple. A fresh clone contains no profiles or application history.
 
 Follow [Install the dashboard](README.md#install-the-dashboard). On Windows, double-click
 **Start Dashboard.cmd**; on macOS use **Start Dashboard.command**. The launcher installs the
-app's packages and opens the dashboard. You only need this setup once. You can then use chat
-for daily work; the existing dashboard is there whenever you want it.
+app's packages (and a pinned Tectonic for resume PDFs, when none is installed) and opens the
+dashboard. Keep the folder outside OneDrive or another sync folder. If no AI is set up yet, the
+first page lets you sign in to an AI app or paste an API key before your documents are read.
+You only need this setup once. You can then use chat for daily work; the existing dashboard is
+there whenever you want it.
 
 ## 2. Open this folder in your AI app
 
@@ -53,8 +56,9 @@ Use the installed application and tell me what is missing before searching.
 Ask only for facts my documents do not provide. Keep my evidence and job history in the app.
 ```
 
-The assistant asks for the country (Ireland, US or both), your permission to work, target roles
-and morning preferences. It imports the sources and builds your profile through the same
+The assistant asks for your permission to work in Ireland (for example Stamp 1G and the exact
+day it ends), your degree's award date and NFQ level (graduate salary thresholds depend on
+them), target roles and morning preferences. It imports the sources and builds your profile through the same
 services as the dashboard. Review the resulting facts and any open questions. Missing work
 authorization stays unknown; jobs that depend on it wait for your answer.
 

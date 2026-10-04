@@ -33,9 +33,16 @@ Nothing is ever submitted and no one is contacted.
 | `daily-job-search/logs/autopilot-<date>.log` | What the run did, step by step |
 
 Each list shows these sections:
-- **Needs you**: shown only when a person must act.
-- **New this morning**: fit, why it fits, work-permit note, apply link and tailored resume PDF.
+- **Needs you**: shown only when a person must act: problems from the run, plus the Dashboard's
+  own "Needs you" list (permit facts to confirm, a Stamp 1G expiry within 60 days, pending profile
+  entries, saved jobs that state no pay, a hunt that skipped AI searches with paid AI off).
+- **Your permit dates**: the Stamp 1G expiry and graduate-rate window they confirmed, with days left,
+  and the published GEP lead time, each with its official link (dated facts, not immigration advice).
+- **New this morning**: fit, why it fits, pay (advertised; a market estimate with what to confirm; or
+  not stated), the posting's own permit sentence, the employer's DETE permit record, the permit-path
+  evidence score (public evidence, not approval likelihood), apply link and tailored resume PDF.
 - **Still to apply**: jobs saved in the last 21 days.
+- **Tracker alerts**: saved Tracker searches with new matches.
 - **Waiting for the AI requirement check**: not verified yet.
 - **Your applications**: never suggested again.
 - **How the search went**: including what the run fixed by itself.

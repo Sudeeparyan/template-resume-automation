@@ -84,6 +84,114 @@ def _option(label: str, description: str = "", value: str | None = None) -> dict
     return {"label": label, "description": description, "value": label if value is None else value}
 
 
+# ---- Irish permit facts ----------------------------------------------------------------------
+# Every normalized permit fact comes from the person's own choice here (or the Build settings
+# form); the documents only suggest which option to show first.
+IRISH_PERMISSIONS = (
+    ("stamp_1g", "Stamp 1G", "Third Level Graduate Programme"),
+    ("stamp_4", "Stamp 4", "Live and work in Ireland without an employment permit"),
+    ("csep_holder", "Critical Skills permit", "I hold a Critical Skills Employment Permit"),
+    ("gep_holder", "General Employment Permit", "I hold a General Employment Permit"),
+    ("stamp_2", "Stamp 2", "Student permission"),
+    ("irish_or_eea_citizen", "Irish, EU/EEA, UK or Swiss citizen", "No employment permit is needed"),
+    ("unknown", "Not sure", "Jobs that depend on it wait until you confirm"),
+)
+# Permissions that allow full-time work while they are valid; the type alone settles it.
+FULL_TIME_PERMISSIONS = {"stamp_1g", "stamp_4", "csep_holder", "gep_holder"}
+DEGREE_CHOICES = {"ie:9": (9, True), "ie:8": (8, True), "ie:10": (10, True), "abroad": (None, False), "unknown": (None, None)}
+_PERMISSION_HINTS = (("stamp_1g", r"\bstamp\s*1\s*g\b|graduate programme"), ("stamp_4", r"\bstamp\s*4\b"),
+                     ("stamp_2", r"\bstamp\s*2\b"), ("csep_holder", r"critical skills"),
+                     ("gep_holder", r"general employment permit"))
+
+
+def suggested_permission(text: str) -> str | None:
+    """The option a person's own wording points to ("Stamp 1G until DEC2027" -> stamp_1g); a suggestion only."""
+    text = str(text or "").casefold()
+    for value, pattern in _PERMISSION_HINTS:
+        if re.search(pattern, text):
+            return value
+    if re.search(r"\bcitizen", text) and not re.search(r"\bnon[- ]?citizen|\bnot an? \w*\s*citizen", text):
+        return "irish_or_eea_citizen"
+    return None
+
+
+def _irish_permission_questions(auth: dict, facts: dict) -> list[dict]:
+    questions = []
+    if facts.get("permission_type", "unknown") == "unknown":
+        hint = suggested_permission(auth.get("status"))
+        ordered = sorted(IRISH_PERMISSIONS, key=lambda item: item[0] != hint)
+        questions.append({"key": "permit_type", "field": "permit.permission_type", "skippable": False,
+                          "text": "Which permission do you have to live and work in Ireland now?",
+                          "why": "It decides which postings you can take and which permit rules apply to them.",
+                          "placeholder": "Something else? Describe it in your own words",
+                          "options": [_option(label, "From your documents" if value == hint else description, value)
+                                      for value, label, description in ordered]})
+    elif facts.get("permission_type") in {"stamp_2", "other"} and facts.get("status", "unknown") == "unknown":
+        questions.append({"key": "permit_status", "field": "permit.status", "other": False, "skippable": False,
+                          "text": "Can you work full-time in Ireland now, without an employer getting you an employment permit?",
+                          "why": "Postings you cannot lawfully take are set aside, with the sentence that ruled them out.",
+                          "options": [_option("Yes", "My current permission allows full-time work", "authorized"),
+                                      _option("No", "An employer would need to get me a permit", "needs_sponsorship"),
+                                      _option("Not sure", "Jobs that depend on it wait until you confirm", "unknown")]})
+    return questions
+
+
+def _irish_graduate_questions(draft: dict, auth: dict, facts: dict) -> list[dict]:
+    """Stamp 1G expiry, then the degree facts behind the graduate salary thresholds."""
+    from backend.services.intake.authorization import date_proposal
+
+    questions = []
+    if facts.get("permission_type") == "stamp_1g" and not facts.get("valid_until_confirmed"):
+        raw = facts.get("valid_until_raw") or _clean(auth.get("valid_until"))
+        proposal = date_proposal(raw) if raw else {"proposed_date": None}
+        day = proposal["proposed_date"]
+        questions.append({"key": "permit_expiry", "field": "permit.expiry",
+                          "text": (f"Your documents give your Stamp 1G expiry as “{raw}”. What is the exact day on "
+                                   "your permission?" if raw else
+                                   "On what day does your Stamp 1G permission expire? Use the date on your IRP card."),
+                          "why": proposal.get("explanation") or "Searches and permit dates use the day you confirm here.",
+                          "placeholder": "YYYY-MM-DD, for example 2027-12-31",
+                          "options": [_option(f"{day}, as shown", "Confirm this exact day", day)] if day else []})
+    may_need_permit = (facts.get("needs_sponsorship_later") != "no" and facts.get("citizenship") != "citizen"
+                       and facts.get("permission_type") != "stamp_4")
+    education = draft.get("education_for_permits") or {}
+    if may_need_permit and draft.get("education"):
+        if not education.get("award_date_confirmed"):
+            raw = education.get("award_date_raw") or next(
+                (e.get("award_date_as_supplied") for e in draft["education"] if e.get("award_date_as_supplied")), "")
+            proposal = date_proposal(raw)
+            day = proposal["proposed_date"]
+            questions.append({"key": "permit_award", "field": "permit_education.award",
+                              "text": "On what day was your most recent degree awarded?",
+                              "why": "Lower graduate salary thresholds apply for 12 months from the award date on your "
+                                     "award letter or parchment (not the expected graduation date). Skip it if you don't know yet.",
+                              "placeholder": "YYYY-MM-DD",
+                              "options": [_option(f"{day}, as shown", "Confirm this exact day", day)] if day else []})
+        if education.get("nfq_level") is None and education.get("irish_institution") is None:
+            questions.append({"key": "permit_degree", "field": "permit_education.degree", "other": False,
+                              "text": "Which describes that degree?",
+                              "why": "The graduate thresholds depend on the award's level and, for a General Employment "
+                                     "Permit, on an Irish institution.",
+                              "options": [_option("Irish master's or postgraduate diploma", "NFQ Level 9", "ie:9"),
+                                          _option("Irish honours bachelor's degree", "NFQ Level 8", "ie:8"),
+                                          _option("Irish doctorate", "NFQ Level 10", "ie:10"),
+                                          _option("A degree from outside Ireland", "", "abroad"),
+                                          _option("Not sure", "", "unknown")]})
+        if education.get("relevant_degree") is None:
+            questions.append({"key": "permit_relevance", "field": "permit_education.relevant_degree", "other": False,
+                              "text": "Is that degree in the same field as the jobs you want, for example computing for software roles?",
+                              "why": "The graduate thresholds apply to a degree relevant to the job.",
+                              "options": [_option("Yes", value="yes"), _option("No", value="no"),
+                                          _option("Not sure", value="unknown")]})
+    if "graduate_search_confirmed" not in (draft.get("job_search") or {}):
+        questions.append({"key": "graduate_search", "field": "graduate_search_confirmed", "other": False,
+                          "text": "Should I focus on graduate and entry-level jobs that ask for up to 3 years of experience?",
+                          "why": "Senior roles are set aside, so your list is jobs you can realistically get.",
+                          "options": [_option("Yes", "Graduate, junior and entry-level roles", "yes"),
+                                      _option("No", "Keep the search open to any level", "no")]})
+    return questions
+
+
 class SetupChat:
     """One onboarding profile's conversation. Answers are applied to the job's draft at once."""
 
@@ -364,11 +472,76 @@ class SetupChat:
         elif field == "needs_sponsorship_later":
             value = chosen[0] if chosen else "unknown"
             self.job.update({"authorization": {"needs_sponsorship_later": value if value in ("yes", "no") else "unknown"}})
+            draft = self.job.draft() or {}
+            if (draft.get("country_pack") or "ie") == "ie":
+                auth = dict((draft.get("work_authorization_by_market") or {}).get("ie") or {})
+                auth["needs_sponsorship_later"] = value
+                self.job.update({"work_authorization_by_market": {"ie": auth}})
+        elif field.startswith("permit."):
+            self._apply_permission(field.split(".", 1)[1], chosen, other, shown)
+        elif field.startswith("permit_education."):
+            self._apply_degree(field.split(".", 1)[1], chosen, other)
+        elif field == "graduate_search_confirmed":
+            preferences = dict((self.job.draft() or {}).get("job_search") or {})
+            preferences.update(graduate_search_confirmed=bool(chosen and chosen[0] == "yes"))
+            if preferences["graduate_search_confirmed"]:
+                preferences.update(seniority=["graduate", "junior", "entry"], max_years_required=3)
+            self.job.update({"job_search": preferences})
         elif field in LIST_FIELDS:
             self.job.update({field: list(dict.fromkeys(chosen + _items(other)))})
         elif field in TEXT_FIELDS:
             self._set(field, other or (chosen[0] if chosen else ""))
         self.job.record_answer(question["text"], shown, question.get("resolves") or "")
+
+    def _apply_permission(self, key: str, chosen: list[str], other: str, shown: str) -> None:
+        """Irish permission facts from the person's answer; the type alone sets only what it defines."""
+        from backend.services.intake.authorization import date_proposal, iso_date
+
+        draft = self.job.draft() or {}
+        facts = dict((draft.get("work_authorization_by_market") or {}).get("ie") or {})
+        if key == "permission_type":
+            value = chosen[0] if chosen else ("other" if other else "unknown")
+            facts["permission_type"] = value
+            if other:
+                facts["permission_wording"] = other
+            if value == "irish_or_eea_citizen":
+                facts.update(status="authorized", citizenship="citizen", needs_sponsorship_later="no")
+                self.job.update({"authorization": {"needs_sponsorship_later": "no"}})
+            elif value in FULL_TIME_PERMISSIONS:
+                facts.update(status="authorized", citizenship="noncitizen")
+            elif value in {"stamp_2", "other"}:
+                facts["citizenship"] = "noncitizen"  # they hold an Irish permission, so they are not a citizen
+            if value != "unknown" and not _clean((draft.get("authorization") or {}).get("status")):
+                # Their own answer is the wording the profile shows ("who holds Stamp 1G").
+                self.job.update({"authorization": {"status": shown}})
+        elif key == "status":
+            facts["status"] = chosen[0] if chosen else "unknown"
+        elif key == "expiry":
+            typed = other or (chosen[0] if chosen else "")
+            proposal = date_proposal(typed)
+            if proposal["precision"] != "day" or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", typed.strip()):
+                raise ValueError("Type the exact expiry day as YYYY-MM-DD, for example 2027-12-31.")
+            facts.update(valid_until=iso_date(typed.strip(), "Permission expiry"), valid_until_confirmed=True,
+                         valid_until_raw=facts.get("valid_until_raw") or _clean((draft.get("authorization") or {}).get("valid_until")) or typed.strip())
+            if not _clean((draft.get("authorization") or {}).get("valid_until")):
+                self.job.update({"authorization": {"valid_until": typed.strip()}})
+        self.job.update({"work_authorization_by_market": {"ie": facts}})
+
+    def _apply_degree(self, key: str, chosen: list[str], other: str) -> None:
+        from backend.services.intake.authorization import iso_date, optional_bool
+
+        facts = dict((self.job.draft() or {}).get("education_for_permits") or {})
+        if key == "award":
+            typed = (other or (chosen[0] if chosen else "")).strip()
+            if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", typed):
+                raise ValueError("Type the exact award day as YYYY-MM-DD, or skip the question.")
+            facts.update(award_date=iso_date(typed, "Degree award date"), award_date_confirmed=True,
+                         award_date_raw=facts.get("award_date_raw") or typed)
+        elif key == "degree":
+            facts["nfq_level"], facts["irish_institution"] = DEGREE_CHOICES.get(chosen[0] if chosen else "unknown", (None, None))
+        elif key == "relevant_degree":
+            facts["relevant_degree"] = optional_bool(chosen[0] if chosen else "unknown", "Degree relevance")
+        self.job.update({"education_for_permits": facts})
 
     def _set(self, field: str, value: str) -> None:
         if not value:
@@ -472,7 +645,7 @@ class SetupChat:
     def _essential(self, draft: dict, asked: list) -> dict | None:
         """The questions every workspace needs answered, in order; each is asked once."""
         contact, auth, targets = draft.get("contact") or {}, draft.get("authorization") or {}, draft.get("targets") or {}
-        guessed = draft.get("country_pack") or "us"
+        guessed = draft.get("country_pack") or (self.packs[0]["code"] if self.packs else "ie")
         pack = next((p for p in self.packs if p["code"] == guessed), {"name": guessed, "code": guessed, "paper": ""})
         roles = [r for r in targets.get("roles") or [] if _clean(r)][:6]
         questions = []
@@ -480,11 +653,12 @@ class SetupChat:
             questions.append({"key": "full_name", "field": "full_name", "text": "What is your full name, as it should appear on your resume?",
                               "skippable": False, "placeholder": "First and last name"})
         packs = sorted(self.packs, key=lambda p: p["code"] != guessed)
-        questions.append({"key": "country", "field": "country_pack", "other": False, "skippable": False,
-                          "text": "Which country should I search for jobs in?",
-                          "why": "It decides the resume's paper and spelling, the time zone, and the work-permit rules that screen every posting.",
-                          "options": [_option(p["name"], (f"From your documents · {p['paper']} resumes" if p["code"] == guessed
-                                                         else f"{p['paper']} resumes"), p["code"]) for p in packs]})
+        if len(packs) > 1:  # a copy that offers one market (countries/markets.yml) has nothing to ask
+            questions.append({"key": "country", "field": "country_pack", "other": False, "skippable": False,
+                              "text": "Which country should I search for jobs in?",
+                              "why": "It decides the resume's paper and spelling, the time zone, and the work-permit rules that screen every posting.",
+                              "options": [_option(p["name"], (f"From your documents · {p['paper']} resumes" if p["code"] == guessed
+                                                             else f"{p['paper']} resumes"), p["code"]) for p in packs]})
         questions.append({"key": "roles", "field": "roles", "multi": True, "skippable": False,
                           "text": "Which roles should I search for?" if roles else "Which roles should I search for? Your documents don't name one.",
                           "why": "Daily Search looks for these titles, and every resume is tailored to one of them.",
@@ -501,18 +675,28 @@ class SetupChat:
                               "options": ([_option(home, "Where you live, from your documents")] if home else [])
                               + [_option(f"Anywhere in {pack['name']}", "Search the whole country"),
                                  _option("Remote", "Fully remote roles")]})
-        if not _clean(auth.get("status")):
+        irish = pack["code"] == "ie"
+        facts = (draft.get("work_authorization_by_market") or {}).get(pack["code"]) or {}
+        if irish:
+            # One structured question replaces the free-text one: it records the permission type
+            # and, where the type itself defines them, the status and citizenship answers.
+            questions += _irish_permission_questions(auth, facts)
+        elif not _clean(auth.get("status")):
             questions.append({"key": "auth", "field": "authorization_status",
                               "text": f"What is your current permission to work in {pack['name']}, and until when is it valid?",
                               "why": "Postings you cannot lawfully take are set aside, with the sentence that ruled them out.",
-                              "placeholder": "For example: Stamp 1G until DEC2027, F-1 OPT, citizen"})
-        if auth.get("needs_sponsorship_later") not in ("yes", "no"):
+                              "placeholder": "For example: F-1 OPT until June 2027, green card, citizen"})
+        citizen = irish and facts.get("citizenship") == "citizen"
+        if not citizen and (auth.get("needs_sponsorship_later") not in ("yes", "no")
+                            or (irish and facts.get("needs_sponsorship_later") not in ("yes", "no"))):
             questions.append({"key": "sponsor", "field": "needs_sponsorship_later", "other": False, "skippable": False,
                               "text": "Will you need an employer to sponsor a work permit, now or later?",
                               "why": "If yes, postings that refuse to sponsor are set aside; you can restore any wrong call.",
                               "options": [_option("Yes", "Now or in the future", "yes"),
                                           _option("No, never", "I can work there without an employer's permit", "no"),
                                           _option("Not sure", "Treated as yes, so no posting is missed by mistake", "unknown")]})
+        if irish:
+            questions += _irish_graduate_questions(draft, auth, facts)
         for key, label in (("email", "email address"), ("phone", "phone number")):
             if not _clean(contact.get(key)):
                 questions.append({"key": key, "field": key, "text": f"Which {label} should go on your resume?",

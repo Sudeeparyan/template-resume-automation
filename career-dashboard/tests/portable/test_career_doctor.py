@@ -83,7 +83,9 @@ def test_multiple_profiles_require_selection_without_reading_candidate_files(tmp
     real_read = Path.read_text
 
     def guarded_read(target, *args, **kwargs):
-        assert target == path, "Only registry metadata may be opened"
+        # The public permit-rules file and the app's own AI-client code are never candidate data.
+        allowed = {path, doctor.PERMIT_RULES, *(source for source, _ in doctor.CLI_SOURCES.values())}
+        assert target in allowed, "Only registry metadata may be opened"
         return real_read(target, *args, **kwargs)
 
     monkeypatch.setattr(Path, "read_text", guarded_read)
@@ -128,6 +130,18 @@ def test_executable_discovery_never_claims_signin(tmp_path, installed):
     assert "sign-in" in result["tools"]["ai_check"]
     assert "verify_ai_provider" in action_codes(result)
     assert "credentials" in result["note"] and result["read_only"] is True
+
+
+def test_doctor_warns_if_permit_rules_are_missing_or_not_utf8(tmp_path, installed, monkeypatch):
+    path = tmp_path / "permit-rules.yml"
+    monkeypatch.setattr(doctor, "PERMIT_RULES", path)
+    missing = doctor.report(tmp_path / "profiles")
+    assert missing["permit_rules"]["state"] == "missing"
+    assert "review_permit_rules" in action_codes(missing)
+    path.write_bytes(b"\xff")
+    invalid = doctor.report(tmp_path / "profiles")
+    assert invalid["permit_rules"]["state"] == "unreadable"
+    assert "review_permit_rules" in action_codes(invalid)
 
 
 @pytest.mark.parametrize("args,expected", [
@@ -182,3 +196,32 @@ def test_sponsor_cli_uses_selected_profile_authorization(tmp_path, monkeypatch, 
         assert result["h1b_found"] is False
         if expected == "EXCLUDED":
             assert result["screen"]["sentence"] == posting.read_text(encoding="utf-8")
+
+
+def test_bundled_ai_clis_are_found_where_the_app_looks(tmp_path, monkeypatch):
+    monkeypatch.setattr(doctor, "executable", lambda name: False)
+    for _, variable in doctor.CLI_SOURCES.values():
+        monkeypatch.delenv(variable, raising=False)
+    monkeypatch.setattr(doctor, "bundled_locations", lambda source: [str(tmp_path / "bundle" / "*" / "claude.exe")]
+                        if source.name == "claude_code.py" else [])
+    assert not doctor.cli_available("claude")
+    (tmp_path / "bundle" / "2.1.0").mkdir(parents=True)
+    (tmp_path / "bundle" / "2.1.0" / "claude.exe").write_bytes(b"")
+    assert doctor.cli_available("claude") and not doctor.cli_available("codex")
+    assert doctor.bundled_locations(doctor.CLI_SOURCES["codex"][0]) or True  # parsing the real source never raises
+
+
+def test_the_app_knows_bundled_locations_from_source():
+    patterns = doctor.bundled_locations(doctor.CLI_SOURCES["claude"][0])
+    assert patterns and all(isinstance(p, str) for p in patterns)
+
+
+def test_a_onedrive_workspace_is_flagged_without_printing_its_path(tmp_path, installed, monkeypatch):
+    monkeypatch.setenv("OneDrive", str(tmp_path / "OneDrive"))
+    assert doctor.in_synced_folder(tmp_path / "OneDrive" / "Desktop" / "Template")
+    assert doctor.in_synced_folder(Path("D:/Work/OneDrive - Example Ltd/Template"))
+    assert not doctor.in_synced_folder(tmp_path / "Local" / "Template")
+    monkeypatch.setattr(doctor, "in_synced_folder", lambda path=None: True)
+    result = doctor.report(tmp_path / "profiles")
+    assert result["synced_folder"] is True and "move_out_of_sync" in action_codes(result)
+    assert str(tmp_path) not in json.dumps(result)

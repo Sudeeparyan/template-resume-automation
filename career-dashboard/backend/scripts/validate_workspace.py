@@ -61,6 +61,66 @@ def validate_code() -> None:
             ERRORS.append(f"Python source invalid: {path.relative_to(ROOT)} ({exc})")
 
 
+MARKET_SKILLS = {"ie": "ireland-job-sources", "us": "us-job-sources"}
+
+
+def validate_markets() -> None:
+    """AI apps are offered exactly the job-source skills of the markets this copy offers."""
+    from backend.countries import MARKETS_FILE, known_markets
+
+    # A development override must not require publishing the dormant market's skills.
+    # This release check validates the committed switch, independently of CAREER_MARKETS.
+    config = read_yaml(MARKETS_FILE)
+    offered = config.get("enabled")
+    if not isinstance(offered, list) or not offered or any(code not in known_markets() for code in offered):
+        ERRORS.append("countries/markets.yml must enable a non-empty list of known markets.")
+        return
+    for code, skill in MARKET_SKILLS.items():
+        if code not in known_markets():
+            continue
+        shared = (REPO_ROOT / ".agents/skills" / skill / "SKILL.md").is_file()
+        pointer = (REPO_ROOT / ".claude/skills" / skill / "SKILL.md").is_file()
+        if code in offered and not (shared and pointer):
+            ERRORS.append(f"Market '{code}' is enabled in countries/markets.yml but its skill {skill} is missing from "
+                          ".agents/skills or .claude/skills (docs/DEVELOPERS.md, \"Re-enabling a market\").")
+        if code not in offered and (shared or pointer):
+            ERRORS.append(f"Market '{code}' is switched off in countries/markets.yml but AI apps are still offered its "
+                          f"skill {skill}; keep it in backend/countries/{code}/agent-skill/ instead.")
+
+
+def validate_permit_rules() -> None:
+    """The dated Irish permit thresholds are re-verified before they go stale (a failure in CI)."""
+    import os
+
+    from backend.services.permit_assessment import freshness
+
+    try:
+        state = freshness()
+    except (OSError, UnicodeError, KeyError, TypeError, ValueError, yaml.YAMLError) as exc:
+        ERRORS.append(f"Irish permit rules cannot be read: {exc}")
+        return
+    if state["state"] == "stale" and os.environ.get("CI") == "true":
+        ERRORS.append(state["message"] + " (backend/countries/ie/permit-rules.yml)")
+    elif state["state"] != "current":
+        WARNINGS.append(state["message"] + " (backend/countries/ie/permit-rules.yml)")
+
+
+def validate_employer_registry() -> None:
+    """The registry of permit employers' careers boards loads, and names a known board type on every row."""
+    from backend.market import registry, resolver
+
+    path = registry.path_for("ie")
+    try:
+        rows = registry.load(path)
+    except (OSError, UnicodeError, ValueError) as exc:
+        ERRORS.append(f"Employer registry cannot be read: {exc} ({path.name})")
+        return
+    known = set(resolver.ATS_ORDER) | {"workday"}
+    for number, row in enumerate(rows, 2):
+        if row["ats"] not in known or not (row["token"] or (row["host"] and row["site"])):
+            ERRORS.append(f"Employer registry line {number}: unknown board type or missing board address")
+
+
 def validate_profile(profile: dict) -> None:
     profile_id = profile["id"]
     root = store().root_for(profile_id)
@@ -126,6 +186,9 @@ def validate_profile(profile: dict) -> None:
 
 def main() -> int:
     validate_code()
+    validate_markets()
+    validate_permit_rules()
+    validate_employer_registry()
     profiles = []
     try:
         profiles = store().list()

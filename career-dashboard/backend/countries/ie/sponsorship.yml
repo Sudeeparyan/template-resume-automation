@@ -19,6 +19,17 @@ meta:
   last_updated: "2026-09-23"
   candidate_status: ""   # filled from the candidate's own documents at intake
 
+# History ranks a silent posting; absent history never excludes an employer.
+sponsor_index: dete
+tier_b_min_permits: 1
+
+# Notices JobsIreland and EURES add to every Irish advert. They restate the law for non-EEA
+# nationals; they are not the employer's statement, so they are removed before the gate
+# reads a posting and never count as permit wording.
+neutral_notices:
+  - 'In\s+order\s+to\s+work\s+in\s+Ireland,?\s+an?\s+non[- ]EEA\s+national,?\s+unless\s+(they\s+are|he\s+or\s+she\s+is)\s+exempted,?\s+must\s+hold\s+a\s+valid\s+employment\s+permit\.?'
+  - 'Please\s+review\s+the\s+Eligibility\s+and\s+requirements\s+for\s+an\s+employment\s+permit\s+if\s+you\s+are\s+unsure\s+of\s+your\s+eligibility\s+to\s+apply\s+for\s+this\s+vacancy\.?'
+
 # GROUP 1 — explicit refusal to support a permit now or later. EXCLUDE.
 exclude_no_sponsorship:
   - 'no\s+(visa\s+|work\s+permit\s+|employment\s+permit\s+)?sponsorship'
@@ -37,6 +48,10 @@ exclude_no_sponsorship:
   - 'unrestricted\s+(right|permission|authori[sz]ation)\s+to\s+work'
   # Added 2026-09-24 (end-to-end test): "not eligible for (visa / work permit) sponsorship" was missed.
   - 'not\s+eligible\s+for\s+((visa|employment|work|immigration|permit)\s+){0,2}sponsorship'
+  # Added 2026-10-04: contractions and time words ('can't', 'won't', 'no longer', 'never').
+  - 'can[’'']?t\s+(offer|provide|support)\s+.{0,25}(sponsor|work\s+permits?|employment\s+permits?|visas?)'
+  - 'won[’'']?t\s+(be\s+able\s+to\s+)?(sponsor|offer\s+.{0,25}(sponsor|work\s+permits?|employment\s+permits?|visas?)|provide\s+.{0,25}(sponsor|work\s+permits?|employment\s+permits?|visas?))'
+  - '(no\s+longer|never)\s+(offers?|provides?|supports?|sponsors?)\s*.{0,25}(sponsor|work\s+permits?|employment\s+permits?|visas?)'
 
 # GROUP 2 — cannot lawfully be hired whatever the interview outcome. EXCLUDE.
 exclude_cannot_hire:
@@ -62,6 +77,11 @@ positive_sponsorship:
   - 'sponsorship\s+(is\s+)?available'
   - 'open\s+to\s+candidates\s+requiring\s+(a\s+)?(sponsorship|work\s+permit|employment\s+permit)'
   - 'relocation\s+and\s+(visa|permit)\s+support'
+  # "We offer visa sponsorship", "can provide employment permit sponsorship". The look-behinds keep
+  # a negated form ("cannot provide visa sponsorship") from counting as an offer even where the
+  # GROUP 1 refusals are switched off (a citizen's profile needs no permit).
+  - '(?<!not\s)(?<!cannot\s)(?<!can''t\s)(?<!won''t\s)(?<!unable\sto\s)(?<!never\s)(?<!longer\s)\b(offer|provide|support)s?\s+((visa|work|employment|immigration)\s+){1,2}(permit\s+)?sponsorship'
+  - '(?<!not\s)(?<!cannot\s)(?<!can''t\s)(?<!won''t\s)(?<!unable\sto\s)(?<!never\s)(?<!longer\s)\bsupport\s+(your\s+|an?\s+|the\s+)?((critical\s+skills|general|work|employment)\s+){1,2}permit\s+applications?'
 
 # No Irish equivalent of E-Verify.
 everify_signals: []
@@ -118,8 +138,8 @@ tiers:
     meaning: "Posting explicitly offers work-permit sponsorship."
     rank: 2
   B:
-    label: "Not used yet"
-    meaning: "Reserved for employers with a public record of permits issued."
+    label: "DETE permit history"
+    meaning: "Matched legal employer has permits issued in the last 24 complete months. Ranking evidence only; confirm support for this vacancy."
     rank: 3
   C:
     label: "Silent"
@@ -145,5 +165,5 @@ cap_exempt_signals:
   name_contains: []
 
 disclaimer: >-
-  Permit history is not tracked for Ireland yet. A silent posting is the normal case and is always shown;
-  only the posting's own words exclude.
+  DETE history describes past permits issued to the matched legal employer. It does not establish support
+  for this vacancy or an applicant's permit outcome. A silent posting is always shown; only its own words exclude.

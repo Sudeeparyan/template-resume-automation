@@ -35,11 +35,20 @@ export type ProfileEntry = {
   name: string;
   country: string;
   target_markets?: ("ie" | "us")[];
+  /** The markets this copy offers (backend countries/markets.yml). */
+  offered_markets?: ("ie" | "us")[];
   work_authorization_by_market?: Partial<Record<"ie" | "us", {
     status: "authorized" | "needs_sponsorship" | "unknown";
     citizenship: "citizen" | "noncitizen" | "unknown";
     needs_sponsorship_later?: "yes" | "no" | "unknown";
+    permission_type?: string;
+    permission_wording?: string;
+    valid_until_raw?: string;
+    valid_until?: string;
+    valid_until_confirmed?: boolean;
   }>>;
+  education_for_permits?: EducationPermitFacts;
+  job_search?: JobSearchPreferences;
   state: "onboarding" | "ready";
   locked: boolean;
   legacy?: boolean;
@@ -47,6 +56,16 @@ export type ProfileEntry = {
   created_at?: string;
   market: Market | null;
   schedule?: ProfileSchedule;
+};
+
+export type EducationPermitFacts = {
+  award_date?: string; award_date_raw?: string; award_date_confirmed?: boolean;
+  nfq_level?: number | null; irish_institution?: boolean | null; relevant_degree?: boolean | null;
+};
+export type JobSearchPreferences = {
+  salary_floor_eur?: number; salary_floor_source?: "person" | "permit_rules";
+  salary_policy?: "confirmed_only" | "confirmed_or_estimated";
+  seniority?: string[]; max_years_required?: number | null; graduate_search_confirmed?: boolean;
 };
 export type ProfileListing = { profiles: ProfileEntry[]; last_used: string };
 

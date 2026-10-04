@@ -1,0 +1,65 @@
+# These are conservative search hints, not an occupation or permit decision.
+# A title alias needs a quoted duty phrase from the posting. Conditional official
+# entries remain unknown even when a keyword matches: the complete clause matters.
+schema_version: 1
+rows:
+  - soc4: '2136'
+    list: critical
+    full_soc: true
+    title_aliases: [software engineer, software developer, software development engineer, programmer]
+    duty_phrases: [develop software, software development, design software, implement software, write code, build software]
+  - soc4: '2135'
+    list: critical
+    full_soc: true
+    title_aliases: [IT business analyst, systems analyst, systems architect, software architect]
+    duty_phrases: [system requirements, systems design, design systems, software architecture, IT business analysis]
+  - soc4: '2134'
+    list: critical
+    full_soc: true
+    title_aliases: [IT project manager, IT programme manager, IT program manager]
+    duty_phrases: [IT project delivery, manage IT projects, manage IT programmes, technology project delivery]
+  - soc4: '2137'
+    list: critical
+    full_soc: true
+    title_aliases: [web developer, web designer]
+    duty_phrases: [develop web applications, build web applications, web development, design websites]
+  - soc4: '2121'
+    list: critical
+    full_soc: true
+    title_aliases: [civil engineer, structural engineer, site engineer]
+    duty_phrases: [civil engineering, structural design, design structures, construction engineering]
+  - soc4: '2122'
+    list: critical
+    full_soc: true
+    title_aliases: [mechanical engineer]
+    duty_phrases: [mechanical design, design mechanical systems, mechanical engineering]
+  - soc4: '2123'
+    list: critical
+    full_soc: true
+    title_aliases: [electrical engineer]
+    duty_phrases: [electrical design, design electrical systems, electrical engineering]
+  - soc4: '2423'
+    list: critical
+    full_soc: false
+    title_aliases: [business analyst, management consultant, data analyst]
+    duty_phrases: [big data analytics, data mining]
+  - soc4: '2424'
+    list: critical
+    full_soc: false
+    title_aliases: [financial project manager, finance project manager]
+    duty_phrases: [finance analytics, investment analytics, risk analytics, credit analytics, fraud analytics]
+  - soc4: '1259'
+    list: ineligible
+    full_soc: false
+    title_aliases: [safety manager, betting shop manager, library manager, graphic design manager, plant hire manager]
+    duty_phrases: [manage safety, library services, betting shop, graphic design]
+  - soc4: '4216'
+    list: ineligible
+    full_soc: true
+    title_aliases: [receptionist]
+    duty_phrases: [greet visitors, answer incoming calls, reception desk]
+  - soc4: '4161'
+    list: ineligible
+    full_soc: true
+    title_aliases: [office manager]
+    duty_phrases: [office administration, manage office operations, manage the office]

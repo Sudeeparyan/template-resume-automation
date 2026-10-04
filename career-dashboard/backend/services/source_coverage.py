@@ -70,7 +70,9 @@ class Coverage:
 
     def register_employer(self, posting, *, verified=False):
         """Only a caller that verified the exact direct ATS posting may register its board."""
-        if not verified or posting.get("market") not in {"ie", "us"}:
+        from backend.countries import known_markets
+
+        if not verified or posting.get("market") not in known_markets():
             return False
         from backend.services.job_sources import tracked_row, row_url
         from backend.countries import load_pack

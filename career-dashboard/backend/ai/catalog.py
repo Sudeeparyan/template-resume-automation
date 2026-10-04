@@ -21,13 +21,21 @@ CACHE_TTL_SECONDS = 24 * 3600
 # prose use `strong`; extraction, verification and classification use `cheap`.
 TIERS = ("strong", "cheap")
 
+# Claude models on a keyed Anthropic API: the catalogue defaults and the provider's own
+# check both read this list, so they can never disagree.
+ANTHROPIC_MODELS = {"strong": "claude-sonnet-5-5", "cheap": "claude-haiku-4-5-20251001", "best": "claude-opus-5-5"}
+# Earlier defaults that settings may have saved; still accepted as they are.
+ANTHROPIC_EARLIER = ("claude-sonnet-5", "claude-sonnet-4-6")
+# The undated name of a model, and the dated snapshot it refers to.
+ANTHROPIC_ALIASES = {"claude-haiku-4-5": "claude-haiku-4-5-20251001"}
+
 PROVIDERS = {
     "openrouter": {
         "label": "OpenRouter",
         "key": "OPENROUTER_API_KEY",
         "url": "https://openrouter.ai/api/v1/models",
         "base_url": "https://openrouter.ai/api/v1",
-        "defaults": {"strong": "anthropic/claude-sonnet-5", "cheap": "google/gemini-2.5-flash-lite"},
+        "defaults": {"strong": "anthropic/claude-sonnet-5.5", "cheap": "google/gemini-2.5-flash-lite"},
     },
     "openai": {
         "label": "OpenAI",
@@ -41,7 +49,7 @@ PROVIDERS = {
         "key": "ANTHROPIC_API_KEY",
         "url": "https://api.anthropic.com/v1/models",
         "base_url": None,
-        "defaults": {"strong": "claude-sonnet-5", "cheap": "claude-haiku-4-5"},
+        "defaults": {"strong": ANTHROPIC_MODELS["strong"], "cheap": ANTHROPIC_MODELS["cheap"]},
     },
     "gemini": {
         "label": "Gemini",

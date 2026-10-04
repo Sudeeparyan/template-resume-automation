@@ -12,6 +12,7 @@ const STEP_LABELS: Record<string, string> = {
   tailor: "Tailored resume",
   study_plan: "Study plan",
   pdf: "Resume PDF",
+  cover_letter: "Cover letter (on demand; off by default)",
 };
 const TARGET_CHIPS = [5, 10, 20, 30];
 const HOUR_CHIPS = [2, 4, 6, 8, 10, 12];

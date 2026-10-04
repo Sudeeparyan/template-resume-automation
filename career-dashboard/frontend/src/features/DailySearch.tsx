@@ -14,8 +14,8 @@ function searchOnly({ count, source, steps }: PipelineChoice) {
 
 /** Salary sections never hide a recorded application or promote a researched estimate to an offer. */
 export function opportunityGroups(jobs: Job[]) {
-  const groups: Record<"salary_matches" | "researched_leads" | "needs_research" | "below_floor" | "applications" | "other", Job[]> = {
-    salary_matches: [], researched_leads: [], needs_research: [], below_floor: [], applications: [], other: [],
+  const groups: Record<"salary_matches" | "estimated_matches" | "researched_leads" | "needs_research" | "below_floor" | "applications" | "other", Job[]> = {
+    salary_matches: [], estimated_matches: [], researched_leads: [], needs_research: [], below_floor: [], applications: [], other: [],
   };
   for (const job of jobs) {
     const opportunity = job.opportunity;
@@ -24,6 +24,7 @@ export function opportunityGroups(jobs: Job[]) {
     else if (opportunity.salary_state === "below_floor" || opportunity.section === "below_floor") groups.below_floor.push(job);
     else if (opportunity.salary.kind === "advertised" && opportunity.salary_state === "meets_floor" && opportunity.section === "salary_matches") groups.salary_matches.push(job);
     else if (opportunity.salary.kind === "researched" && opportunity.section === "researched_leads" && opportunity.salary_state === "meets_floor") groups.researched_leads.push(job);
+    else if (opportunity.salary.kind === "unknown" && opportunity.section === "estimated_matches" && opportunity.estimate) groups.estimated_matches.push(job);
     else groups.needs_research.push(job);
   }
   return groups;
@@ -33,6 +34,7 @@ export function OpportunityLists({ jobs, onJob }: { jobs: Job[]; onJob: (id: str
   const groups = opportunityGroups(jobs);
   const sections = [
     ["salary_matches", "Advertised salary matches", "The advertised salary meets your floor. Review permit checks and application readiness separately."],
+    ["estimated_matches", "Market estimate meets your floor", "These postings state no salary; similar advertised roles pay at least your floor. Confirm the base salary with the recruiter before you apply."],
     ["researched_leads", "Researched salary leads", "Salary estimates from cited research. Confirm the actual offer with the employer before treating it as a salary match."],
     ["needs_research", "Salary needs confirmation", "Salary is missing, unverified, or the range does not confirm your floor. These roles are outside the salary shortlist."],
     ["below_floor", "Below your salary floor", "Saved for reference and kept outside the salary shortlist."],

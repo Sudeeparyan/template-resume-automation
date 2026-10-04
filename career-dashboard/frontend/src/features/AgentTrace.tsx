@@ -20,6 +20,8 @@ import {
 import { api, safeUrl } from "../api";
 import { AGENT_LABEL, active, clock, duration, providerText } from "./agentWords";
 import type { ActivityRun } from "./Agents";
+import TraceTimeline from "./TraceTimeline";
+import GraphSteps from "./GraphSteps";
 
 // --- what the backend sends (GET /v2/agents/runs/<id>/trace) -----------------------
 
@@ -276,7 +278,7 @@ export default function AgentTrace({
 
 /** One run's record, drawn from a trace; no fetching, so it can be rendered anywhere. */
 export function TraceView({ trace, now, onJob }: { trace: Trace; now: number; onJob: (id: string) => void }) {
-  const [tab, setTab] = useState<"steps" | "sources">("steps");
+  const [tab, setTab] = useState<"steps" | "sources" | "timeline" | "graph">("steps");
   const scroller = useRef<HTMLDivElement>(null);
   const { run, events } = trace;
   const { steps, end } = traceSteps(events, run.state);
@@ -333,10 +335,20 @@ export function TraceView({ trace, now, onJob }: { trace: Trace; now: number; on
         <button role="tab" aria-selected={tab === "sources"} className={tab === "sources" ? "selected" : ""} onClick={() => setTab("sources")}>
           Sources <span>{trace.sources.length}</span>
         </button>
+        <button role="tab" aria-selected={tab === "timeline"} className={tab === "timeline" ? "selected" : ""} onClick={() => setTab("timeline")}>
+          Timeline
+        </button>
+        <button role="tab" aria-selected={tab === "graph"} className={tab === "graph" ? "selected" : ""} onClick={() => setTab("graph")}>
+          Checkpoints
+        </button>
       </div>
 
       <div className="trace-scroll" ref={scroller}>
-        {tab === "sources" ? (
+        {tab === "timeline" ? (
+          <TraceTimeline runId={run.id} live={live} />
+        ) : tab === "graph" ? (
+          <GraphSteps runId={run.id} live={live} />
+        ) : tab === "sources" ? (
           <SourceList sources={trace.sources} />
         ) : (
           <>

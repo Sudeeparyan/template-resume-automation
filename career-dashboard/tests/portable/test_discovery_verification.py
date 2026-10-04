@@ -54,7 +54,7 @@ def test_ordinary_caveats_do_not_block_a_sourced_company(tmp_path):
 
 def test_official_ats_facts_replace_ai_lead_and_keep_remote_market_unknown(monkeypatch):
     def feed(url):
-        assert url == "https://boards-api.greenhouse.io/v1/boards/samplefreight/jobs/123"
+        assert url == "https://boards-api.greenhouse.io/v1/boards/samplefreight/jobs/123?pay_transparency=true"
         return ({"content": "<p>Full duties: answer customers by phone and email.</p>",
                  "location": {"name": "Remote"}}, None)
 

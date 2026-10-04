@@ -1,0 +1,7 @@
+# Which job markets this copy offers. Every country pack folder stays in the code; only
+# the markets listed here appear in onboarding, searches and the agent skills.
+#
+# Re-enabling a market: add its code here and follow docs/DEVELOPERS.md ("Re-enabling a
+# market") to restore its agent skill. For development and tests, the environment
+# variable CAREER_MARKETS (for example "ie,us") overrides this list.
+enabled: [ie]

@@ -837,6 +837,33 @@ def validate_evidence_map(
     return result
 
 
+def macro_tags(source: str, name: str) -> list[str]:
+    """The EVIDENCE tags on the comment line just above one macro's definition."""
+    lines = source.splitlines()
+    for index, line in enumerate(lines):
+        if re.match(r"^\s*\\newcommand\{\\" + re.escape(name) + r"\}", line):
+            for previous in reversed(lines[:index]):
+                tag = re.match(r"^\s*%\s*EVIDENCE:\s*(.*?)\s*$", previous)
+                if tag:
+                    return tag.group(1).split()
+                if previous.strip():
+                    break
+            return []
+    return []
+
+
+def rewrite_problems(registered: str, printed: str, cited_ids: list[str], evidence: dict[str, Any]) -> list[str]:
+    """Why a reworded project bullet does not state the same facts as its registered line ([] when it does)."""
+    from backend.services import rewrite_guard
+
+    usable = rewrite_guard.evidence_wording(evidence)
+    unusable = [evidence_id for evidence_id in cited_ids if evidence_id not in usable]
+    if unusable:
+        return ["it cites evidence that is not usable: " + ", ".join(unusable)]
+    return rewrite_guard.check(registered, printed, sources=[usable[i] for i in cited_ids],
+                               skills=rewrite_guard.registered_skills(evidence), never=rewrite_guard.never_claimed(evidence))
+
+
 def validate_selected_project(
     source: str,
     evidence: dict[str, Any],
@@ -897,7 +924,23 @@ def validate_selected_project(
     if actual_context != normalize_latex_text(expected_context):
         failures.append("Selected project context does not match its registered project ID")
     if actual_bullets != expected_bullets_normalized:
-        failures.append("Selected project bullets do not match the approved project registry")
+        # A bullet reworded for this job stands only when the rewording check passes again here,
+        # against the evidence its own EVIDENCE tag names (services/rewrite_guard.py).
+        reworded, problems = [], []
+        for number, (name, actual, expected) in enumerate(zip(bullet_names, actual_bullets, expected_bullets_normalized), 1):
+            if actual == expected:
+                continue
+            tags = macro_tags(source, name)
+            found = (["it is not tagged with its own project"] if not tags or tags[0] != selected_project_id
+                     else rewrite_problems(expected, actual, tags[1:], evidence))
+            if found:
+                problems.append(f"bullet {number}: " + "; ".join(found))
+            else:
+                reworded.append(number)
+        result["reworded_bullets"] = reworded
+        if problems:
+            failures.append("Selected project bullets do not match the approved project registry ("
+                            + " | ".join(problems)[:600] + ")")
 
     start_markers = source.count("% SELECTED_PROJECT_BLOCK_START")
     end_markers = source.count("% SELECTED_PROJECT_BLOCK_END")

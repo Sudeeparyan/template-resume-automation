@@ -87,7 +87,7 @@ def test_existing_intake_and_chat_uploads_use_the_profile_source_library(tmp_pat
         assert client.get(f"/api/profiles/{second}/sources").json()["sources"] == []
 
 
-def test_dual_market_routing_and_authorization_gate(tmp_path):
+def test_dual_market_routing_and_authorization_gate(tmp_path, us_enabled):
     root = tmp_path / "profile"
     _profile(root, ["ie", "us"], {"ie": {"status": "authorized", "citizenship": "noncitizen",
                                          "needs_sponsorship_later": "no"},
@@ -100,7 +100,7 @@ def test_dual_market_routing_and_authorization_gate(tmp_path):
     require_known_authorization(root, "ie")
     with pytest.raises(ValueError, match="United States"):
         require_known_authorization(root)
-    assert type(index_for(root, "ie")).__name__ == "NullIndex"
+    assert type(index_for(root, "ie")).__name__ == "PermitHistoryIndex"
     assert type(index_for(root, "us")).__name__ == "SponsorIndex"
 
 
@@ -109,7 +109,7 @@ def test_dual_market_routing_and_authorization_gate(tmp_path):
     ("Remote", None),
     ("Dublin, Ireland", "us"),
 ])
-def test_manual_posting_requires_a_matching_selected_market(tmp_path, location, requested):
+def test_manual_posting_requires_a_matching_selected_market(tmp_path, location, requested, us_enabled):
     _profile(tmp_path, ["ie", "us"], {
         "ie": {"status": "authorized", "citizenship": "citizen"},
         "us": {"status": "authorized", "citizenship": "citizen"},

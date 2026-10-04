@@ -6,7 +6,6 @@ from datetime import datetime, timezone, date
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from backend.ai_marks import clean_text
 from backend.services.demo import demo_mode
 from backend.services.planning import plan
 from backend.services.postings import canonical_url, posting_key
@@ -191,11 +190,15 @@ def agents_for(root) -> list[dict]:
             agent["does"] = agent["does"].replace("the selected markets", " and ".join(names))
         elif agent["id"] == "sponsorship" and len(markets) == 1 and pack.sponsor_index != "uscis":
             cannot = (pack.data.get("discovery") or {}).get("cannot_hire") or "citizenship or a clearance"
+            history = pack.sponsor_index == "dete"
             agent.update(
                 name="Work-permit gate",
-                reads="Each posting's own words, the employer name and domain",
+                reads="Each posting's own words, the employer name and domain"
+                      + (", and DETE's public statistics of permits issued to companies" if history else ""),
                 does=f"Excludes postings that refuse to support a work permit or require {cannot}, logging the exact "
-                     "sentence; ranks the rest A (says yes) or C (silent). Never excludes for silence.",
+                     "sentence; ranks the rest A (says yes), "
+                     + ("B (silent, but the employer had permits issued in the last 24 months) " if history else "")
+                     + "or C (silent). Never excludes for silence or a missing permit record.",
                 implementation="Deterministic patterns in data/config/sponsorship.yml; zero AI calls",
             )
         elif agent["id"] == "reapply" and not reapply.get("block_same_role", True):
@@ -284,17 +287,24 @@ class CareerServices:
                 "SELECT 1 FROM preferences WHERE key='profile_initialized'"
             ).fetchone():
                 self.seed_profile(db)
-            for field in ("target_roles", "location_preferences"):
+            titles = {"education_for_permits": "Degree facts for permits", "job_search": "Job search preferences",
+                      "ie_permit_facts": "Irish permission to work"}
+            for field in ("target_roles", "location_preferences", "education_for_permits", "job_search", "ie_permit_facts"):
                 config = self.w.profile().get(field, {})
+                if field == "ie_permit_facts":
+                    authorization = self.w.profile().get("work_authorization_by_market")
+                    config = authorization.get("ie") if isinstance(authorization, dict) else {}
+                if field in {"education_for_permits", "job_search", "ie_permit_facts"} and not isinstance(config, dict):
+                    config = {}
                 db.execute(
                     "INSERT OR IGNORE INTO knowledge(id,kind,title,summary,data,source,updated_at) VALUES(?,?,?,?,?,?,?)",
                     (
                         "personal:" + field,
                         "personal",
-                        field.replace("_", " ").capitalize(),
+                        titles.get(field) or field.replace("_", " ").capitalize(),
                         json.dumps(config, ensure_ascii=False, indent=2),
                         json.dumps({"field": field, "value": config}),
-                        "data/config/profile.yml > " + field,
+                        "data/config/profile.yml > " + ("work_authorization_by_market > ie" if field == "ie_permit_facts" else field),
                         self.now(),
                     ),
                 )
@@ -1496,153 +1506,15 @@ class CareerServices:
         root.mkdir(parents=True, exist_ok=True)
         return root
 
-    def generate_cover_letter(self, job_id):
-        from career import atomic_write
+    def generate_cover_letter(self, job_id, team=None, use_ai=True):
+        """Write, check and save a cover letter (services/cover_letters.py): drafted by the AI from
+        registered evidence when a plan is ready and checked before saving, otherwise built from
+        registered sentences. Nothing is sent."""
+        from backend.services import cover_letters
 
-        job = self.w.get_job(job_id)
-        if job.get("deleted_at"):
-            raise ValueError("Restore this removed role before generating documents")
-        if job.get("record_source") == "gmail":
-            raise ValueError(
-                "Add the original posting and full job description before generating a cover letter"
-            )
-        if self.profile_dirty():
-            raise ValueError(
-                "Open Profile and confirm the pending entries before generating a cover letter"
-            )
-        active_projects = {
-            item["id"]
-            for item in self.knowledge()
-            if item["kind"] == "project" and item["review_state"] == "registered"
-        }
-        ranked = [
-            project
-            for project in self.w.rank_projects(
-                job["title"] + " " + job["description"]
-            )
-            if project["id"] in active_projects
-        ]
-        if len(ranked) < 2:
-            raise ValueError("Two registered evidence examples are required")
-        first, second = ranked[:2]
-        focus = list(dict.fromkeys(first["matched_terms"] + second["matched_terms"]))[:4]
-        focus_text = (
-            " The role's focus on " + ", ".join(focus) + " aligns with evidence from my work and projects."
-            if focus
-            else ""
-        )
-        profile = self.w.profile()
-        candidate = profile["candidate"]
-        headline = (profile.get("narrative") or {}).get("headline", "").strip().rstrip(".")
-        # Contact block mirrors the active resume header; city is omitted here.
-        contact = [candidate["full_name"], candidate["email"], candidate["phone"]]
-        for key in ("portfolio_url", "github"):
-            if candidate.get(key):
-                contact.append(candidate[key])
-        # Only the profile's own headline describes the candidate; no degree or school is assumed.
-        opening = f"I am writing to apply for the {job['title']} role at {job['company']}."
-        if headline:
-            opening += f" I am a {headline[0].lower() + headline[1:]}."
-        opening += focus_text
-        letter = "\n".join(
-            [
-                *contact,
-                "",
-                self.today(),
-                "",
-                "Hiring Team",
-                job["company"],
-                "",
-                f"Re: {job['title']}",
-                "",
-                "Dear Hiring Team,",
-                "",
-                opening,
-                "",
-                f"A relevant example is {first['title']}. {first['bullets'][0]} {first['bullets'][1] if len(first['bullets']) > 1 else ''}".strip(),
-                "",
-                f"I can also bring experience from {second['title']}. {second['bullets'][0]}".strip(),
-                "",
-                f"I would welcome the opportunity to discuss how this work could support the {job['title']} team at {job['company']}. Thank you for considering my application.",
-                "",
-                "Sincerely,",
-                candidate["full_name"],
-            ]
-        )
-        letter = clean_text(letter)  # posting text can carry hidden characters (AI marks)
-        with self.w.connect() as db:
-            db.execute("BEGIN IMMEDIATE")
-            version = (
-                db.execute(
-                    "SELECT COALESCE(MAX(version),0)+1 FROM cover_letters WHERE job_id=?",
-                    (job_id,),
-                ).fetchone()[0]
-            )
-            root = self._document_root(job)
-            path = root / f"cover-letter-v{version}.md"
-            atomic_write(path, letter + "\n")
-            atomic_write(
-                root / f"cover-letter-v{version}.json",
-                json.dumps(
-                    {
-                        "job_id": job_id,
-                        "company": job["company"],
-                        "title": job["title"],
-                        "candidate_revision": self.w.evidence()[
-                            "candidate_revision"
-                        ],
-                        "evidence_ids": [
-                            "IDENTITY-001",
-                            "CONTACT-EMAIL-001",
-                            "CONTACT-PHONE-001",
-                            "CONTACT-PORTFOLIO-001",
-                            "CONTACT-GITHUB-001",
-                            "EDU-MS-001",
-                            first["id"],
-                            second["id"],
-                        ],
-                        "review_required": True,
-                    },
-                    indent=2,
-                    ensure_ascii=False,
-                )
-                + "\n",
-            )
-            relative = str(path.relative_to(self.w.root / "data/output"))
-            stamp = self.now()
-            db.execute(
-                "INSERT INTO cover_letters VALUES(?,?,?,?,?,?)",
-                (
-                    job_id,
-                    version,
-                    letter,
-                    relative,
-                    stamp,
-                    self.w.evidence()["candidate_revision"],
-                ),
-            )
-            self.w.record_event(
-                db,
-                "cover_letter_generated",
-                job_id,
-                company=job["company"],
-                title=job["title"],
-                version=version,
-                path=relative,
-                review_required=True,
-            )
-        self.w.export_tracking()
-        self.export_state()
-        return {
-            "job_id": job_id,
-            "company": job["company"],
-            "title": job["title"],
-            "version": version,
-            "content": letter,
-            "path": relative,
-            "created_at": stamp,
-            "review_required": True,
-        }
+        if use_ai and team is None:
+            team = cover_letters.writer_team(self)
+        return cover_letters.generate(self, job_id, team=team)
 
     def documents(self):
         documents = []
@@ -1780,4 +1652,32 @@ class CareerServices:
                 "ghosted": sum(j["status"] == "ghosted" for j in jobs),
             },
             "activity": self.w.activity(15),
+            "notices": self.notices(),
+            "needs_you": self.needs_you(),
         }
+
+    def needs_you(self):
+        """What only the person can do now (services/needs_you.py); never stops the Dashboard loading."""
+        from backend.services import needs_you
+
+        try:
+            return needs_you.items(self)
+        except Exception:  # noqa: BLE001 - a convenience list; the rest of the summary still loads
+            return []
+
+    def notices(self):
+        """Workspace-wide notices the Dashboard shows above everything else."""
+        from backend.countries import target_markets_for
+        from backend.services.permit_assessment import freshness
+        import yaml
+
+        out = []
+        if "ie" in target_markets_for(self.w.root):
+            try:
+                rules = freshness()
+            except (OSError, UnicodeError, KeyError, TypeError, ValueError, yaml.YAMLError):
+                rules = {"state": "unreadable", "message": "The Irish employment-permit rules cannot be read. "
+                         "Restore and re-verify the rules against the official DETE pages before relying on thresholds."}
+            if rules["state"] != "current":
+                out.append({"id": "permit_rules", "level": "warning", "text": rules["message"]})
+        return out

@@ -10,6 +10,8 @@ An installed executable is not proof of authentication or a working subscription
 from __future__ import annotations
 
 import argparse
+import ast
+import glob
 import importlib.metadata
 import json
 import os
@@ -17,6 +19,7 @@ import re
 import shutil
 import subprocess
 import sys
+from datetime import date
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
@@ -28,6 +31,46 @@ CLI_PACKAGES = ("fastapi", "uvicorn", "PyYAML", "pypdf", "Pillow", "httpx", "pyd
                 "langchain", "langgraph", "langchain-openai", "langchain-anthropic",
                 "langchain-google-genai")
 OCR_PACKAGES = ("rapidocr-onnxruntime", "pypdfium2")
+# Dated Irish permit thresholds; read with the standard library like everything here.
+PERMIT_RULES = APP / "backend/countries/ie/permit-rules.yml"
+RULES_WARN_DAYS = 30
+# The AI CLIs the app runs: the module that knows where each one's bundled copy lives (its
+# source is read, never imported) and the environment variable that overrides it.
+CLI_SOURCES = {"claude": (APP / "backend/ai/claude_code.py", "CLAUDE_CODE_CLI"),
+               "codex": (APP / "backend/ai/codex.py", "CODEX_CLI"),
+               "kimi": (APP / "backend/ai/kimi_cli.py", "KIMI_CLI")}
+# Where Start Dashboard puts its pinned Tectonic download.
+TOOLS = APP / "backend/.tools"
+
+
+def permit_rules_status(today: date | None = None) -> dict:
+    """When the Irish permit rules were last checked and when they are due for review."""
+    today = today or date.today()
+    try:
+        text = PERMIT_RULES.read_text(encoding="utf-8")
+    except OSError:
+        try:
+            label = str(PERMIT_RULES.relative_to(REPO))
+        except ValueError:
+            label = PERMIT_RULES.name
+        return {"state": "missing", "file": label}
+    except UnicodeError:
+        return {"state": "unreadable"}
+    fields = {}
+    for key in ("version", "effective_from", "verified_at", "review_after"):
+        found = re.search(rf"^{key}:\s*['\"]?([^'\"\s]+)", text, re.M)
+        fields[key] = found.group(1) if found else ""
+    try:
+        effective = date.fromisoformat(fields["effective_from"])
+        verified = date.fromisoformat(fields["verified_at"])
+        review = date.fromisoformat(fields["review_after"])
+        if not effective <= verified <= review or not fields["version"]:
+            raise ValueError("Inconsistent permit-rule dates or missing version")
+        days = (review - today).days
+    except ValueError:
+        return {"state": "unreadable", **fields}
+    state = "stale" if today < effective or days < 0 else "due_soon" if days <= RULES_WARN_DAYS else "current"
+    return {"state": state, **fields, "days_left": days}
 
 
 def packages(names: tuple[str, ...]) -> dict:
@@ -78,6 +121,46 @@ def executable(name: str) -> bool:
     return shutil.which(name) is not None
 
 
+def bundled_locations(source: Path) -> list[str]:
+    """The app's own bundled-CLI locations (its BUNDLED constants), read from source without importing it."""
+    try:
+        tree = ast.parse(source.read_text(encoding="utf-8"))
+    except (OSError, SyntaxError, UnicodeError):
+        return []
+    found: list[str] = []
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and t.id.startswith("BUNDLED") for t in node.targets):
+            try:
+                value = ast.literal_eval(node.value)
+            except ValueError:
+                continue
+            found += [value] if isinstance(value, str) else [v for v in value if isinstance(v, str)]
+    return found
+
+
+def cli_available(name: str) -> bool:
+    """On PATH, named by its override variable, or in a location the app knows (a desktop app's bundled copy)."""
+    source, override = CLI_SOURCES[name]
+    if executable(name):
+        return True
+    named = os.environ.get(override)
+    if named and os.path.isfile(named):
+        return True
+    return any(glob.glob(os.path.expanduser(pattern)) for pattern in bundled_locations(source))
+
+
+def tectonic_available() -> bool:
+    return executable("tectonic") or any(TOOLS.glob("tectonic-*/tectonic*"))
+
+
+def in_synced_folder(path: Path = REPO) -> bool:
+    """True inside OneDrive: syncing a running app's databases can lock or damage them."""
+    text = str(path).casefold()
+    roots = [os.environ.get(name, "") for name in ("OneDrive", "OneDriveConsumer", "OneDriveCommercial")]
+    return any(root and text.startswith(root.casefold()) for root in roots) or "onedrive" in (
+        part.casefold().split(" -")[0] for part in path.parts)
+
+
 def node_status() -> dict:
     node = shutil.which("node")
     result = {"available": bool(node), "supported": False, "version": None}
@@ -102,9 +185,10 @@ def report(profiles_dir: Path, requested: str | None = None) -> dict:
     profiles = registry_status(profiles_dir, requested)
     node = node_status()
     tools = {"node": node, "npm": executable("npm.cmd" if os.name == "nt" else "npm"),
-             "tectonic": executable("tectonic"),
-             "ai_cli": {name: executable(name) for name in ("codex", "claude", "kimi")},
-             "ai_check": "PATH availability only; bundled CLIs, sign-in, API keys and connectivity are not checked"}
+             "tectonic": tectonic_available(),
+             "ai_cli": {name: cli_available(name) for name in ("codex", "claude", "kimi")},
+             "ai_check": "installed CLIs (PATH and the app's bundled locations) only; sign-in, API keys and connectivity are not checked"}
+    synced = in_synced_folder()
     app_mode = python["cli_supported"] and dependencies["ready"]
     actions = []
 
@@ -132,11 +216,21 @@ def report(profiles_dir: Path, requested: str | None = None) -> dict:
         else:
             action("read_profile_status", "Run career status --profile <id> for the selected profile before preparing jobs.")
     if not tools["tectonic"]:
-        action("check_pdf_compiler", "Tectonic was not found on PATH. Check the installation before promising resume PDFs.")
+        action("check_pdf_compiler", "Tectonic was not found. Start Dashboard downloads a pinned copy; run it on your own "
+               "computer, then check again before promising resume PDFs.")
+    if synced:
+        action("move_out_of_sync", "This workspace is inside OneDrive. Syncing can lock or damage the app's databases while "
+               "it runs; move the folder somewhere local (for example C:\\CareerWorkspace) before starting the dashboard.")
+    rules = permit_rules_status()
+    if rules["state"] != "current":
+        action("review_permit_rules", "The Irish employment-permit thresholds in career-dashboard/backend/countries/ie/"
+               f"permit-rules.yml (checked {rules.get('verified_at') or 'unknown'}) are due for review on "
+               f"{rules.get('review_after') or 'an unknown date'}. Re-verify them against the official DETE pages; "
+               "after that date salary-threshold checks show 'unknown'.")
     action("verify_ai_provider", "Before AI work, verify a configured provider in the app; executable discovery does not prove sign-in or availability.")
     return {"schema_version": 1, "app_mode": app_mode, "python": python,
             "dependencies": dependencies, "ocr_packages": packages(OCR_PACKAGES),
-            "tools": tools, **profiles, "next_actions": actions,
+            "tools": tools, "synced_folder": synced, **profiles, "permit_rules": rules, "next_actions": actions,
             "read_only": True, "note": "No candidate documents, credentials, AI providers or external services were opened."}
 
 

@@ -17,6 +17,7 @@ import {
 import { API_BASE, api, fileUrl } from "../api";
 import { AskAssistant, AskContext, Badge, Field, Modal, ReportView, Running } from "../components/UI";
 import { JobList } from "../components/JobList";
+import { CoverLetterView } from "../components/CoverLetterView";
 import { useMarket } from "../profiles";
 import { clearStudioDraft, macroSpan, readField, readStudioDraft, saveStudioDraft, studioDraftKey, writeField } from "./studioFields";
 import FitCheck from "./FitCheck";
@@ -220,33 +221,7 @@ export default function ResumeStudio({
           <JobList jobs={data.jobs} onSelect={onJob} />
         </section>
       )}
-      {coverLetter && (
-        <Modal
-          title={`${coverLetter.company} · Cover letter`}
-          onClose={() => setCoverLetter(null)}
-        >
-          <div className="callout warning">
-            Draft only. Review it against the job description before sending.
-          </div>
-          <div className="cover-letter-preview">{coverLetter.content}</div>
-          <div className="actions">
-            <button
-              className="secondary"
-              onClick={() => navigator.clipboard.writeText(coverLetter.content)}
-            >
-              Copy letter
-            </button>
-            <a
-              className="primary"
-              href={fileUrl(coverLetter.path)}
-              target="_blank"
-              rel="noreferrer"
-            >
-              Open saved file ↗
-            </a>
-          </div>
-        </Modal>
-      )}
+      {coverLetter && <CoverLetterView letter={coverLetter} onClose={() => setCoverLetter(null)} />}
     </>
   );
 }
@@ -384,7 +359,7 @@ function Editor({
       if (alive.current) setBusy("");
     }
   }
-  async function download(format: "pdf" | "tex") {
+  async function download(format: "pdf" | "docx" | "tex") {
     // A plain link navigated the whole app to a raw JSON error page when the
     // server refused, so fetch the file and surface any refusal as a message.
     try {
@@ -644,6 +619,18 @@ function Editor({
             onClick={() => download("pdf")}
           >
             <Download size={16} /> Download PDF
+          </button>
+          <button
+            className="secondary"
+            disabled={!current}
+            title={
+              current
+                ? "A Word copy of the same checked revision, for employers who ask for .docx"
+                : "Build the current revision first — the saved PDF is from an older draft"
+            }
+            onClick={() => download("docx")}
+          >
+            <Download size={16} /> Download Word
           </button>
           <button className="secondary" onClick={() => download("tex")}>
             <Download size={16} /> Download LaTeX

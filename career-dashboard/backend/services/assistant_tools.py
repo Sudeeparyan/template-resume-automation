@@ -510,7 +510,8 @@ class Toolbox:
             "Re-pick the signature and supporting projects from the registry for this job, as a new draft version.",
             self.sync_resume_projects, {"job_id": S("The job ID", required=True)}, writes=True, group="Resume", agent="resume")
         add("cover_letter", "Writing the cover letter",
-            "Generate the cover letter for a job from registered evidence. It is saved for the candidate's review, never sent.",
+            "Generate the cover letter for a job from registered evidence (and verified company facts), with a Word copy. "
+            "It is saved for the candidate's review, never sent.",
             self.cover_letter, {"job_id": S("The job ID", required=True)}, writes=True, group="Resume", agent="resume")
         add("resume_assurance", "Checking the resume's claims",
             "The Assurance check for one job's resume: every claim line with its evidence status (verified, predicted, "
@@ -1063,7 +1064,9 @@ class Toolbox:
 
     def cover_letter(self, job_id) -> dict:
         result = self.s.generate_cover_letter(job_id)
-        return {"summary": f"Cover letter v{result['version']} saved for review", "path": result["path"], "version": result["version"],
+        how = "written by the AI from registered evidence and checked" if result.get("method") == "ai" else "built from registered sentences"
+        return {"summary": f"Cover letter v{result['version']} saved for review ({how})", "path": result["path"],
+                "version": result["version"], "word_copy": result.get("docx_path") or "", "note": result.get("note") or "",
                 "excerpt": (result.get("content") or "")[:1200], "review_required": True}
 
     def application_documents(self, job_id) -> dict:

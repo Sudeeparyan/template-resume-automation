@@ -200,24 +200,38 @@ class AgentCache:
         return router.is_paid(provider)
 
     def execute(self, invoke, prompt, schema, *, cacheable=True, served_by=None,
-                managed_budget=False, **options):
+                managed_budget=False, refresh=False, **options):
         """Reuse a grounded input's result; network I/O never holds a global cache lock.
 
         A gateway caller sets managed_budget=True because it reserves the actual
         endpoint after routing. Legacy callers reserve their named endpoint here.
+        ``refresh`` asks the AI again (a rerun) and stores the new answer in place of the old.
         """
+        from backend import telemetry
+
         key = hashlib.sha256(json.dumps([CACHE_VERSION, prompt, schema, options], sort_keys=True).encode()).hexdigest()
+        # The span names the cache entry, so the person's own trace viewer can open the stored answer.
+        with telemetry.span("ai.request", **{"career.ai.action": options.get("action"), "career.ai.cache_key": key,
+                                              "career.ai.cacheable": cacheable}) as current:
+            return self._execute(current, key, invoke, prompt, schema, cacheable=cacheable, served_by=served_by,
+                                 managed_budget=managed_budget, refresh=refresh, **options)
+
+    def _execute(self, current, key, invoke, prompt, schema, *, cacheable, served_by, managed_budget, refresh=False,
+                 **options):
+        from backend import telemetry
+
         # A per-key lock permits unrelated calls to proceed. The cache is re-read
         # after acquisition so concurrent identical requests consume one invocation.
         flight = _singleflight(self.w.root, key) if cacheable else nullcontext()
         with flight:
             with self.w.connect() as db:
                 db.execute('BEGIN IMMEDIATE')
-                old = db.execute('SELECT * FROM ai_cache WHERE key=?', (key,)).fetchone() if cacheable else None
+                old = db.execute('SELECT * FROM ai_cache WHERE key=?', (key,)).fetchone() if cacheable and not refresh else None
                 if old:
                     age = (datetime.now(timezone.utc) - datetime.fromisoformat(old['created_at'])).total_seconds()
                     if not old['web'] or age < 7 * 86400:
                         db.execute('UPDATE ai_cache SET hits=hits+1 WHERE key=?', (key,))
+                        telemetry.set_attributes(current, **{"career.ai.cache_hit": True})
                         return json.loads(old['result'])
                 provider = options.get('provider', 'codex')
                 model = options.get('model', 'codex-runtime')
@@ -228,6 +242,7 @@ class AgentCache:
                     VALUES(?,?,?,?,?,NULL,?,?,?,?)""",
                     (call_id, key, self.s.today(), 'running', self.s.now(), provider, model, action, CACHE_VERSION),
                 )
+                telemetry.set_attributes(current, **{"career.ai.cache_hit": False, "career.ai.call_id": call_id})
 
             def record_served(db):
                 served = served_by() if served_by else None

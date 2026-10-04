@@ -4,8 +4,8 @@ A Daily Search run is one pass: one search, whatever it finds, done. The hunt is
 with a deadline ("find 10 jobs that fit at 70 or better by 7 AM") and it loops:
 
 1. Every no-AI source first (services/job_sources.py): the tracked companies, the
-   country's verified employer directory and, for Ireland, gradireland, jobs.ie and the
-   askmanavi graduate tracker. These give full posting text for free.
+   country's verified employer directory and, for Ireland, gradireland and jobs.ie. These
+   give full posting text for free.
 2. Then focused AI web-search passes (services/search_plan.py), one site group and one
    target role at a time: employer careers and ATS pages, Irish job boards, LinkedIn and
    the public sector, graduate programmes.
@@ -65,6 +65,11 @@ TRANSIENT = re.compile(r"time(?:d)? ?out|timeout|connection|temporar|unavailable
                        r"\b50[234]\b|reset by peer|try again", re.IGNORECASE)
 TRANSIENT_PAUSE_SECONDS = 60
 ACTIVE = ("queued", "running", "waiting")
+# A saved job whose posting states no pay, and no market estimate reaches the floor, gets comparable-pay
+# research (services/salary_research.py) on a free AI plan only, at most this many a day per profile.
+PAY_RESEARCH_PER_DAY = 4
+PAY_RESEARCH_PREF = "pay_research_today"
+PAY_RESEARCH_TIMEOUT_MINUTES = 30
 
 
 class Stopped(Exception):
@@ -223,7 +228,9 @@ class Hunt:
                 self.s.set_pref("hunt_preferences", {**{k: config[k] for k in ("target", "hours", "min_fit", "allow_paid",
                                                                               "require_ai_fit", "steps")},
                                                      "sources": config["requested_sources"]})
-            self.thread = threading.Thread(target=self._run, args=(id,), name="career-hunt", daemon=True)
+            from backend import telemetry
+
+            self.thread = threading.Thread(target=telemetry.carry(self._traced), args=(id,), name="career-hunt", daemon=True)
             self.thread.start()
         return self.get(id)
 
@@ -319,6 +326,19 @@ class Hunt:
                 raise Stopped()
             self.sleep(min(NAP_SECONDS, max(0.0, end - self.clock())))
 
+    def _traced(self, id: str) -> None:
+        from backend import telemetry
+
+        with telemetry.bind(profile_root=self.w.root, run={"id": f"hunt:{id}", "kind": "hunt"}):
+            with telemetry.span("hunt.run", **{"career.hunt_id": id}) as current:
+                self._run(id)
+                with self.w.connect() as db:
+                    row = db.execute("SELECT state,error FROM hunt_runs WHERE id=?", (id,)).fetchone()
+                if row:
+                    telemetry.set_attributes(current, **{"career.run_state": row["state"]})
+                    if row["state"] == "failed":
+                        telemetry.mark_failed(current, row["error"])
+
     def _run(self, id: str) -> None:
         with self.w.connect() as db:
             row = db.execute("SELECT * FROM hunt_runs WHERE id=?", (id,)).fetchone()
@@ -326,8 +346,12 @@ class Hunt:
         config["free_only"] = not config.get("allow_paid")
         state, error = "completed", None
         try:
-            self._search(id, config, progress)
-            self._prepare(id, config, progress)
+            from backend import telemetry
+
+            with telemetry.span("hunt.step search", **{"career.node": "search"}):
+                self._search(id, config, progress)
+            with telemetry.span("hunt.step prepare", **{"career.node": "prepare"}):
+                self._prepare(id, config, progress)
         except Stopped:
             state = "stopped"
             progress["stage"] = "Stopped"
@@ -517,23 +541,87 @@ class Hunt:
                      excluded=len(result.get("excluded") or []), held=int(result.get("held") or 0),
                      ai_checked=int(fit_check.get("by_ai") or 0))
         self._save(id, progress)
+        pending = [job_id for job_id in result.get("pending_salary_job_ids") or [] if job_id not in added]
+        if pending:
+            self._research_pay(id, config, progress, pending, strategy)
         return looked
+
+    def _research_pay(self, id, config, progress, job_ids, strategy) -> None:
+        """Comparable-pay research for saved jobs whose posting states no pay: free AI plans only, at most
+        PAY_RESEARCH_PER_DAY a day. A job whose researched pay then reaches the floor joins the saved list,
+        with the note to confirm the actual salary (opportunities.pay_note); the research never becomes the
+        vacancy's pay."""
+        from backend.ai import router
+        from backend.services.opportunities import preparation_issue
+
+        if not self.s.agent_enabled("salary_research"):
+            return
+        today = self.s.today()
+        used = self.s.pref(PAY_RESEARCH_PREF, {}) or {}
+        count = int(used.get("count") or 0) if used.get("day") == today else 0
+        provider, model = self.pipeline._web_choice(config)
+        if provider and router.is_paid(provider):
+            provider = model = None  # Auto, held to the free plans below
+        for job_id in job_ids:
+            if count >= PAY_RESEARCH_PER_DAY or len(progress["saved"]) >= config["target"] \
+                    or self.clock() >= progress["search_until_epoch"]:
+                break
+            if self._stop_requested(id):
+                raise Stopped()
+            try:
+                job = self.w.get_job(job_id)
+            except ValueError:
+                continue
+            if (job.get("opportunity") or {}).get("section") != "needs_research":
+                continue
+            if not self._ai_state({**config, "allow_paid": False})[0]:
+                break  # no free plan is ready now; paid AI is never used for this
+            count += 1
+            self.s.set_pref(PAY_RESEARCH_PREF, {"day": today, "count": count})
+            entry = {"job_id": job_id, "company": job["company"], "title": job["title"], "state": "running"}
+            progress.setdefault("pay_research", []).append(entry)
+            progress["stage"] = f"Researching comparable pay for {job['title']} at {job['company']} (free AI plans only)"
+            self._save(id, progress)
+            try:
+                queued = self.runner.enqueue("salary_research", job_id, provider, model, free_only=True)
+                self._wait_run(id, queued["id"], PAY_RESEARCH_TIMEOUT_MINUTES, "This pay research")
+            except Stopped:
+                entry["state"] = "stopped"
+                raise
+            except Exception as exc:  # noqa: BLE001 - one job's research never ends the hunt
+                entry.update(state="failed", note=str(exc)[:300])
+                continue
+            job = self.w.get_job(job_id)
+            issue = preparation_issue(job)
+            entry.update(state="saved" if not issue else "not_confirmed",
+                         note="Comparable published pay reaches your floor; confirm the actual salary with the recruiter."
+                         if not issue else issue)
+            if not issue:
+                progress["saved"].append({"id": job_id, "company": job["company"], "title": job["title"],
+                                          "location": job.get("location") or "", "fit": job.get("fit_score"),
+                                          "url": job.get("url") or "",
+                                          "pass": strategy["label"] + " (comparable pay researched)"})
+        self._save(id, progress)
 
     def _discovery(self, id, preset, count, focus, provider, model, *, free_only) -> dict:
         queued = self.runner.enqueue("discovery", None, provider, model, preset, count=count, focus=focus,
                                      free_only=free_only)
-        deadline = self.clock() + PASS_TIMEOUT_MINUTES * 60
+        return self._wait_run(id, queued["id"], PASS_TIMEOUT_MINUTES, "This pass")
+
+    def _wait_run(self, id, run_id, minutes, what) -> dict:
+        """Wait for one agent run to finish; its result, or why it failed."""
+        deadline = self.clock() + minutes * 60
         while self.clock() < deadline:
             with self.w.connect() as db:
-                row = db.execute("SELECT id, state, result, error FROM agent_runs WHERE id=?", (queued["id"],)).fetchone()
+                row = db.execute("SELECT id, state, result, error FROM agent_runs WHERE id=?", (run_id,)).fetchone()
             if row and row["state"] == "completed":
                 return {"id": row["id"], "result": json.loads(row["result"] or "{}")}
             if row and row["state"] == "failed":
-                raise ValueError(row["error"] or "The pass failed without a reason.")
+                raise ValueError(row["error"] or f"{what} failed without a reason.")
             if self._stop_requested(id):
                 raise Stopped()
             self.sleep(self.poll)
-        raise ValueError(f"This pass did not finish within {PASS_TIMEOUT_MINUTES} minutes.")
+        raise ValueError(f"{what} did not finish within {minutes} minutes.")
 
     # ----- preparing what was found --------------------------------------------------------
 

@@ -1,5 +1,6 @@
 import { safeUrl } from "../api";
 import type { Job, Opportunity } from "../types";
+import { PermitBadge } from "./PermitBadge";
 import { Badge } from "./UI";
 
 function money(value: number, currency: string) {
@@ -29,13 +30,8 @@ export function SalaryBadge({ job }: { job: Job }) {
   </Badge>;
 }
 
-export function PermitBadge({ job }: { job: Job }) {
-  if (!job.opportunity) return null;
-  const permit = job.opportunity.permit;
-  return <Badge tone={permit.state === "obstacle" ? "red" : "amber"} title={permit.summary}>
-    {permit.state === "obstacle" ? "Permit obstacle" : permit.state === "criteria_checked" ? "Permit criteria checked" : "Permit checks pending"}
-  </Badge>;
-}
+// The permit badge lives with the other permit evidence components; kept importable from here.
+export { PermitBadge } from "./PermitBadge";
 
 function EvidenceLink({ url, title }: { url: string; title: string }) {
   const href = safeUrl(url);
@@ -55,6 +51,11 @@ export function SalaryEvidence({ job }: { job: Job }) {
       : salary.kind === "unknown" || salary_state !== "meets_floor" ? "The salary needs confirmation before this role can enter the salary shortlist."
       : "The advertised salary meets your floor. Salary alone does not establish permit eligibility."}</p>
     {salary.quote && <blockquote>{salary.quote}</blockquote>}
+    {opportunity.estimate && <div className="callout">
+      <p><strong>Market estimate: {money(opportunity.estimate.p25, "EUR")}–{money(opportunity.estimate.p75, "EUR")} a year</strong> (median {money(opportunity.estimate.median, "EUR")})</p>
+      <p className="small">{opportunity.estimate.label} Advertised in the last {opportunity.estimate.window_days} days for similar {opportunity.estimate.level}-level roles.
+        Confirm with the recruiter that the base salary is at least {money(floor, "EUR")} before you apply.</p>
+    </div>}
     {salary.url && <p className="small"><EvidenceLink url={salary.url} title="Salary evidence" /></p>}
     {salary.observed_at && <p className="small muted">Salary checked: {salary.observed_at}</p>}
     {salary.kind === "researched" && <p className="small muted">Sources reflect the dates shown. Published ranges may have changed since they were checked.</p>}
@@ -65,11 +66,22 @@ export function SalaryEvidence({ job }: { job: Job }) {
     </li>)}</ul>}
     <div className="section-title"><h3>Permit checks</h3><PermitBadge job={job} /></div>
     <p>{permit.summary}</p>
-    <p className="small">These checks record evidence and missing information. They are not a permit approval.</p>
+    <p className="small">Not immigration advice. These checks record evidence and missing information; they are not a permit approval.</p>
+    {opportunity.permit_path && <div className="permit-path">
+      <p><strong>Permit-path evidence: {opportunity.permit_path.score}/100</strong> <span className="small muted">({opportunity.permit_path.label})</span></p>
+      <ul>{opportunity.permit_path.parts.map((part) => <li key={part.id} className="small">{part.points}/{part.max} · {part.reason}</li>)}</ul>
+    </div>}
     {!!permit.checks.length && <ul>{permit.checks.map((check) => <li key={check.id}>
       <strong>{check.label}</strong> — {check.state === "pass" ? "Evidence found" : check.state === "fail" ? "Obstacle" : "Needs confirmation"}
       {check.note && <p className="small">{check.note}</p>}
+      {check.url && <p className="small"><EvidenceLink url={check.url} title="Official page" /></p>}
     </li>)}</ul>}
+    {!!permit.timeline?.events.length && <><h3>Permit dates</h3><ul>{permit.timeline.events.map((event) => <li key={event.id}>
+      <strong>{event.label}</strong>{event.date && `: ${event.date}`}
+      {event.days_left != null && event.days_left >= 0 && ` (${event.days_left} days from today)`}
+      {event.note && <p className="small">{event.note}</p>}
+      {event.url && <EvidenceLink url={event.url} title="Official guidance" />}
+    </li>)}</ul></>}
     {!!permit.sources.length && <p className="small">Reference sources: {permit.sources.map((source, index) => <span key={`${source.url}-${index}`}>
       {index > 0 && " · "}<EvidenceLink url={source.url} title={source.title} />
     </span>)}</p>}
