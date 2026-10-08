@@ -823,6 +823,13 @@ def pay_line(job: dict) -> str:
     return ""
 
 
+def pay_known(job: dict) -> bool:
+    """The posting's pay, or a labelled estimate, reaches the floor (the list shows these first)."""
+    from backend.services.opportunities import pay_known as known
+
+    return known(job)
+
+
 def permit_path_line(job: dict) -> str:
     """The permit-path evidence score (backend/permits/path_score.py), labelled as what it is."""
     path = (job.get("opportunity") or {}).get("permit_path") or {}
@@ -875,11 +882,12 @@ def collect(store, profile: dict, journal: Journal, now: datetime, ready_by: str
                 "work_permit": evidence.get("sentence") or evidence.get("label") or "",
                 "permit_quote": evidence.get("sentence") or "",
                 "dete": evidence.get("label") or "" if record.get("found") else "",
-                "pay": pay_line(job), "permit_path": permit_path_line(job),
+                "pay": pay_line(job), "pay_known": pay_known(job), "permit_path": permit_path_line(job),
                 "pending_reasons": pending, "review_required": True}
 
     def by_fit(job):
-        return -(job["fit"] if isinstance(job["fit"], (int, float)) else -1)
+        # Jobs whose pay is known to reach the floor first; jobs that state no pay after them.
+        return (not job["pay_known"], -(job["fit"] if isinstance(job["fit"], (int, float)) else -1))
 
     candidates = [brief(j) for j in active if j["status"] in ("saved", "prepared")
                   and (_when(j.get("created_at")) or oldest) >= oldest]

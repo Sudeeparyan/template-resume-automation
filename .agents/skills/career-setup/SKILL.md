@@ -82,11 +82,12 @@ confirms normalized facts. For explicit confirmed chat answers, the CLI also acc
 `--graduate-search` applies their confirmed graduate-search preference. `--seniority`,
 `--max-years-required`, `--salary-floor-eur` and `--salary-policy` accept explicit preferences.
 The default floor follows the dated permit rules and changes when a confirmed graduate
-window ends; an explicit personal floor is retained. With `--salary-policy
-confirmed_or_estimated` (the default) a job is prepared when its advertised pay reaches the
-floor or, when the posting states no pay, a labelled market estimate or researched comparable
-pay does (the person then confirms the base salary with the recruiter); `confirmed_only`
-prepares advertised pay only.
+window ends; an explicit personal floor is retained. With `--salary-policy include_unstated`
+(the default) a job is prepared when its advertised pay, a labelled market estimate or
+researched comparable pay reaches the floor, and also when the posting states no pay: those
+come after the others, with a note to confirm the base salary with the recruiter. Advertised
+pay below the floor is never prepared. `confirmed_or_estimated` leaves out jobs that state no
+pay and have no estimate; `confirmed_only` prepares advertised pay only.
 
 `needs_sponsorship_later` is `yes` or `no`. Leave out any field they are unsure of; it stays
 unknown and blocks job searches until answered. On Windows, save the JSON in a private file

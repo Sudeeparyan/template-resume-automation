@@ -64,7 +64,7 @@ export type EducationPermitFacts = {
 };
 export type JobSearchPreferences = {
   salary_floor_eur?: number; salary_floor_source?: "person" | "permit_rules";
-  salary_policy?: "confirmed_only" | "confirmed_or_estimated";
+  salary_policy?: "include_unstated" | "confirmed_or_estimated" | "confirmed_only";
   seniority?: string[]; max_years_required?: number | null; graduate_search_confirmed?: boolean;
 };
 export type ProfileListing = { profiles: ProfileEntry[]; last_used: string };

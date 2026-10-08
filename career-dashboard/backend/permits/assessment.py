@@ -98,6 +98,12 @@ def on_eures(job):
     return (host == "europa.eu" and url.path.startswith("/eures/")) or host in {"jobsireland.ie", "www.jobsireland.ie"}
 
 
+def needs_permit(profile) -> bool:
+    """An employment permit is, or may later be, needed: not a citizen and not recorded as needing none."""
+    auth = mapping(mapping(mapping(profile).get("work_authorization_by_market")).get("ie"))
+    return not (auth.get("status") == "authorized" and (auth.get("needs_sponsorship_later") == "no" or auth.get("citizenship") == "citizen"))
+
+
 def assess(job, salary, profile, sponsorship, *, on=None, rules=None, occupation=None, history=None):
     on = on or today()
     job, salary, profile, sponsorship = map(mapping, (job, salary, profile, sponsorship))
@@ -105,7 +111,7 @@ def assess(job, salary, profile, sponsorship, *, on=None, rules=None, occupation
     fresh = freshness(on=on, rules=rules)
     stale = fresh["state"] == "stale"
     auth = mapping(mapping(profile.get("work_authorization_by_market")).get("ie"))
-    needs = not (auth.get("status") == "authorized" and (auth.get("needs_sponsorship_later") == "no" or auth.get("citizenship") == "citizen"))
+    needs = needs_permit(profile)
     if occupation is None:
         from backend.permits.occupations import classify
         occupation = classify(job, on=on)

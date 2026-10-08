@@ -58,6 +58,20 @@ def clean(text) -> str:
     return re.sub(r"\s+", " ", str(text or "")).strip()
 
 
+def skill_entry(text: str) -> bool:
+    """A skills-list entry, not a sentence: up to 40 characters, or a named tool with its
+    parts in brackets ("Python (pandas, NumPy, scikit-learn, Matplotlib)") up to 80."""
+    return len(text) <= 40 or (len(text) <= 80 and bool(re.fullmatch(r"[^()]{1,40}\([^()]+\)", text)))
+
+
+def already_listed(tool: str, listed: set) -> bool:
+    """'Python (pandas)' or 'AWS EC2' adds nothing once 'Python (pandas, NumPy)' or
+    'AWS (EC2, S3)' is listed: every word of it is there already."""
+    text = " ".join(listed)
+    words = re.findall(r"[a-z0-9][a-z0-9+#.\-]*", tool.casefold())
+    return bool(words) and all(re.search(r"(?<![a-z0-9+#])" + re.escape(w) + r"(?![a-z0-9+#])", text) for w in words)
+
+
 def ident(text, width: int = 14) -> str:
     """'JRB Infotech' -> 'JRB-INFOTECH' for registry ids."""
     words = re.findall(r"[A-Za-z0-9]+", str(text or "").upper())
@@ -229,7 +243,7 @@ def build_registry(draft: dict, revision: str, sources: dict, banned: list[str])
             claim(cid, "contact", use, base, value=clean(contact[key]))
     place = ", ".join(p for p in (clean(contact.get("city")), clean(contact.get("country"))) if p)
     if place:
-        claim("LOCATION-001", "location", "Omit the city from resumes unless a posting asks; use for search and time zone.", base, value=place)
+        claim("LOCATION-001", "location", "City and country on the CV's contact line; also used for search and time zone.", base, value=place)
     if clean(auth.get("status")) or clean(auth.get("conditions")):
         status = clean(auth.get("status"))
         country = clean(auth.get("work_country"))
@@ -298,7 +312,7 @@ def build_registry(draft: dict, revision: str, sources: dict, banned: list[str])
     used_tools = {clean(t).casefold() for item in (draft.get("experience") or []) + (draft.get("projects") or [])
                   for t in item.get("tools") or []}
     for group in rank_skill_groups(draft.get("skills") or [], used_tools):
-        skills = [clean(s) for s in group.get("skills") or [] if clean(s) and len(clean(s)) <= 40]
+        skills = [clean(s) for s in group.get("skills") or [] if clean(s) and skill_entry(clean(s))]
         if not skills:
             continue
         cid = f"SKILL-{ident(group.get('name'), 12)}-001"
@@ -314,7 +328,7 @@ def build_registry(draft: dict, revision: str, sources: dict, banned: list[str])
     tools = []
     for item in (draft.get("experience") or []) + (draft.get("projects") or []):
         for tool in item.get("tools") or []:
-            if clean(tool) and clean(tool).casefold() not in listed and len(clean(tool)) <= 40:
+            if clean(tool) and not already_listed(clean(tool), listed) and skill_entry(clean(tool)):
                 listed.add(clean(tool).casefold())
                 tools.append(clean(tool))
     if tools:
@@ -436,7 +450,8 @@ def build_profile(draft: dict, registry: dict, pack: Pack, revision: str) -> dic
     sections = (["Education"] if "education" in categories else []) + \
         (["Skills"] if "skill" in categories else []) + \
         (["Professional Experience"] if has_roles else []) + \
-        (["Projects"] if ready_projects else [])
+        (["Projects"] if ready_projects else []) + \
+        (["Certifications"] if "certification" in categories else [])
     lead_section = "Professional Experience" if has_roles else (sections[0] if sections else "")
     tracks = build_tracks(roles, registry["projects"], lead_section)
     orders = {}
@@ -470,7 +485,9 @@ def build_profile(draft: dict, registry: dict, pack: Pack, revision: str) -> dic
     doc_words = set(_terms(" ".join(str(v) for v in draft.values())))
     degrees = " ".join(c.get("degree_as_supplied", "") for c in registry["claims"] if c["category"] == "education").casefold()
     highest = "a PhD" if re.search(r"ph\.?d|doctor", degrees) else "a Master's" if re.search(r"master|m\.?sc|m\.?s\b|mba|m\.?tech", degrees) else "a Bachelor's" if re.search(r"bachelor|b\.?sc|b\.?tech|b\.?e\b", degrees) else "not stated"
-    header = ["full_name"] + [k for k in ("phone", "email", "linkedin", "github", "portfolio_url") if clean(contact.get(k))]
+    # An Irish CV's contact line starts with the city and country: it shows the person is here.
+    header = ["full_name"] + (["location"] if clean(contact.get("city")) else []) + \
+        [k for k in ("phone", "email", "linkedin", "github", "portfolio_url") if clean(contact.get(k))]
     exclusions = []
     if mode == "later":
         exclusions += ["Postings that explicitly refuse to support a work permit or sponsorship",
@@ -590,7 +607,8 @@ def build_profile(draft: dict, registry: dict, pack: Pack, revision: str) -> dic
             "required_sections": sections,
             "section_order_by_track": orders,
             "header_fields": header,
-            "omitted_by_default": ["Summary or objective section", "City", "Work authorization line"],
+            "omitted_by_default": ["Summary or objective section"] + ([] if "location" in header else ["City"])
+                                  + ["Work authorization line"],
             "prohibited_filler": PROHIBITED_FILLER,
             "diagnostics": {"job_fit_score": "Opportunity decision only",
                             "supported_requirement_coverage": "Required/preferred JD requirements backed by evidence IDs",

@@ -64,6 +64,8 @@ ROLE_BULLETS = {1: (7,), 2: (5, 3), 3: (4, 3, 2)}
 MAX_SKILL_LINES = 4
 MAX_SKILLS_PER_LINE = 14
 MAX_COURSEWORK = 8
+MAX_CERTIFICATIONS = 4
+ORDINALS = ("One", "Two", "Three", "Four", "Five", "Six")
 
 
 def macro_name(label: str, taken: set) -> str:
@@ -173,14 +175,18 @@ def role_limit(count: int, index: int, trim: int = 0) -> int:
 
 
 def render(profile: dict, evidence: dict, trim: int = 0) -> str:
-    """The base resume. `trim` (0-3) shortens it when the first version runs past one page."""
+    """The base resume. `trim` (0-4) shortens it when the first version runs past one page:
+    step 1 drops the fifth skill line, each later step one more cut (bullets, then lines)."""
+    skill_cap = MAX_SKILL_LINES + 1 if trim == 0 else MAX_SKILL_LINES - (1 if trim >= 3 else 0)
+    trim = max(0, trim - 1)
     candidate = profile.get("candidate") or {}
     contract = profile.get("resume_contract") or {}
     name = str(candidate.get("full_name") or "Candidate")
     paper = {"a4": "a4paper", "letter": "letterpaper"}[str(contract.get("paper") or "letter").lower()]
     usable = [c for c in evidence.get("claims") or [] if c.get("status") not in {"hold", "missing"}]
     header_keys = [k for k in contract.get("header_fields") or [] if k != "full_name"]
-    contact_ids = [c["id"] for c in usable if c.get("category") == "contact"]
+    contact_ids = [c["id"] for c in usable if c.get("category") == "contact"
+                   or (c.get("category") == "location" and "location" in header_keys)]
     keywords = ", ".join((profile.get("target_roles") or {}).get("primary") or [])[:200]
 
     out = [f"% Evidence-grounded one-page {'A4' if paper == 'a4paper' else 'US Letter'} base resume for {name}.",
@@ -194,14 +200,14 @@ def render(profile: dict, evidence: dict, trim: int = 0) -> str:
             "% EVIDENCE: " + (" ".join(contact_ids) or "IDENTITY-001"),
             "\\newcommand{\\ResumeContact}{" + contact_line(candidate, header_keys) + "}", ""]
 
-    # Skills: one macro per registered skill group, four lines at most (three when trimmed).
+    # Skills: one macro per registered skill group, five lines when they fit, else four (three when trimmed).
     # Each skill is printed once; a group that would only repeat earlier lines is left off.
     taken: set = set()
     printed: set = set()
     skill_lines = []
     out.append("% ---- Skills (one macro per bold category; items ranked per JD by Resume Studio) --")
     for claim in [c for c in usable if c.get("category") == "skill" and c.get("approved_facts")]:
-        if len(skill_lines) == MAX_SKILL_LINES - (1 if trim >= 2 else 0):
+        if len(skill_lines) == skill_cap:
             break
         fresh = [str(s) for s in claim["approved_facts"] if str(s).strip().casefold() not in printed]
         if len(fresh) < min(3, len(claim["approved_facts"])):
@@ -220,6 +226,19 @@ def render(profile: dict, evidence: dict, trim: int = 0) -> str:
         out += ["% ---- Coursework -----------------------------------------------------------",
                 "% EVIDENCE: " + coursework["id"],
                 "\\newcommand{\\Coursework}{" + tex_escape(", ".join(map(str, coursework["approved_facts"][:MAX_COURSEWORK]))) + "}", ""]
+
+    # Degree results and certifications as tagged macros, so a profile edit follows them (resume_sync).
+    grades: dict = {}
+    for claim in [c for c in usable if c.get("category") == "education" and str(c.get("grade") or "").strip()][:len(ORDINALS)]:
+        grades[claim["id"]] = "Grade" + ORDINALS[len(grades)]
+        out += ["% EVIDENCE: " + claim["id"], "\\newcommand{\\" + grades[claim["id"]] + "}{" + tex_escape(str(claim["grade"]).strip()) + "}"]
+    certifications = [c for c in usable if c.get("category") == "certification" and str(c.get("value") or c.get("title") or "").strip()]
+    certifications = certifications[:MAX_CERTIFICATIONS if trim < 3 else 2]
+    for index, claim in enumerate(certifications):
+        out += ["% EVIDENCE: " + claim["id"],
+                "\\newcommand{\\Certification" + ORDINALS[index] + "}{" + tex_escape(str(claim.get("value") or claim.get("title")).strip()) + "}"]
+    if grades or certifications:
+        out.append("")
 
     # The two project slots: the first two resume-ready projects (the signature is chosen per company later).
     per_project = 3 if trim < 3 else 2
@@ -249,7 +268,10 @@ def render(profile: dict, evidence: dict, trim: int = 0) -> str:
         lines += ["% EVIDENCE: " + claim["id"],
                   "\\roleheading{" + tex_escape(claim.get("institution", "")) + "}{" + _tex_dates(claim.get("dates", "")) + "}{"
                   + tex_escape(claim.get("degree_as_supplied", "")) + "}{" + tex_escape(claim.get("location", "")) + "}"]
-        if coursework and coursework.get("degree_id") == claim["id"]:
+        listed = coursework and coursework.get("degree_id") == claim["id"]
+        if claim["id"] in grades:
+            lines += ["% EVIDENCE: " + claim["id"], "\\textbf{Result:} \\" + grades[claim["id"]] + ("\\\\" if listed else "")]
+        if listed:
             lines += ["% EVIDENCE: " + coursework["id"], "\\textbf{Coursework:} \\Coursework"]
         lines.append("")
     sections["Education"] = lines
@@ -265,9 +287,13 @@ def render(profile: dict, evidence: dict, trim: int = 0) -> str:
     roles = [c for c in usable if c.get("category") == "employment"]
     if roles:
         lines = ["\\section{Professional Experience}", ""]
+        # Room a role cannot fill (a part-time job with one line) goes to the next role, up to
+        # the newest role's share, so the page budget stays the same.
+        spare = 0
         for index, claim in enumerate(roles):
-            limit = role_limit(len(roles), index, trim)
+            limit = min(role_limit(len(roles), index, trim) + spare, role_limit(len(roles), 0, trim))
             bullets = pick(claim.get("approved_facts"), limit, contract.get("prohibited_filler") or ())
+            spare = max(0, role_limit(len(roles), index, trim) + spare - len(bullets))
             lines += ["% EVIDENCE: " + claim["id"],
                       "\\roleheading{" + tex_escape(claim.get("title", "")) + "}{" + _tex_dates(claim.get("dates", "")) + "}{"
                       + tex_escape(claim.get("employer", "")) + "}{" + tex_escape(claim.get("location", "")) + "}"]
@@ -290,6 +316,12 @@ def render(profile: dict, evidence: dict, trim: int = 0) -> str:
             lines += ["  % EVIDENCE: " + project["id"], f"  \\item \\{prefix}Bullet{suffix}"]
         lines += ["\\end{resumeitems}", f"% {marker}_BLOCK_END", ""]
     sections["Projects"] = lines
+
+    if certifications:
+        lines = ["\\section{Certifications}", "\\begin{resumeitems}"]
+        for index, claim in enumerate(certifications):
+            lines += ["  % EVIDENCE: " + claim["id"], "  \\item \\Certification" + ORDINALS[index]]
+        sections["Certifications"] = lines + ["\\end{resumeitems}", ""]
 
     order = list((contract.get("section_order_by_track") or {}).get("A") or contract.get("required_sections") or sections)
     for section in order:

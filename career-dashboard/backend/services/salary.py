@@ -192,11 +192,13 @@ def floor_for(profile=None, *, on=None):
     return personal_floor(profile, on=on)
 
 
-POLICIES = ("confirmed_or_estimated", "confirmed_only")
+POLICIES = ("include_unstated", "confirmed_or_estimated", "confirmed_only")
 
 
 def policy_for(profile=None):
-    """Which pay evidence lets a job be prepared: advertised only, or advertised or a labelled market estimate."""
+    """Which pay evidence lets a job be prepared: advertised only; advertised or a labelled estimate; or
+    (the default) those, plus jobs that state no pay, each flagged for the person to confirm the salary.
+    Advertised or researched pay below the floor is never prepared."""
     search = (profile or {}).get("job_search") if isinstance(profile, dict) else None
     policy = search.get("salary_policy") if isinstance(search, dict) else None
     return policy if policy in POLICIES else POLICIES[0]

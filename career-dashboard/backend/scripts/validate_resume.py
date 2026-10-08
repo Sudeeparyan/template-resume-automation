@@ -225,7 +225,7 @@ def normalize_latex_text(value: str) -> str:
 CLAIM_LINE_PATTERN = re.compile(
     r"""(?x)
     ^(?:
-      \\newcommand\{\\(?:ResumeSummary|ResumeName|ResumeContact|CoreSkills|Skills[A-Za-z]+|Coursework|(?:SelectedProject|SecondProject)(?:ID|Title|Context|BulletOne|BulletTwo|BulletThree))\}
+      \\newcommand\{\\(?:ResumeSummary|ResumeName|ResumeContact|CoreSkills|Skills[A-Za-z]+|Coursework|Grade[A-Za-z]+|Certification[A-Za-z]+|(?:SelectedProject|SecondProject)(?:ID|Title|Context|BulletOne|BulletTwo|BulletThree))\}
       |\\roleheading\b
       |\\clientheading\b
       |\\item\b
@@ -254,8 +254,10 @@ def _logical_section(macro_name: str | None, current: str | None, skill_section:
         return "Projects"
     if macro_name == "CoreSkills" or macro_name.startswith("Skills"):
         return skill_section
-    if macro_name == "Coursework":
+    if macro_name == "Coursework" or macro_name.startswith("Grade"):
         return "Education"
+    if macro_name.startswith("Certification"):
+        return "Certifications"
     return "Header"
 
 

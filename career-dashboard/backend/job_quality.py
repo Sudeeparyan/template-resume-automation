@@ -90,6 +90,8 @@ def is_us_location(location: str) -> bool:
         return False
     return not _FOREIGN_TWIN.search(location) or bool(_US_STATE_SUFFIX.search(location))
 SENIORITY_BLOCK = re.compile(r"\b(senior|sr\.?|staff|lead|principal|director|head(?: of)?|manager|architect|distinguished|fellow|vp|vice president)\b", re.I)
+# The same words market/normalize.py reads as an internship.
+INTERNSHIP = re.compile(r"\b(intern(ship)?|placement|co-?op|summer student|work experience)\b", re.I)
 # A PhD that is merely preferred, or one option among degrees ("MS or PhD"),
 # is not a hard requirement.
 _PHD = r"ph\.?\s?d\.?"
@@ -189,6 +191,11 @@ class ProfileRules:
         self.roles = _track_regexes(profile, excluded_titles)
         targets = profile.get("target_roles") or {}
         self.max_years = int(targets.get("max_years_required") or 0)
+        # Levels the person chose (graduate, junior, entry, ...). Internships and student placements
+        # count only when they chose them: a finished graduate needs a job, not a co-op for students.
+        levels = [str(s).casefold() for s in targets.get("seniority") or []]
+        self.block_internships = bool(levels) and not any(s.startswith(("intern", "placement", "co-op", "coop"))
+                                                          for s in levels)
         scoring = profile.get("scoring") or {}
         self.degree = str(scoring.get("highest_degree") or "unknown qualifications")
         self.block_seniority = bool(scoring.get("block_seniority", False))
@@ -419,6 +426,8 @@ class JobQualityService:
             blockers.append(pack.text("location_blocker"))
         if rules.block_seniority and SENIORITY_BLOCK.search(title):
             blockers.append("Seniority in the title is outside this profile's configured target level.")
+        if rules.block_internships and INTERNSHIP.search(title) and not re.search(r"(?i)\bgraduate\b", title):
+            blockers.append("An internship or student placement is outside this profile's target levels.")
         if not rules.roles.search(title):
             blockers.append(rules.role_blocker)
         years = years_required(description)

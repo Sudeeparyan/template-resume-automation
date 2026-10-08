@@ -475,7 +475,7 @@ def attach_intake(api, profiles, apps) -> dict:
         try:
             result = check()
             # Long documents can run past one page: render it again with fewer bullets until it fits.
-            for trim in (1, 2, 3):
+            for trim in (1, 2, 3, 4):
                 if not (result["compiled"] and (result["page_count"] or 1) > 1):
                     break
                 import yaml

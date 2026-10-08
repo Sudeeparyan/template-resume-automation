@@ -179,8 +179,9 @@ commands are in `docs/DATA-SOURCES.md`. M3 adds the discovery core: the shared
 public market store (`backend/market/`), the EURES / JobsIreland reader, a
 politer fetcher (Crawl-delay, Retry-After, backoff, a circuit breaker, ETag
 re-reads, gzip; a page over 3 MB, or a documented job API over 25 MB, is that
-page's error and never trips the breaker), structured ATS pay, market salary estimates with the
-`confirmed_or_estimated` salary policy, and the permit-path evidence score
+page's error and never trips the breaker), structured ATS pay, market salary estimates, the
+salary policies (`include_unstated`, the default, also prepares postings that state no pay and
+flags them; `confirmed_or_estimated`; `confirmed_only`), and the permit-path evidence score
 (`backend/permits/path_score.py`). HTTPS is verified with the operating system's
 trust store (`truststore`, injected in `backend/__init__.py`). M4 adds the
 employer registry of DETE permit employers' careers boards
@@ -277,8 +278,8 @@ bash "Check Workspace.command"            macOS
 
 Tests use disposable profiles (`ProfileStore(base=tmp_path/...)`); `tests/portable/conftest.py`
 keeps AI apps, job boards and the Task Scheduler offline. Never point a test, a screenshot or a
-fixture at a real profile. GitHub Actions (`.github/workflows/check.yml`) runs the privacy scan
-first, then the same gate on Windows and macOS.
+fixture at a real profile. There is no hosted CI: run this check yourself before every commit
+or push.
 
 ## Publishing
 

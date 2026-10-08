@@ -12,7 +12,7 @@ from datetime import date, datetime
 
 PERMISSION_TYPES = ("unknown", "stamp_1g", "stamp_2", "stamp_4", "irish_or_eea_citizen",
                     "csep_holder", "gep_holder", "stamp_1", "stamp_3", "other")
-POLICIES = ("confirmed_only", "confirmed_or_estimated")
+POLICIES = ("include_unstated", "confirmed_or_estimated", "confirmed_only")
 
 
 def iso_date(value, label="Date") -> str:
@@ -116,9 +116,9 @@ def validate_job_search(value: dict) -> dict:
     if not isinstance(value, dict):
         raise ValueError("Job-search preferences must be an object.")
     result = {}
-    policy = value.get("salary_policy", "confirmed_or_estimated")
+    policy = value.get("salary_policy", POLICIES[0])
     if policy not in POLICIES:
-        raise ValueError("Choose confirmed_only or confirmed_or_estimated for the salary policy.")
+        raise ValueError("Choose include_unstated, confirmed_or_estimated or confirmed_only for the salary policy.")
     result["salary_policy"] = policy
     if value.get("salary_floor_eur") not in (None, ""):
         floor = value["salary_floor_eur"]

@@ -63,7 +63,7 @@ export type Opportunity = {
   };
   salary_state: "meets_floor" | "below_floor" | "needs_confirmation" | "unknown";
   section: "salary_matches" | "estimated_matches" | "researched_leads" | "needs_research" | "below_floor";
-  salary_policy?: "confirmed_or_estimated" | "confirmed_only";
+  salary_policy?: "include_unstated" | "confirmed_or_estimated" | "confirmed_only";
   /** A market estimate for a posting that states no pay (backend/market/salary_estimates.py); never this vacancy's pay. */
   estimate?: { kind: "estimated"; currency: "EUR"; role_family: string; level: string; p25: number; median: number; p75: number; observations: number; employers: number; window_days: number; label: string } | null;
   permit: {

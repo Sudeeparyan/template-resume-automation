@@ -659,12 +659,14 @@ class Workspace(Tracking):
         """Title/location screen. Not an eligibility decision; the sponsorship gate owns that."""
         sys.path.insert(0, str(self.app_root))
         from backend.countries import market_for_location, pack_for
-        from backend.job_quality import SENIORITY_BLOCK, ProfileRules, years_required
+        from backend.job_quality import INTERNSHIP, SENIORITY_BLOCK, ProfileRules, years_required
         title = job["title"]
         issues = []
         rules = ProfileRules.of(self.root)
         if rules.block_seniority and SENIORITY_BLOCK.search(title):
             issues.append("Seniority in the title is outside this profile's configured target level.")
+        if rules.block_internships and INTERNSHIP.search(title) and not re.search(r"(?i)\bgraduate\b", title):
+            issues.append("An internship or student placement is outside this profile's target levels.")
         years = years_required(job.get("description", ""))
         cap = rules.max_years
         if years and cap and years > cap:

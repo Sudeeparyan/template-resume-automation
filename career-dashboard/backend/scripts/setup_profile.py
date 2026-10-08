@@ -134,7 +134,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--seniority", help="confirmed search levels, comma separated")
     parser.add_argument("--max-years-required", type=int)
     parser.add_argument("--salary-floor-eur", type=float)
-    parser.add_argument("--salary-policy", choices=("confirmed_only", "confirmed_or_estimated"))
+    parser.add_argument("--salary-policy", choices=("include_unstated", "confirmed_or_estimated", "confirmed_only"))
     parser.add_argument("--no-build", action="store_true", help="only create the profile and add the files")
     parser.add_argument("--wait-minutes", type=float, default=30, help="how long to wait for the build (default 30)")
     parser.add_argument("--profiles-dir", help=argparse.SUPPRESS)  # tests: a disposable profiles folder

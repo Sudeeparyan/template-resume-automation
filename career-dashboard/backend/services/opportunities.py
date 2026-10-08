@@ -59,7 +59,10 @@ def evaluate(job, profile=None):
         estimate = market_estimate(normalize.role_family(job.get("title") or ""), normalize.level(job.get("title") or "", text))
         if estimate and estimate["median"] >= floor and section == "needs_research":
             section = "estimated_matches"
+    from backend.permits.assessment import needs_permit
+
     result = {"salary": pay, "salary_state": state, "section": section, "floor": floor, "salary_policy": policy,
+              "needs_permit": needs_permit(profile or {}),
               "estimate": estimate, "sponsorship": statement, "permit": permit_assessment.assess(job, pay, profile or {}, statement),
               "valid_through": meta.get("valid_through") if current else None, "policy_version": salary.VERSION}
     from backend.permits import path_score
@@ -97,18 +100,30 @@ def preparation_issue(job):
             return (f"Comparable published pay for this role is below the EUR {info['floor']:,.0f} discovery floor; "
                     "the vacancy's own pay is unconfirmed.")
         return f"Advertised pay is below the EUR {info['floor']:,.0f} discovery floor."
+    policy = info.get("salary_policy")
     if info["section"] == "researched_leads":
         # Comparable pay from two independent dated sources (services/salary_research.py) is an estimate too.
-        if info.get("salary_policy") == "confirmed_or_estimated":
+        if policy in ESTIMATES_ALLOWED:
             return None  # prepared, with a note to confirm the actual pay (pay_note)
         return "Only researched comparable pay shows this role's pay; your settings prepare advertised pay only."
     if info["section"] == "estimated_matches":
-        if info.get("salary_policy") == "confirmed_or_estimated":
+        if policy in ESTIMATES_ALLOWED:
             return None  # prepared, with a note to confirm the actual pay (pay_note)
         return "Only a market estimate shows this role's pay; your settings prepare advertised pay only."
     if info["section"] != "salary_matches":
+        if policy == "include_unstated":
+            return None  # no pay stated (or a range that starts below the floor): prepared, flagged (pay_note)
         return f"The vacancy's annual pay is not confirmed at EUR {info['floor']:,.0f} or above."
     return None
+
+
+# Policies that prepare a job whose pay is only a labelled estimate or researched comparable pay.
+ESTIMATES_ALLOWED = ("include_unstated", "confirmed_or_estimated")
+
+
+def pay_known(job) -> bool:
+    """The posting's pay, a market estimate or researched comparable pay reaches the floor."""
+    return (job.get("opportunity") or {}).get("section") in {"salary_matches", "estimated_matches", "researched_leads"}
 
 
 def pay_note(job):
@@ -122,4 +137,12 @@ def pay_note(job):
     if info.get("section") == "researched_leads":
         return (f"The salary here is from comparable published pay, not this vacancy. Confirm with the recruiter that "
                 f"the base salary is at least EUR {info['floor']:,.0f} before you apply.")
+    if info.get("section") == "needs_research" and info.get("salary_policy") == "include_unstated" \
+            and info.get("needs_permit", True):  # unstated pay matters when a permit's salary threshold applies
+        pay = info.get("salary") or {}
+        if pay.get("kind") == "advertised" and pay.get("currency") == "EUR" and pay.get("annual_min"):
+            return (f"The advertised pay starts at EUR {pay['annual_min']:,.0f}, below your EUR {info['floor']:,.0f} floor. "
+                    f"Confirm with the recruiter that the base salary is at least EUR {info['floor']:,.0f} before you apply.")
+        return (f"This posting states no salary in euro. Confirm with the recruiter that the base salary is at least "
+                f"EUR {info['floor']:,.0f} before you apply.")
     return ""

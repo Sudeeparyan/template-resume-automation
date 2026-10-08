@@ -173,6 +173,7 @@ PERMIT_FORMS = {
     "job_search": [
         _spec("value.salary_floor_eur", "Yearly base salary floor (€)", NUMBER),
         _choice("value.salary_policy", "Pay a job must show", {
+            "include_unstated": "Advertised pay or an estimate at the floor; jobs that state no pay too, flagged for you to confirm the salary",
             "confirmed_or_estimated": "Advertised pay, or an estimate (market data or researched comparable pay) when none is advertised",
             "confirmed_only": "Advertised pay only"}),
         _spec("value.graduate_search_confirmed", "Search graduate and entry-level roles", BOOLEAN),

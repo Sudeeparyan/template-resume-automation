@@ -90,6 +90,34 @@ def test_no_estimate_keeps_the_job_in_needs_research(tmp_path):
     assert opportunities.preparation_issue({"opportunity": result}).startswith("The vacancy's annual pay is not confirmed")
 
 
+def test_by_default_a_job_that_states_no_pay_is_prepared_and_flagged(tmp_path):
+    result = opportunities.evaluate(irish_job(), {})
+    assert result["salary_policy"] == "include_unstated" and result["section"] == "needs_research"
+    job = {"opportunity": result}
+    assert opportunities.preparation_issue(job) is None
+    assert not opportunities.pay_known(job)  # listed after jobs whose pay is known
+    note = opportunities.pay_note(job)
+    assert "states no salary" in note and "at least EUR 36,605" in note
+
+
+def test_unstated_pay_is_not_a_warning_for_someone_who_needs_no_permit(tmp_path):
+    citizen = {"work_authorization_by_market": {"ie": {"status": "authorized", "citizenship": "citizen",
+                                                       "needs_sponsorship_later": "no"}}}
+    result = opportunities.evaluate(irish_job(), citizen)
+    assert result["needs_permit"] is False
+    assert opportunities.preparation_issue({"opportunity": result}) is None
+    assert opportunities.pay_note({"opportunity": result}) == ""
+
+
+def test_a_range_that_starts_below_the_floor_is_flagged_and_pay_below_it_is_never_prepared(tmp_path):
+    straddles = opportunities.evaluate(irish_job("Salary €32,000 - €40,000 per year. Analyse data in SQL."), {})
+    assert opportunities.preparation_issue({"opportunity": straddles}) is None
+    assert "starts at EUR 32,000, below your EUR 36,605 floor" in opportunities.pay_note({"opportunity": straddles})
+    below = opportunities.evaluate(irish_job("Salary €28,000 - €30,000 per year. Analyse data in SQL."), {})
+    assert below["section"] == "below_floor"
+    assert opportunities.preparation_issue({"opportunity": below}).startswith("Advertised pay is below")
+
+
 @pytest.mark.parametrize("words,state,points", [
     ("We offer visa sponsorship for this role.", "supports", 25),
     ("Applicants must have the right to work in Ireland. No visa sponsorship is available.", "refuses", 0),

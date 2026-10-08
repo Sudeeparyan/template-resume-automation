@@ -732,7 +732,9 @@ class ResumeStudio:
         edu = re.search(r'\\section\{Education\}[\s\S]*?(?=\\section\{|\\end\{document\})', source)
         if not edu:
             return source
-        headings = list(re.finditer(r'(?m)^% EVIDENCE: [^\n]+\n\\roleheading\{[^\n]*\n\n?', edu[0]))
+        # A degree's result line goes with its heading, never onto the degree above.
+        headings = list(re.finditer(r'(?m)^% EVIDENCE: [^\n]+\n\\roleheading\{[^\n]*\n'
+                                    r'(?:% EVIDENCE: [^\n]+\n\\textbf\{Result:\}[^\n]*\n)?\n?', edu[0]))
         if len(headings) < 2:
             return source
         last = headings[-1]
