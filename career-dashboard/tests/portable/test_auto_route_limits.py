@@ -54,5 +54,19 @@ def test_saved_route_and_paid_gate_are_honored(tmp_path, monkeypatch):
     with pytest.raises(router.RouteError, match="paid AI is switched off"):
         router.route(tmp_path, tier="strong", attempt=attempt, policy=policy,
                      ready_map=ready, paid_gate=paid_gate)
-    assert tried == ["codex", "claude_code"]
+    assert tried == ["codex", "claude_code", "antigravity"]
     assert gated == ["azure_openai"]
+
+
+def test_new_profiles_have_no_paid_fallback_and_existing_budgets_survive():
+    from backend.services.agent_cache import paid_limit
+
+    class Services:
+        def __init__(self, saved):
+            self.saved = saved
+
+        def pref(self, _key, _default):
+            return self.saved
+
+    assert paid_limit(Services({})) == 0
+    assert paid_limit(Services({"daily_call_limit": 6})) == 6

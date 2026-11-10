@@ -57,8 +57,9 @@ class StubEndpoint:
 
 def gateway_stub(tmp_path):
     calls = []
-    preferences = {"default": {"provider": "codex", "model": "sample"},
-                   "fallback": {"provider": "azure_openai", "model": "sample"}}
+    preferences = {"ai_preferences": {"default": {"provider": "codex", "model": "sample"},
+                                      "fallback": {"provider": "azure_openai", "model": "sample"}},
+                   "ai_policy": {"daily_call_limit": 2}}
 
     @contextmanager
     def connect():
@@ -74,7 +75,7 @@ def gateway_stub(tmp_path):
             state TEXT,created_at TEXT,error TEXT,provider TEXT,model TEXT,action TEXT,
             cache_version TEXT,input_tokens INTEGER,output_tokens INTEGER)""")
 
-    service = SimpleNamespace(pref=lambda key, default=None: preferences if key == "ai_preferences" else default,
+    service = SimpleNamespace(pref=lambda key, default=None: preferences.get(key, default),
                               today=lambda: "2026-01-01",
                               now=lambda: "2026-01-01T00:00:00+00:00",
                               w=SimpleNamespace(root=tmp_path, connect=connect, record_event=lambda *args, **kwargs: None))

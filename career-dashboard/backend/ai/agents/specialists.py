@@ -107,7 +107,7 @@ RESUME_TAILOR = Specialist(
         "an academic project as professional experience. If the request needs a fact that is not in "
         "the evidence, leave it out of `edits` and name it in `unsupported_requests` instead. Keep "
         "the candidate's voice and the spelling specified by the active market; "
-        "prefer the smallest change that answers the request, and keep concrete delivered "
+        "use direct natural language without keyword stuffing or generic superlatives; prefer the smallest change that answers the request, and keep concrete delivered "
         "numbers the existing wording already contains."
     ),
     profile_system=(
@@ -117,7 +117,7 @@ RESUME_TAILOR = Specialist(
         "an academic project as professional experience. If the request needs a fact that is not in "
         "the evidence, leave it out of `edits` and name it in `unsupported_requests` instead. Keep "
         "the candidate's voice and ${spelling}; "
-        "prefer the smallest change that answers the request, and keep concrete delivered "
+        "use direct natural language without keyword stuffing or generic superlatives; prefer the smallest change that answers the request, and keep concrete delivered "
         "numbers the existing wording already contains."
     ),
 )
@@ -243,7 +243,7 @@ JOB_TAILOR = Specialist(
         "Skills: keep every verified skill that is relevant to the role, which is "
         "usually most of them, and copy each name exactly as listed; do not leave a whole area (for "
         "example all the data tools) out. Put the reasoning for the selection and any honest gaps "
-        "in `rationale`, in one short paragraph.\n"
+        "in `rationale`, in one short paragraph. Use direct, natural wording; never repeat a term to game ATS ranking.\n"
         "The payload's `requirements` is the checked list of what this role asks for, each marked met, "
         "partial or missing with the evidence ids that show it. Choose the verified projects and skills "
         "that prove the 'required' items first. Order what you keep for maximum relevance to this posting: "

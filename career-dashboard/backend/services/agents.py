@@ -7,7 +7,7 @@ from urllib.parse import urlsplit
 from concurrent.futures import ThreadPoolExecutor
 
 from backend import features, telemetry
-from backend.services.demo import demo_mode
+from backend.services.demo import flexible_screening
 
 REPORT_SCHEMA = {
     "type": "object",
@@ -1374,9 +1374,9 @@ class AgentRunner:
                 quality = JobQualityService(self.s)
                 from backend.services import fit, portals, reapply, sponsorship
                 catalogue = fit.catalogue(self.s)
-                # Demo mode: the market, sponsorship, relevance, legitimacy and fit gates below
+                # Practice/review mode: the market, sponsorship, relevance, legitimacy and fit gates below
                 # advise instead of dropping the posting; never-re-apply and duplicates still rule.
-                demo = demo_mode(self.s)
+                demo = flexible_screening(self.s)
                 added = []
                 duplicates = []
                 # "excluded" lists only what the sponsorship gate below cut, with its sentence. A
@@ -1403,7 +1403,7 @@ class AgentRunner:
                                      url=str(job.get("url") or ""), **detail)
 
                 def demo_keep(job, note):
-                    """Demo mode: keep the posting and record which gate would have turned it away."""
+                    """Practice/review mode: keep the posting and record which gate would have turned it away."""
                     job["demo_notes"] = [*(job.get("demo_notes") or []), "demo: " + note]
                     checked(job, "kept", "demo", note)
 
@@ -1822,8 +1822,8 @@ class AgentRunner:
         focus = focus or {}
         if not unique or not limit:
             return []
-        # Demo mode: a missing free AI plan or a below-bar fit advises instead of turning the posting away.
-        demo = demo_mode(self.s)
+        # Practice/review mode: a missing free AI plan or a below-bar fit advises instead of turning the posting away.
+        demo = flexible_screening(self.s)
         quality = JobQualityService(self.s)
         ranked = sorted(unique, key=lambda job: job["relevance"]["score"], reverse=True)
         # A balanced mix picks by company size, so it needs every candidate the search returned.

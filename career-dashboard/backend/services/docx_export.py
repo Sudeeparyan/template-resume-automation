@@ -256,6 +256,20 @@ def _left_right(document, left: str, right: str, *, bold=False, italic=False):
     return paragraph
 
 
+def _finished_bytes(document: Document) -> bytes:
+    from backend.ai_marks import clean_docx, docx_leftovers
+
+    buffer = io.BytesIO()
+    document.save(buffer)
+    title = document.core_properties.title or "CV"
+    author = document.core_properties.author or ""
+    cleaned, _actions = clean_docx(buffer.getvalue(), title=title, author=author)
+    leftovers = docx_leftovers(cleaned, title=title, author=author)
+    if leftovers:
+        raise ValueError("The Word export still contains hidden content or tool metadata: " + ", ".join(leftovers[:8]))
+    return cleaned
+
+
 def cv_document(source: str, *, title: str = "CV") -> bytes:
     """The .docx bytes of one resume draft (its LaTeX source)."""
     document = _base_document()
@@ -293,9 +307,7 @@ def cv_document(source: str, *, title: str = "CV") -> bytes:
             document.add_paragraph(block["text"], style="List Bullet")
         else:
             document.add_paragraph(block["text"])
-    buffer = io.BytesIO()
-    document.save(buffer)
-    return buffer.getvalue()
+    return _finished_bytes(document)
 
 
 def letter_document(text: str, *, title: str = "Cover letter", author: str = "") -> bytes:
@@ -314,9 +326,7 @@ def letter_document(text: str, *, title: str = "Cover letter", author: str = "")
             if number:
                 current.add_run().add_break()
             current.add_run(line)
-    buffer = io.BytesIO()
-    document.save(buffer)
-    return buffer.getvalue()
+    return _finished_bytes(document)
 
 
 def document_text(data: bytes) -> str:

@@ -172,3 +172,70 @@ def test_the_studio_downloads_a_word_copy_of_the_current_compiled_revision_only(
     monkeypatch.setenv("CAREER_FEATURES", "-docx_export")
     with pytest.raises(ValueError, match="switched off"):
         studio.download(job["id"], "docx")
+
+
+def test_word_exports_keep_only_candidate_title_and_author():
+    from backend.ai_marks import docx_leftovers
+
+    data = docx_export.letter_document("Dear Hiring Team,\n\nPractice text.", title="Cover letter", author="Example Person")
+    assert docx_leftovers(data, title="Cover letter", author="Example Person") == []
+    document = Document(io.BytesIO(data))
+    assert document.core_properties.title == "Cover letter"
+    assert document.core_properties.author == "Example Person"
+    assert not document.core_properties.last_modified_by
+    assert not document.core_properties.keywords
+
+
+def test_docx_cleanup_drops_hidden_revision_comment_and_custom_metadata_parts():
+    import zipfile
+    import xml.etree.ElementTree as ET
+    from backend.ai_marks import clean_docx, docx_leftovers
+
+    original = docx_export.letter_document("Visible practice wording.", title="CV", author="Example Person")
+    w = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
+    rel = "{http://schemas.openxmlformats.org/package/2006/relationships}"
+    source = io.BytesIO()
+    with zipfile.ZipFile(io.BytesIO(original)) as old, zipfile.ZipFile(source, "w") as new:
+        for info in old.infolist():
+            data = old.read(info.filename)
+            if info.filename == "word/document.xml":
+                root = ET.fromstring(data)
+                body = root.find(w + "body")
+                hidden = ET.fromstring(
+                    f"<w:p xmlns:w='{w[1:-1]}'><w:r><w:rPr><w:vanish/></w:rPr><w:t>Hidden claim\u200b</w:t></w:r></w:p>"
+                )
+                body.insert(0, hidden)
+                inserted = ET.fromstring(
+                    f"<w:p xmlns:w='{w[1:-1]}'><w:ins><w:r><w:t>Inserted visible wording.</w:t></w:r></w:ins></w:p>"
+                )
+                deleted = ET.fromstring(
+                    f"<w:p xmlns:w='{w[1:-1]}'><w:del><w:r><w:delText>Deleted wording.</w:delText></w:r></w:del></w:p>"
+                )
+                body.insert(1, inserted)
+                body.insert(2, deleted)
+                data = ET.tostring(root, encoding="utf-8", xml_declaration=True)
+            elif info.filename == "word/_rels/document.xml.rels":
+                root = ET.fromstring(data)
+                ET.SubElement(root, rel + "Relationship", {"Id": "practiceComments", "Type": "comments", "Target": "comments.xml"})
+                data = ET.tostring(root, encoding="utf-8", xml_declaration=True)
+            elif info.filename == "docProps/app.xml":
+                root = ET.fromstring(data)
+                ET.SubElement(root, "Generator").text = "Practice Generator"
+                data = ET.tostring(root, encoding="utf-8", xml_declaration=True)
+            new.writestr(info, data)
+        new.writestr("word/comments.xml", "<comments/>")
+        new.writestr("customXml/item1.xml", "<practice/>")
+        new.writestr("docProps/custom.xml", "<properties/>")
+
+    cleaned, actions = clean_docx(source.getvalue(), title="CV", author="Example Person")
+    assert "drop customXml/item1.xml" in actions
+    assert docx_leftovers(cleaned, title="CV", author="Example Person") == []
+    text = docx_export.document_text(cleaned)
+    assert "Visible practice wording." in text
+    assert "Inserted visible wording." in text
+    assert "Hidden claim" not in text and "Deleted wording." not in text
+    with zipfile.ZipFile(io.BytesIO(cleaned)) as archive:
+        assert "word/comments.xml" not in archive.namelist()
+        assert "customXml/item1.xml" not in archive.namelist()
+        relationships = archive.read("word/_rels/document.xml.rels")
+        assert b"practiceComments" not in relationships

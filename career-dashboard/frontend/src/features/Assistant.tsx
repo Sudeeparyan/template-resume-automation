@@ -610,8 +610,8 @@ export default function Assistant({ data, refresh, notify, onJob, asked, onAsked
       adopt(next);
       notify(
         enabled
-          ? "Auto-apply on: changes run without asking first. Each one is still listed in the chat, marked auto-applied."
-          : "Auto-apply off: every change asks for your yes first.",
+          ? "Automatic local edits on: resume, profile and planning changes run with a diff and audit entry. Applications, removals and mail decisions still ask."
+          : "Automatic local edits off: local changes ask for your yes first; protected actions always ask.",
       );
     } catch (e) {
       notify((e as Error).message, true);
@@ -1293,8 +1293,8 @@ export function MoreMenu({
           <label className="chat-menu-toggle" role="menuitemcheckbox" aria-checked={autoApply}>
             <input type="checkbox" checked={autoApply} onChange={(e) => onAutoApply(e.target.checked)} />
             <span>
-              <b>Auto-apply changes</b>
-              <small>In this chat, changes like marking a job applied run without asking first. Each one is still listed.</small>
+              <b>Apply local edits automatically</b>
+              <small>Reversible resume, profile and planning edits run without asking. Applications, removals and mail decisions always need your yes.</small>
             </span>
           </label>
         </div>

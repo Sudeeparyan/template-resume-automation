@@ -22,8 +22,9 @@ career update <job-id> --status applied --application-date <YYYY-MM-DD> --profil
 career update <job-id> --status interview|offer|rejected|withdrawn --profile <profile-id> [--notes "<their words>"]
 ```
 
-`applied` needs the date they applied; ask for it when they did not say ("today" is fine). To
-remove a job they do not want, use the dashboard (Dashboard → remove, and choose why: not this
+`applied` needs the date they applied; ask for it when they did not say ("today" is fine). The
+application package's **Mark as applied** uses a separate confirmation click and records that date;
+preparing a resume never counts as applying. To remove a job they do not want, use the dashboard (Dashboard → remove, and choose why: not this
 company, needs a permit, wrong kind of role, too senior) so the next searches learn from it.
 
 **AI-only mode.** Update `my-jobs/tracker.csv` (header in `my-jobs/README.md`): set `status`,

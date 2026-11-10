@@ -1198,8 +1198,10 @@ class Toolbox:
         if not row:
             raise ValueError("No such profile proposal")
         applied = self.chats.profile_apply(change_set_id, row["request_id"], row["source_revision"])
-        return {"summary": f"{len(applied['evidence_ids'])} entr(ies) changed; new entries wait for the candidate's review",
-                "entry_ids": applied["evidence_ids"], "profile_has_unreviewed_edits": self.s.profile_dirty()}
+        synced = (applied.get("reconciled") or {}).get("synced") or {}
+        return {"summary": f"{len(applied['evidence_ids'])} entr(ies) confirmed and synchronized; affected drafts were updated",
+                "entry_ids": applied["evidence_ids"], "profile_has_unreviewed_edits": self.s.profile_dirty(),
+                "updated_drafts": synced.get("drafts") or []}
 
     def reconcile_profile(self, ids=None) -> dict:
         result = self.s.reconcile_knowledge(ids or None)

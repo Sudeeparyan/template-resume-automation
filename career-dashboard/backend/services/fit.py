@@ -378,6 +378,12 @@ def fit_team(services):
     from backend.ai.persona import persona_for
 
     root = services.w.root
+    from backend.services.demo import synthetic_demo
+
+    if synthetic_demo(root):
+        from backend.ai.demo import DemoTeam
+
+        return DemoTeam(services)
     options = route_options(services, "fit_check")
     policy = router.free_only(options.get("policy"))
     ready = ready_providers(root)

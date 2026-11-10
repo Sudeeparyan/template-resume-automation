@@ -5,3 +5,6 @@
 *.sh text eol=lf
 # The macOS/Linux CLI wrapper has no extension; it must keep Unix line endings to run.
 career text eol=lf
+# Public data CSVs are checked against a SHA-256 of their exact bytes (meta.yml), so a Windows
+# checkout must not convert them to CRLF.
+*.csv text eol=lf

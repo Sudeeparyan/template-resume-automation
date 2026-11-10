@@ -58,7 +58,7 @@ def test_intake_honors_saved_route_and_logs_a_free_plan_switch(tmp_path, monkeyp
 def test_fresh_intake_can_use_a_paid_only_provider_with_its_own_budget(tmp_path, monkeypatch):
     team, job = intake_team(tmp_path, monkeypatch,
                             ready={"codex": False, "kimi_cli": False, "claude_code": False,
-                                   "azure_openai": True})
+                                   "azure_openai": True}, saved={"ai_policy": {"daily_call_limit": 1}})
     calls = []
     monkeypatch.setattr(team, "_repairing", lambda _a, _t, provider, _m, _n: calls.append(provider) or provider)
     assert team.run("profile_extractor", "disposable input") == "azure_openai"

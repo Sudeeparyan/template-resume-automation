@@ -68,3 +68,95 @@ def test_posting_input_retains_structured_salary_and_closing_date():
         raw_salary=structured, valid_through="2026-10-31")
     assert posting.model_dump()["raw_salary"] == structured
     assert posting.model_dump()["valid_through"] == "2026-10-31"
+
+
+def test_url_only_import_and_saved_job_preparation_use_shared_services(tmp_path, monkeypatch):
+    from backend.services import lead_resolver
+    from backend.services.pipeline import Pipeline
+
+    store = ProfileStore(base=tmp_path / "profiles", legacy_root=tmp_path / "no-legacy")
+    pid, root = make_profile(store, "Example Person")
+    dist = tmp_path / "dist"
+    dist.mkdir()
+    (dist / "index.html").write_text("<html>test</html>", encoding="utf-8")
+    url = "https://careers.example.org/jobs/data-1"
+    monkeypatch.setattr(lead_resolver, "resolve", lambda value: {
+        "status": "read", "url": value, "method": "structured_data",
+        "posting": {"company": "Example Employer", "title": "Data Analyst", "location": "Dublin, Ireland",
+                    "description": "Use SQL and Python to analyse data and maintain reports. " * 4},
+    })
+    with TestClient(create_shell(store, frontend=dist), base_url="http://127.0.0.1") as client:
+        response = client.post(f"/p/{pid}/api/v2/jobs/import", json={"url": url})
+        assert response.status_code == 200, response.text
+        result = response.json()
+        assert result["status"] == "saved" and result["job"]["url"] == url
+        assert result["job"]["company"] == "Example Employer"
+        job_id = result["job"]["id"]
+
+        called = {}
+        def prepare(self, value, config):
+            called.update(job_id=value, config=config)
+            return {"id": "practice-run", "state": "queued"}
+        monkeypatch.setattr(Pipeline, "prepare_existing", prepare)
+        response = client.post(f"/p/{pid}/api/v2/jobs/{job_id}/prepare-application", json={
+            "count": 1, "source": "default", "steps": {"cover_letter": True},
+        })
+        assert response.status_code == 202, response.text
+        assert response.json()["id"] == "practice-run"
+        assert called["job_id"] == job_id
+        assert called["config"]["count"] == 1
+        assert called["config"]["steps"]["cover_letter"] is True
+
+
+def test_url_import_asks_for_details_without_guessing(tmp_path, monkeypatch):
+    from backend.services import lead_resolver
+
+    store = ProfileStore(base=tmp_path / "profiles", legacy_root=tmp_path / "no-legacy")
+    pid, _root = make_profile(store, "Example Person")
+    dist = tmp_path / "dist"
+    dist.mkdir()
+    (dist / "index.html").write_text("<html>test</html>", encoding="utf-8")
+    monkeypatch.setattr(lead_resolver, "resolve", lambda value: {
+        "status": "needs_employer_link", "url": value, "reason": "Paste the full posting text.",
+    })
+    with TestClient(create_shell(store, frontend=dist), base_url="http://127.0.0.1") as client:
+        response = client.post(f"/p/{pid}/api/v2/jobs/import", json={"url": "https://example.org/jobs/unknown"})
+        assert response.status_code == 200
+        assert response.json()["status"] == "needs_employer_link"
+        assert Workspace(store.root_for(pid)).jobs() == []
+
+
+def test_application_funnel_uses_recorded_dates_and_next_actions(tmp_path):
+    from datetime import date, timedelta
+    from backend.services.workspace_v2 import CareerServices
+
+    store = ProfileStore(base=tmp_path / "profiles", legacy_root=tmp_path / "no-legacy")
+    _pid, root = make_profile(store, "Example Person")
+    workspace = Workspace(root)
+    today = date.today().isoformat()
+    recent = workspace.add_job("Recent Example", "Data Analyst", "Dublin, Ireland",
+        "https://example.org/jobs/recent", "Use SQL and Python to analyse data and write reports. " * 4)
+    old = workspace.add_job("Earlier Example", "Data Analyst", "Dublin, Ireland",
+        "https://example.org/jobs/earlier", "Use SQL and Python to analyse data and write reports. " * 4)
+    workspace.update_job(recent["id"], "applied", application_date=today)
+    with workspace.connect() as db:
+        db.execute("UPDATE jobs SET created_at=?,updated_at=? WHERE id=?",
+                   ((date.today() - timedelta(days=60)).isoformat(),
+                    (date.today() - timedelta(days=60)).isoformat(), old["id"]))
+    summary = CareerServices(workspace).summary()
+    assert summary["funnel"]["periods"]["30"]["saved"] == 1
+    assert summary["funnel"]["periods"]["90"]["saved"] == 2
+    assert summary["funnel"]["periods"]["all"] == {"saved": 2, "applied": 1, "interviews": 0, "offers": 0}
+    assert summary["funnel"]["next_actions"][0]["job_id"] == old["id"]
+
+
+def test_loopback_practice_urls_keep_scheme_and_port_and_demo_is_not_paid():
+    from backend.ai.router import is_paid
+    from backend.services.postings import canonical_url
+
+    assert canonical_url("http://127.0.0.1:8010/demo/postings/software") == "http://127.0.0.1:8010/demo/postings/software"
+    assert canonical_url("http://localhost:8010/demo/postings/analytics") == "http://localhost:8010/demo/postings/analytics"
+    assert canonical_url("http://[::1]:8010/demo/postings/software") == "http://[::1]:8010/demo/postings/software"
+    assert canonical_url("http://example.org:8080/jobs/1") == "https://example.org:8080/jobs/1"
+    assert canonical_url("https://example.org/jobs/1") == "https://example.org/jobs/1"
+    assert is_paid("demo") is False

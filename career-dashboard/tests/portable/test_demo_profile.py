@@ -128,3 +128,101 @@ def test_demo_open_guard_requires_well_formed_markers_and_profile_mapping(
     (root / MARKER).write_text(json.dumps(marker), encoding="utf-8")
     with pytest.raises(ValueError, match="marked synthetic"):
         require_synthetic_demo(root)
+
+
+def test_guided_demo_seeds_two_isolated_personas_and_reuses_their_work(tmp_path, monkeypatch):
+    from make_demo_profile import seed_demo
+    from backend.profiles import ProfileStore
+    from career import Workspace
+
+    real = tmp_path / "real-profiles"
+    real.mkdir()
+    real_registry = real / "registry.json"
+    real_registry.write_text('{"profiles": [],"last_used": ""}', encoding="utf-8")
+    monkeypatch.setattr("backend.paths.PROFILES", real)
+    before = real_registry.read_bytes()
+    base = tmp_path / "demo" / "profiles"
+
+    first = seed_demo(base, as_of=date(2026, 10, 3))
+    assert first["created"] is True
+    assert first["profiles"] == ["example-graduate", "example-analyst"]
+    store = ProfileStore(base=base, legacy_root=tmp_path / "no-legacy")
+    counts = []
+    for profile in store.list():
+        assert profile["synthetic_demo"] is True
+        require_synthetic_demo(store.root_for(profile["id"]))
+        workspace = Workspace(store.root_for(profile["id"]))
+        counts.append(len(workspace.jobs()))
+        assert (store.root_for(profile["id"]) / "data/career.db").is_file()
+    assert counts == [1, 1]
+
+    second = seed_demo(base, as_of=date(2026, 10, 4))
+    assert second["created"] is False
+    assert [len(Workspace(store.root_for(p["id"])).jobs()) for p in store.list()] == counts
+    assert real_registry.read_bytes() == before
+
+
+def test_practice_provider_is_limited_to_marked_demo_and_never_submits(tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+    from make_demo_profile import seed_demo
+    from backend.ai.demo import DemoProvider
+    from backend.dashboard.shell import create_shell
+    from backend.profiles import ProfileStore
+
+    base = tmp_path / "demo"
+    seed_demo(base, as_of=date(2026, 10, 3))
+    assert DemoProvider(base / "example-graduate").configured is True
+    assert DemoProvider(tmp_path / "unmarked").configured is False
+    store = ProfileStore(base=base, legacy_root=tmp_path / "no-legacy")
+    with TestClient(create_shell(store, demo=True, frontend=tmp_path / "no-page"), base_url="http://127.0.0.1") as client:
+        assert client.get("/api/health").json()["mode"] == "demo"
+        page = client.get("/demo/postings/software")
+        assert page.status_code == 200
+        assert "fictional employer" in page.text
+        assert "Nothing can be submitted" in page.text
+        assert client.post("/demo/postings/software").status_code == 405
+        assert client.get("/demo/postings/not-a-posting").status_code == 404
+
+        from backend.services import job_sources, lead_resolver
+        from backend.services.agents import verify_discovery_source
+        from backend.services.demo import practice_posting
+
+        published = job_sources.jsonld_posting(page.text)
+        assert published["title"] == "Graduate Software Engineer"
+        assert published["company"] == "Example Software Studio"
+        assert published["location"] == "Dublin, Ireland"
+        assert published["description"] == practice_posting("software")["description"]
+
+        class LocalFetcher:
+            def page(self, url):
+                return page.text, url, None
+
+        resolved = lead_resolver.resolve(practice_posting("software")["url"], fetcher=LocalFetcher())
+        assert resolved["status"] == "read"
+        assert resolved["posting"]["description"] == published["description"]
+        monkeypatch.setattr(job_sources, "read_posting", lambda _url: {
+            **published, "method": "structured_data", "url": practice_posting("software")["url"],
+        })
+        lead = practice_posting("software").copy()
+        assert verify_discovery_source(lead) == ""
+        assert lead["verified_by"] == "structured_data"
+
+
+def test_demo_seed_repairs_legacy_loopback_urls_without_duplicating(tmp_path):
+    from make_demo_profile import seed_demo
+    from backend.profiles import ProfileStore
+    from career import Workspace
+
+    base = tmp_path / "demo"
+    seed_demo(base, as_of=date(2026, 10, 3))
+    store = ProfileStore(base=base, legacy_root=tmp_path / "no-legacy")
+    root = store.root_for("example-graduate")
+    workspace = Workspace(root)
+    job = workspace.jobs()[0]
+    with workspace.connect() as db:
+        db.execute("UPDATE jobs SET url=? WHERE id=?", ("https://127.0.0.1/demo/postings/software", job["id"]))
+    seed_demo(base, as_of=date(2026, 10, 4))
+    jobs = Workspace(root).jobs()
+    assert len(jobs) == 1
+    assert jobs[0]["url"] == "http://127.0.0.1:8010/demo/postings/software"
+    assert jobs[0]["id"] == job["id"]

@@ -52,6 +52,7 @@ export type ProfileEntry = {
   state: "onboarding" | "ready";
   locked: boolean;
   legacy?: boolean;
+  synthetic_demo?: boolean;
   initials: string;
   created_at?: string;
   market: Market | null;

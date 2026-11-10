@@ -19,6 +19,8 @@ AI app opened in this folder. Commands use the selected profile's private databa
   career trace list|show <run>   trace_cli.py: agent run timelines (steps, AI calls, web requests)
   career market status|refresh   market_cli.py: the Tracker's shared store of public postings; refresh reads
                                  the public sources for this computer's profiles (no AI)
+  career mcp --profile <id> [--host antigravity|claude|codex] [--serve]
+                                 print an AI-host connector config, or run the optional local stdio server
   career add --url <link>        career.py: resolve a pasted link to the employer's own posting, then save it
                                  through the gates (or --file posting.json)
   career <anything else>         career.py: status, jobs, activity, projects, update, prepare, export, ...
@@ -46,6 +48,7 @@ TARGETS = {
     "check": SCRIPTS / "validate_workspace.py",
     "trace": SCRIPTS / "trace_cli.py",
     "market": SCRIPTS / "market_cli.py",
+    "mcp": SCRIPTS / "mcp_server.py",
 }
 DEFAULT = SCRIPTS / "career.py"
 

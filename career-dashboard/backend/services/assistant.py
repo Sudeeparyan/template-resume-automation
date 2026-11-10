@@ -105,6 +105,7 @@ CARD_ROW_FIELDS = ("job_id", "company", "title", "tier", "revision", "pdf", "cov
 # A conversation is named after its first message, cut to this many characters.
 TITLE_CHARS = 60
 STOPPED_REPLY = "Stopped. Anything a finished step already saved stays; nothing after it was changed."
+ALWAYS_CONFIRM_TOOLS = {"update_job", "remove_job", "resolve_mail"}
 
 
 class Stopped(Exception):
@@ -324,10 +325,10 @@ class Assistant:
         return self.get(id)
 
     def auto_apply(self, enabled: bool | None = None) -> bool:
-        """Per-conversation: may confirmation-gated tools run without the yes/no pause?
+        """Per-conversation permission for reversible local edits only.
 
-        Default is off. The flag lives with the conversation so an old thread
-        never inherits a blanket permission given in a new one.
+        Application status, job removal and mail decisions always pause. The flag
+        never carries into a new conversation.
         """
         with self.w.connect() as db:
             cid = self.conversation_id(db)
@@ -1195,7 +1196,8 @@ class Assistant:
                 self._finish_step(id, "failed", str(error)[:200])
                 transcript.append({"role": "tool", "tool": turn.tool, "error": str(error)[:400]})
                 continue
-            if tool.confirm and not self.auto_apply():
+            always_confirm = tool.name in ALWAYS_CONFIRM_TOOLS
+            if tool.confirm and (always_confirm or not self.auto_apply()):
                 diff = self.tools.diff(tool.name, arguments)
                 self._finish_step(id, "done", thought)
                 self.s.set_pref("assistant_pending", {"kind": "confirm_tool", "tool": tool.name, "arguments": arguments,
@@ -1206,9 +1208,8 @@ class Assistant:
                                                  "diff": diff, "trace": self._trace(transcript), "suggestions": ["yes", "no"]}
             self._relabel_step(id, tool.label, thought, agent=tool.agent)
             entry = self._run_tool(id, tool, arguments)
-            if tool.confirm:
-                # Auto-apply is on for this conversation: the gated tool ran without
-                # the pause. The trace and the event log still record exactly what ran.
+            if tool.confirm and not always_confirm:
+                # Automatic local edits are still listed and recorded; protected actions never reach this branch.
                 entry["auto_applied"] = True
                 entry["diff"] = self.tools.diff(tool.name, arguments)
                 with self.w.connect() as db:

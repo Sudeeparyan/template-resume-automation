@@ -877,8 +877,9 @@ class CareerServices:
         """
         from backend.countries import market_for_location
         from backend.services import reapply, sponsorship
+        from backend.services.demo import flexible_screening
         title = values.get("title", values.get("role", ""))
-        demo = demo_mode(self)
+        demo = flexible_screening(self)
         market = market_for_location(self.w.root, values.get("location", ""), values.get("market"), require_match=not demo)
         verdict = verdict or self.gate(
             values["company"], values.get("description", ""), values.get("url", ""), values.get("location", ""),
@@ -1613,6 +1614,59 @@ class CareerServices:
             for r in rows
         ]
 
+    def funnel(self):
+        """Application activity over common windows, using saved jobs and recorded transitions."""
+        from datetime import date, timedelta
+
+        jobs = self.w.jobs()
+        activity = self.w.activity(limit=-1)
+        with self.w.connect() as db:
+            confirmed = {row[0] for row in db.execute(
+                'SELECT job_id FROM application_evidence UNION SELECT job_id FROM mail_evidence WHERE state="confirmed"'
+            )}
+
+        def on_or_after(value, cutoff):
+            return bool(value) and str(value)[:10] >= cutoff
+
+        def stage_events(job_id, statuses):
+            return [event for event in activity if event.get("job_id") == job_id
+                    and str(((event.get("details") or {}).get("after") or {}).get("status") or "") in statuses]
+
+        def current(job, statuses):
+            return job.get("status") in statuses
+
+        def result(days=None):
+            cutoff = (date.today() - timedelta(days=days)).isoformat() if days else ""
+
+            def included(job, field, statuses=()):
+                if not cutoff:
+                    return bool(job.get(field)) or current(job, statuses)
+                return on_or_after(job.get(field), cutoff) or (
+                    current(job, statuses) and on_or_after(job.get("updated_at"), cutoff)
+                ) or any(on_or_after(event.get("occurred_at"), cutoff) for event in stage_events(job["id"], statuses))
+
+            return {
+                "saved": sum(included(job, "created_at") for job in jobs),
+                "applied": sum(included(job, "application_date", ("applied", "interview", "offer"))
+                               or (not cutoff and job["id"] in confirmed) for job in jobs),
+                "interviews": sum(included(job, None, ("interview", "offer"))
+                                  or bool(stage_events(job["id"], ("interview",))) and
+                                  (not cutoff or any(on_or_after(event.get("occurred_at"), cutoff)
+                                                     for event in stage_events(job["id"], ("interview",)))) for job in jobs),
+                "offers": sum(included(job, None, ("offer",)) for job in jobs),
+            }
+
+        next_actions = []
+        for job in sorted(jobs, key=lambda item: -(item.get("fit_score") or 0)):
+            if job.get("status") == "interview":
+                text = "Review the study plan and prepare for the interview"
+            elif job.get("status") in {"saved", "prepared"}:
+                text = "Review the application package" if job.get("folder") else "Prepare the application"
+            else:
+                continue
+            next_actions.append({"job_id": job["id"], "company": job["company"], "title": job["title"], "text": text})
+        return {"periods": {"30": result(30), "90": result(90), "all": result()}, "next_actions": next_actions[:4]}
+
     def summary(self):
         jobs = self.w.jobs()
         with self.w.connect() as db:
@@ -1651,6 +1705,7 @@ class CareerServices:
                 "excluded": len(self.excluded()),
                 "ghosted": sum(j["status"] == "ghosted" for j in jobs),
             },
+            "funnel": self.funnel(),
             "activity": self.w.activity(15),
             "notices": self.notices(),
             "needs_you": self.needs_you(),

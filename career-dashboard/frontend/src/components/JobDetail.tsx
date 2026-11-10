@@ -5,6 +5,7 @@ import { AskAssistant, Badge, Field, Modal, ReportView, Running } from "./UI";
 import { statuses, statusLabel, TierBadge, FitBadge } from "./JobList";
 import type { Summary, Job } from "../types";
 import { SalaryEvidence } from "./SalaryEvidence";
+import ApplicationPackage from "./ApplicationPackage";
 export default function JobDetail({
   job,
   data,
@@ -212,6 +213,7 @@ export default function JobDetail({
         {job.record_source === "gmail" && <p className="small muted">Add the job posting before researching its salary.</p>}
         {salaryRun && <Running run={salaryRun} />}
       </div>}
+      <ApplicationPackage job={job} data={data} refresh={refresh} notify={notify} />
       <div className="segmented detail-tabs">
         {[
           ["progress", "Progress"],

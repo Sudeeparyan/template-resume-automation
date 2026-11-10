@@ -18,7 +18,8 @@ exact failure.
 6. **Clean file.** No hidden characters (zero-width spaces, direction marks, non-breaking
    look-alikes) in the text. Document properties: title "<Name> CV" or "<Name> Resume", author the
    person's name, nothing else (no generator, description or keywords left by a tool). The app
-   does this itself for its PDFs (`career-dashboard/backend/ai_marks.py`).
+   does this itself for its PDFs and DOCX files (`career-dashboard/backend/ai_marks.py`). Word exports
+   are also checked for hidden runs, comments, tracked-change residue and custom/generator metadata.
 
 In App mode the app runs the full validator on its PDFs. For a LaTeX resume you may also run
 `career check-resume <folder>/resume.tex --compile --output <folder>/resume.pdf --render-dir

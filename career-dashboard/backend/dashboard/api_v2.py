@@ -69,6 +69,10 @@ class PostingInput(BaseModel):
     valid_through: Optional[str] = Field(default=None, max_length=100)
 
 
+class PostingLinkInput(BaseModel):
+    url: str = Field(min_length=8, max_length=2500)
+
+
 class MailResolution(BaseModel):
     job_id: Optional[str] = None
     action: str = "confirm"
@@ -124,6 +128,7 @@ class TierChoice(BaseModel):
 class AISettingsInput(BaseModel):
     tiers: dict[str, TierChoice] = Field(default_factory=dict)
     demo_mode: Optional[bool] = None
+    screening_mode: Optional[str] = None
 
 
 class ChatPreviewInput(BaseModel):
@@ -385,6 +390,29 @@ def attach(app, workspace, schedule: bool = False):
                            (result["job"]["id"],))
         relevance = {k: v for k, v in relevance.items() if k != "fit"}
         return {**result, "relevance": relevance}
+
+    @router.post("/jobs/import")
+    def import_posting(data: PostingLinkInput):
+        """Read a posting link, then save it through the same checks as the full form."""
+        from backend.countries import pack_for
+        from backend.services import lead_resolver
+
+        resolved = lead_resolver.resolve(data.url)
+        if resolved.get("status") != "read":
+            return resolved
+        posting = lead_resolver.to_posting(
+            resolved, location=pack_for(workspace.root).text("default_location")
+        )
+        missing = [key for key in ("company", "title", "location", "description") if not str(posting.get(key) or "").strip()]
+        if missing:
+            return {**resolved, "status": "needs_details", "missing": missing}
+        result = add_posting(PostingInput.model_validate(posting))
+        return {"status": "saved", "method": resolved.get("method"), **result}
+
+    @router.post("/jobs/{job_id}/prepare-application", status_code=202)
+    def prepare_application(job_id: str, data: PipelineInput):
+        """Prepare a saved job without running discovery or changing the daily target."""
+        return pipeline.prepare_existing(job_id, data.model_dump())
 
     @router.get("/jobs/{job_id}/fit")
     def job_fit(job_id: str):
@@ -734,11 +762,18 @@ def attach(app, workspace, schedule: bool = False):
             with service.w.connect() as db:
                 service.w.record_event(db, "demo_mode_updated", enabled=bool(data.demo_mode))
             service.export_state()
+        if data.screening_mode is not None:
+            if data.screening_mode not in {"careful", "review"}:
+                raise ValueError("Choose careful screening or show borderline matches")
+            service.set_pref("screening_mode", data.screening_mode)
+            with service.w.connect() as db:
+                service.w.record_event(db, "screening_mode_updated", mode=data.screening_mode)
+            service.export_state()
         if data.tiers:
             return ai_settings.save(service, {
                 "tiers": {tier: choice.model_dump() for tier, choice in data.tiers.items()}
             })
-        return {"demo_mode": demo_mode(service)}
+        return {"demo_mode": demo_mode(service), "screening_mode": service.pref("screening_mode", "careful")}
 
     @router.post("/ai/settings/test")
     def test_ai_settings(data: AITestInput):

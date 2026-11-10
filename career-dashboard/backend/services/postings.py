@@ -41,7 +41,11 @@ def canonical_url(value):
         for k, v in parse_qsl(p.query, keep_blank_values=True)
         if not k.lower().startswith("utm_") and k.lower() not in TRACKING
     )
-    return urlunsplit(("https", host, path, urlencode(query), ""))
+    loopback = host in {"127.0.0.1", "localhost", "::1"}
+    scheme = p.scheme if loopback else "https"
+    host_for_url = f"[{host}]" if ":" in host else host
+    netloc = host_for_url + (f":{p.port}" if p.port and (loopback or p.port not in {80, 443}) else "")
+    return urlunsplit((scheme, netloc, path, urlencode(query), ""))
 
 
 def posting_key(url, company="", requisition=""):

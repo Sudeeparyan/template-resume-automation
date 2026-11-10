@@ -21,3 +21,8 @@ Email receipt is not a submission date. Ask for confirmation before sending
 applications or outreach. The FastAPI server binds to loopback and file routes
 stay within the profile. Run `python -m pytest -q` and
 `python backend/scripts/validate_workspace.py` from this folder when code changes.
+
+The synthetic tour starts with `Start Demo` at the repository root and uses only
+`data/demo/profiles`. Its local provider and fictional postings never prove a real job, AI call,
+or application. The optional MCP connector starts with `career mcp --profile <id> --serve` after
+installing `backend/requirements-mcp.txt`; it exposes no send, delete, outreach, or submission tool.

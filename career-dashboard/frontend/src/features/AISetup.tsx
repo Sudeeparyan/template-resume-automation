@@ -5,7 +5,7 @@ import { safeUrl, shellApi } from "../api";
 /** backend/ai/settings.py machine_status(): what AI this computer can use. Never a key's value. */
 export type AIStatus = {
   any_ready: boolean;
-  clis: { id: string; label: string; kind: "cli"; ready: boolean; installed: boolean; signed_in: boolean }[];
+  clis: { id: string; label: string; kind: "cli"; ready: boolean; installed: boolean; signed_in: boolean; tested?: boolean }[];
   keys: { id: string; label: string; kind: "api_key"; ready: boolean; key_name: string; saved_in: string; get_key: string }[];
   note: string;
 };
@@ -14,6 +14,7 @@ const CLI_HELP: Record<string, string> = {
   claude_code: "Install Claude Code and sign in with your Claude plan.",
   codex: "Install the ChatGPT desktop app (it includes Codex) and sign in.",
   kimi_cli: "Install Kimi Code and sign in with your Kimi membership.",
+  antigravity: "Install Antigravity CLI (`agy`) and sign in with your Google plan.",
 };
 
 /** Before the first build: make sure this computer has an AI that can read the documents. */
@@ -69,33 +70,36 @@ export function AISetupView({ who, status, busy = false, message = null, onCheck
   return (
     <section className="card spaced ai-setup" aria-label="Set up an AI">
       <h2><CircleAlert size={18} /> First, an AI to read {who}’s documents</h2>
-      <p>No AI is set up on this computer yet. Use an AI app you already have, or paste an API key. {status.note}</p>
+      <p>Use an AI app you already have. No API key is needed. {status.note}</p>
       <h3>Sign in to an AI app on this computer</h3>
       <ul className="ai-setup-list">
         {status.clis.map((cli) => <li key={cli.id}>
           <strong>{cli.label}</strong> — {cli.installed ? (cli.signed_in ? "installed and signed in" : "installed; sign in to it") : "not installed"}
+          {cli.tested && <small className="muted"> · answered a real test call</small>}
           {!cli.installed && <small className="muted"> · {CLI_HELP[cli.id] || "Install it and sign in."}</small>}
         </li>)}
       </ul>
       <button type="button" className="text-button" onClick={onCheck}><RefreshCw size={14} /> Check again</button>
-      <h3>Or add an API key</h3>
-      <div className="ai-setup-key">
-        <label>Provider
-          <select value={provider} onChange={(event) => setProvider(event.target.value)}>
-            {status.keys.map((key) => <option key={key.id} value={key.id}>{key.label}</option>)}
-          </select>
-        </label>
-        <label>API key
-          <input type="password" autoComplete="off" spellCheck={false} value={value} placeholder={chosen ? chosen.key_name : "API key"}
-            onChange={(event) => setValue(event.target.value)} />
-        </label>
-        <button type="button" disabled={busy || !value.trim() || !onSave}
-          onClick={() => void onSave?.(provider, value.trim()).then((saved) => { if (saved) setValue(""); })}>
-          <KeyRound size={14} /> {busy ? "Testing…" : "Save and test"}
-        </button>
-      </div>
-      {chosen?.get_key && <p className="small">Get a {chosen.label} key: <a href={safeUrl(chosen.get_key)} target="_blank" rel="noreferrer">{chosen.get_key} ↗</a></p>}
-      <p className="small muted">The key is saved in career-dashboard/.env on this computer only. It is never shown again or included in a shared copy of the app.</p>
+      <details className="advanced spaced">
+        <summary><b>Advanced: use an API key instead</b><small>Optional. Paid API fallback is off by default for new profiles.</small></summary>
+        <div className="ai-setup-key">
+          <label>Provider
+            <select value={provider} onChange={(event) => setProvider(event.target.value)}>
+              {status.keys.map((key) => <option key={key.id} value={key.id}>{key.label}</option>)}
+            </select>
+          </label>
+          <label>API key
+            <input type="password" autoComplete="off" spellCheck={false} value={value} placeholder={chosen ? chosen.key_name : "API key"}
+              onChange={(event) => setValue(event.target.value)} />
+          </label>
+          <button type="button" disabled={busy || !value.trim() || !onSave}
+            onClick={() => void onSave?.(provider, value.trim()).then((saved) => { if (saved) setValue(""); })}>
+            <KeyRound size={14} /> {busy ? "Testing…" : "Save and test"}
+          </button>
+        </div>
+        {chosen?.get_key && <p className="small">Get a {chosen.label} key: <a href={safeUrl(chosen.get_key)} target="_blank" rel="noreferrer">{chosen.get_key} ↗</a></p>}
+        <p className="small muted">The key is saved in career-dashboard/.env on this computer only. It is never shown again or included in a shared copy of the app.</p>
+      </details>
       {message && <p className={message.ok ? "small success" : "small error"}>{message.ok ? <CheckCircle2 size={14} /> : <CircleAlert size={14} />} {message.text}</p>}
     </section>
   );

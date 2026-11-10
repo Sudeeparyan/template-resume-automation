@@ -38,7 +38,8 @@ RULES_WARN_DAYS = 30
 # source is read, never imported) and the environment variable that overrides it.
 CLI_SOURCES = {"claude": (APP / "backend/ai/claude_code.py", "CLAUDE_CODE_CLI"),
                "codex": (APP / "backend/ai/codex.py", "CODEX_CLI"),
-               "kimi": (APP / "backend/ai/kimi_cli.py", "KIMI_CLI")}
+               "kimi": (APP / "backend/ai/kimi_cli.py", "KIMI_CLI"),
+               "antigravity": (APP / "backend/ai/antigravity.py", "AGY_CLI")}
 # Where Start Dashboard puts its pinned Tectonic download.
 TOOLS = APP / "backend/.tools"
 
@@ -186,7 +187,7 @@ def report(profiles_dir: Path, requested: str | None = None) -> dict:
     node = node_status()
     tools = {"node": node, "npm": executable("npm.cmd" if os.name == "nt" else "npm"),
              "tectonic": tectonic_available(),
-             "ai_cli": {name: cli_available(name) for name in ("codex", "claude", "kimi")},
+             "ai_cli": {name: cli_available(name) for name in ("codex", "claude", "kimi", "antigravity")},
              "ai_check": "installed CLIs (PATH and the app's bundled locations) only; sign-in, API keys and connectivity are not checked"}
     synced = in_synced_folder()
     app_mode = python["cli_supported"] and dependencies["ready"]

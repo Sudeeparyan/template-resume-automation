@@ -58,7 +58,7 @@ this while waiting for a queued agent: the worker needs the same job slot.
                 _job_locks.pop(key, None)
 
 
-SLOT_TIMEOUT = 960  # one web call's own limit (900 s, backend/ai/*_cli.py) and a minute
+SLOT_TIMEOUT = 1560  # the longest web call's own limit (1500 s, backend/ai/kimi_cli.py) and a minute
 
 
 def slot_timeout() -> float:

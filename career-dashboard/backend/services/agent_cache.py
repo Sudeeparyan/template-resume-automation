@@ -1,9 +1,8 @@
 """Persistent AI stage cache and the daily limit on paid AI calls.
 
 The limit is about money, so it counts only calls that are billed per call
-(Azure OpenAI and any API key). Kimi Code, Codex and Claude Code run on her
-plans: their real limit is each plan's own usage window, which the router
-tracks (backend/ai/limits.py) and steps around, so their calls never count here.
+(Azure OpenAI and any API key). Subscription CLIs run on their own plans: their
+real limit is each plan's usage window, which the router tracks and steps around.
 """
 import hashlib
 import json
@@ -14,9 +13,9 @@ from contextvars import ContextVar
 from datetime import datetime, timezone
 
 CACHE_VERSION = 'career-workers-v2'
-DEFAULT_LIMIT = 6
+DEFAULT_LIMIT = 0
 MAX_LIMIT = 200
-LIMIT_NOTE = ("Only paid calls count (Azure and API keys). Kimi Code, Codex and Claude Code use your plans: "
+LIMIT_NOTE = ("Only paid calls count (Azure and API keys). Kimi Code, Codex, Claude Code and Antigravity use your plans: "
               "each has its own usage limit, and Auto moves to the next one when a plan is used up.")
 
 _reservation = ContextVar('career_paid_reservation', default=None)

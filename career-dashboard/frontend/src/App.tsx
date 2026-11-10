@@ -19,6 +19,7 @@ import { api, shellApi } from "./api";
 import { LatestRequest } from "./latestRequest";
 import { ProfileContext, ProfileMenu, firstName, openProfile, timeLabel, useProfileListing } from "./profiles";
 import OnboardingWorkspace from "./features/OnboardingWorkspace";
+import PracticeGuide from "./features/PracticeGuide";
 import { AskContext, Field, Loading, Modal, NoticeContext } from "./components/UI";
 import JobDetail from "./components/JobDetail";
 import Dashboard from "./features/Dashboard";
@@ -388,6 +389,7 @@ export default function App() {
               {listing ? <ProfileMenu compact /> : <span className="avatar">CW</span>}
             </span>
           </header>
+          {current?.synthetic_demo && <div className="practice-dock"><PracticeGuide data={data} onGo={navigate} /></div>}
           <div className={"page" + (route === "assistant" || onboarding || listing?.profiles.length === 0 ? " assistant-page" : "")}>
             {unavailable ? (
               <section className="card" role="alert">
@@ -551,8 +553,50 @@ function AddJob({
   });
   const [today, setToday] = useState(true);
   const [busy, setBusy] = useState(false);
+  async function importPosting() {
+    if (busy || !form.url.trim()) return;
+    setBusy(true);
+    try {
+      const r = await api("/v2/jobs/import", "POST", { url: form.url.trim() });
+      if (["needs_employer_link", "needs_details"].includes(r.status)) {
+        setForm({ ...form, url: r.url || form.url });
+        notify((r.reason || "The posting needs a few details.") + " Complete the fields below, then save it.", true);
+        return;
+      }
+      if (r.excluded) {
+        await refresh();
+        onClose();
+        notify(`Not saved: the posting says “${r.sentence}”. ${r.reason_label}. It is listed under Excluded roles on the Dashboard, where you can restore it if that is wrong.`, true);
+        return;
+      }
+      if (r.blocked) {
+        notify("Not saved: " + r.note, true);
+        return;
+      }
+      if (today && !r.duplicate) await api("/search-runs/" + date + "/jobs/" + r.job.id, "POST");
+      await refresh();
+      onClose();
+      onSelect(r.job.id);
+      notify(r.duplicate ? "This posting is already saved. Opening its existing record." : "Posting read and saved. Review the fit, then prepare the application.");
+    } catch (e) {
+      notify((e as Error).message, true);
+    } finally {
+      setBusy(false);
+    }
+  }
   return (
     <Modal title="Save a job posting" onClose={onClose}>
+      <section className="callout spaced">
+        <b>Fastest: paste the employer's posting link</b>
+        <p className="small">The app reads the full posting, checks it, and saves it. If it cannot read the page, complete the form below.</p>
+        <div className="actions">
+          <input aria-label="Posting link to import" type="url" required maxLength={2500} placeholder="https://employer.example/jobs/123"
+            value={form.url} onChange={(event) => setForm({ ...form, url: event.target.value })} />
+          <button type="button" className="primary" disabled={busy || !form.url.trim()} onClick={() => void importPosting()}>
+            {busy ? "Reading…" : "Read & save posting"}
+          </button>
+        </div>
+      </section>
       <form
         onSubmit={async (e) => {
           e.preventDefault();

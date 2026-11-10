@@ -69,3 +69,14 @@ def test_generic_file_route_blocks_a_legacy_predicted_resume(tmp_path, monkeypat
         response = client.get("/api/files/" + relative)
     assert response.status_code == 409
     assert "evidence" in response.json()["detail"].lower()
+
+
+def test_borderline_screening_does_not_relax_resume_evidence(tmp_path):
+    services = ireland_profile(tmp_path)
+    services.set_pref("screening_mode", "review")
+    job = saved_job(services)
+    studio = BuiltStudio(services, job["id"])
+    studio.resume_evidence_problem = lambda *_: "Remove unsupported candidate claims."
+    result = readiness.check(services, studio, job["id"])
+    assert result["verdict"] == "blocked"
+    assert result["demo_mode"] is False

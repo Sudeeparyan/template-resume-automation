@@ -9,7 +9,7 @@ from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
-from backend.ai import catalog, claude_code, codex, kimi_cli, router
+from backend.ai import antigravity, catalog, claude_code, codex, kimi_cli, router
 
 
 ACTIONS = {
@@ -213,6 +213,27 @@ class KimiCliProvider:
     def generate(self, prompt: str, schema: dict, *, model="kimi-runtime", web=True, **_options) -> dict:
         if model not in self.models:
             raise ValueError("Unsupported Kimi Code model")
+        return self.invoke(prompt, schema, model=model, web=web)
+
+
+class AntigravityProvider:
+    id = antigravity.ID
+    capabilities = {"structured"}
+
+    def __init__(self, invoke=antigravity.invoke):
+        self.invoke = invoke
+
+    @property
+    def configured(self) -> bool:
+        return antigravity.available()
+
+    @property
+    def models(self) -> tuple:
+        return antigravity.models()
+
+    def generate(self, prompt: str, schema: dict, *, model=antigravity.MODELS[0], web=False, **_options) -> dict:
+        if model not in self.models:
+            raise ValueError("Unsupported Antigravity model")
         return self.invoke(prompt, schema, model=model, web=web)
 
 
@@ -441,18 +462,24 @@ class RouterProvider:
 class AIGateway:
     def __init__(self, service, codex_invoke):
         from backend.ai import catalog
+        from backend.ai.demo import DemoProvider
 
         self.s = service
-        self.providers = {provider.id: provider for provider in (OpenAIProvider(service.w.root), AnthropicProvider(service.w.root), CodexProvider(codex_invoke), ClaudeCodeProvider(), KimiCliProvider(), AzureOpenAIProvider(service.w.root))}
+        self.providers = {provider.id: provider for provider in (OpenAIProvider(service.w.root), AnthropicProvider(service.w.root), CodexProvider(codex_invoke), ClaudeCodeProvider(), KimiCliProvider(), AntigravityProvider(), AzureOpenAIProvider(service.w.root))}
         for provider_id in catalog.PROVIDERS:
             self.providers.setdefault(provider_id, HostedProvider(service.w.root, provider_id))
+        self.providers[DemoProvider.id] = DemoProvider(service.w.root)
         self.providers[router.ID] = RouterProvider(self)
 
     def _builtin_default(self) -> str:
-        # Auto when any plan on its route can run here; the older built-in otherwise.
+        # A marked practice workspace never falls through to a real provider.
+        demo = self.providers.get("demo")
+        if demo and demo.configured:
+            return "demo"
         if router.DEFAULT_WHEN_UNSET and self.providers[router.ID].configured:
             return router.ID
-        return "openai" if self.providers["openai"].configured else "codex"
+        openai = self.providers.get("openai")
+        return "openai" if openai and openai.configured else "codex"
 
     def preferences(self) -> dict:
         # The Settings tab keeps its tier choices under the same key, so read

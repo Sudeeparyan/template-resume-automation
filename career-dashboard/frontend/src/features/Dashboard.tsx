@@ -17,6 +17,7 @@ import { JobList } from "../components/JobList";
 import { PlanEditor, WeekCard } from "../components/WeekPlan";
 import { RemoveJobDialog } from "./RemoveJob";
 import { TrackerAlertsNotice } from "./Tracker";
+import ApplicationFunnel from "./ApplicationFunnel";
 import { CoverLetterView } from "../components/CoverLetterView";
 import type { Summary, Mail, Job, CoverLetter, ExcludedJob, NeedsYouItem } from "../types";
 type Props = {
@@ -291,6 +292,7 @@ export default function Dashboard({
         )}
       </div>
       <WeekCard goals={data.goals} />
+      {data.funnel && <ApplicationFunnel funnel={data.funnel} onJob={onJob} />}
       {editingPlan && (
         <PlanEditor goals={data.goals} onClose={() => setEditingPlan(false)} onSaved={refresh} notify={notify} />
       )}

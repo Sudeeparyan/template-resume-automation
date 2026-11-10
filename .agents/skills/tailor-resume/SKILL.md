@@ -28,7 +28,8 @@ contract and validator are stricter than anything done by hand.
 First read `career ws summary --profile <profile-id>` and
 `career ws profile --profile <profile-id>` for the current state and candidate facts. Resolve
 pending evidence reconciliation before tailoring. Use the exact selected profile ID and the
-saved job ID in every command below:
+saved job ID in every command below. In the dashboard, **Prepare application** on a saved job runs
+this same ordered pipeline and gathers the current documents, review and apply link in one panel.
 
 ```text
 career add --url <posting link> --profile <profile-id>

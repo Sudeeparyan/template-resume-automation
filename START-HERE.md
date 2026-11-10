@@ -1,8 +1,16 @@
-﻿# Start here
+# Start here
 
 Clone or download this folder, add your resume, and talk to your AI app. The local career app
 keeps your evidence, job checks, tailored resumes and application history together. You review
 the resumes and apply through the links yourself.
+
+## Try the student demo first (optional)
+
+You do not need a resume, AI sign-in, or API key for the guided practice workspace. On Windows
+double-click **Start Demo.cmd**; on macOS/Linux run `bash "Start Demo.command"`. It opens a separate
+local practice registry on port 8010 with two fictional students, sample jobs, simulated AI, and a
+five-step checklist. Practice application pages cannot submit anything. Your real profiles stay in
+the ordinary dashboard's separate registry.
 
 ## 1. Get your own copy and start the app once
 
@@ -22,6 +30,7 @@ there whenever you want it.
 
 | Your AI app | Connect this workspace |
 |---|---|
+| Google Antigravity | Open this folder with its agent, or use the optional MCP connector below. Its `agy` CLI supports the app's no-API-key provider path. |
 | ChatGPT desktop with local project / Codex access | Add this folder to a local project and make it the primary folder. Its AGENTS.md and shared skills guide the work. |
 | Claude Code | Open this folder. CLAUDE.md loads the same instructions and .claude/skills/ points to the shared skills. |
 | Claude desktop / Cowork | Give the task access to this folder and say “Follow AGENTS.md.” Check whether its environment can run the local app; folder access alone does not prove that. |
@@ -32,13 +41,13 @@ profiles is ready for **Set me up**. Missing packages or tools produce a specifi
 You do not need to memorize commands.
 
 After setup, open **Settings → AI provider** and choose **Auto**. The app's job search, profile
-and resume AI then tries the signed-in Kimi Code, Codex and Claude Code runtimes on this computer.
-When one reports a usage limit, the app rests it and tries the next available plan. Sign in to
-each runtime separately; an installed executable alone does not prove its account can answer.
-The **Paid AI calls a day** setting controls Azure/API calls after the local plans; set it to
-**0** if you want only the local plans. The AI app hosting your conversation still has its own
-limit. To continue chatting on another plan, open this same folder in Claude or Kimi; the app's
-saved profile and job progress stay shared.
+and resume AI then tries the signed-in Kimi Code, Codex, Claude Code and Antigravity runtimes on
+this computer. When one reports a usage limit, the app rests it and tries the next available plan.
+Sign in to each runtime separately; an installed executable alone does not prove its account can answer.
+**New profiles start with paid API calls set to 0**. The **Paid AI calls a day** setting is an explicit
+opt-in for Azure/API calls after the subscription plans. The AI app hosting your conversation still
+has its own limit. To continue chatting on another plan, open this same folder in Claude, Antigravity
+or Kimi; the app's saved profile and job progress stay shared.
 
 The [OpenAI local-project guide](https://learn.chatgpt.com/docs/projects) describes folder
 access. [Kimi's skill guide](https://www.kimi.com/code/docs/en/kimi-code-cli/customization/skills.html)
@@ -120,6 +129,23 @@ ready count, pending work and blockers. Do not apply, contact anyone or change m
 
 Run the scheduled prompt once manually, then check that the task is saved and its first result
 arrives. The local app writes files; it does not by itself send a ChatGPT, Claude or Kimi message.
+
+## Optional: connect the app through MCP
+
+Antigravity, Claude, and Codex can use the local app through a profile-scoped MCP connector; the
+host's own plan supplies the model, so no API key is needed. After the dashboard launcher has made
+its Python environment, install the optional connector package:
+
+```text
+Windows: career-dashboard\backend\.venv\Scripts\python.exe -m pip install -r career-dashboard\backend\requirements-mcp.txt
+macOS/Linux: career-dashboard/backend/.venv/bin/python -m pip install -r career-dashboard/backend/requirements-mcp.txt
+```
+
+Run `career mcp --profile <id> --host antigravity` (or `claude` / `codex`) to print the configuration
+to paste into that host. No global host file is changed for you. For the synthetic tour, add `--demo`
+and use a demo profile such as `example-graduate`. The host starts the printed server command itself.
+The connector can read current state, import postings, start searches, prepare drafts and synchronize
+confirmed profile answers. It has no send, delete, outreach, or employer-submission tools.
 
 ## Optional: Gmail and Drive
 

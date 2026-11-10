@@ -51,6 +51,8 @@ type SettingsData = {
   tiers: Record<string, string>;
   preferences: { tiers: Record<string, Choice>; fallback?: Choice | null };
   demo_mode?: boolean;
+  synthetic_demo?: boolean;
+  screening_mode?: "careful" | "review";
 };
 // daily_call_limit is paid AI calls a day; free plan calls never count against it.
 type Budget = {
@@ -71,7 +73,7 @@ type MailConnection = {
   last_error?: string;
 };
 const AUTO = "auto";
-const AUTO_LABEL = "Auto · free plans first";
+const AUTO_LABEL = "Auto · subscription plans first";
 const choiceLabel = (c: Choice) =>
   c.provider === AUTO ? AUTO_LABEL : `${PROVIDER_LABEL[c.provider] || c.provider} · ${c.model}`;
 
@@ -88,19 +90,21 @@ const TIER_LABEL: Record<string, string> = {
   cheap: "Reading model",
 };
 const BLURB: Record<string, string> = {
-  auto: "Kimi K3 → Codex → Claude, then Azure only if all three are out",
-  claude_code: "Your Claude plan's usage limits",
-  codex: "Your ChatGPT plan · only one with Gmail",
-  kimi_cli: "Your Kimi membership's usage limits",
+  auto: "Your signed-in plans first; paid API fallback is off until you allow it",
+  claude_code: "Your Claude plan · no API key",
+  codex: "Your ChatGPT plan · no API key",
+  kimi_cli: "Your Kimi membership · no API key",
+  antigravity: "Your Google plan · no API key; web steps may use another plan",
+  demo: "Local simulated guidance · no account or live search",
   openai: "GPT models · has web search",
   anthropic: "Claude models, billed per call",
   openrouter: "Hundreds of models, one key",
-  gemini: "Google's models · free tier",
+  gemini: "Google's models · API key",
   kimi: "Moonshot's Kimi models",
   azure_openai: "Your Azure deployment · needs endpoint + deployment in .env",
 };
 // Order on the page: Auto, then the no-key options, then the API keys.
-const ORDER = ["auto", "kimi_cli", "codex", "claude_code", "openai", "azure_openai", "anthropic", "openrouter", "gemini", "kimi"];
+const ORDER = ["auto", "codex", "claude_code", "antigravity", "kimi_cli", "demo", "openai", "azure_openai", "anthropic", "openrouter", "gemini", "kimi"];
 
 export default function Settings({
   notify,
@@ -120,6 +124,7 @@ export default function Settings({
   const [mailConnection, setMailConnection] = useState<MailConnection>({});
   const [mailDraft, setMailDraft] = useState({ connector_id: "", expected_email: "" });
   const [demoMode, setDemoMode] = useState(false);
+  const [screeningMode, setScreeningMode] = useState<"careful" | "review">("careful");
   const [error, setError] = useState("");
 
   const load = useCallback(async (refresh = false) => {
@@ -141,6 +146,7 @@ export default function Settings({
         expected_email: connection.expected_email || "",
       });
       setDemoMode(Boolean(next.demo_mode));
+      setScreeningMode(next.screening_mode || "careful");
       setError("");
     } catch (e) {
       setError((e as Error).message);
@@ -201,7 +207,7 @@ export default function Settings({
       setTiers(next.preferences.tiers);
       notify(
         main.provider === AUTO
-          ? "All agents now use Auto: your Kimi, Codex and Claude plans first, Azure only as a last resort."
+          ? "All agents now use Auto: your signed-in plans first. Paid API fallback stays off unless you allow it."
           : `All agents now run on ${choiceLabel(main)}.`,
       );
     });
@@ -258,7 +264,7 @@ export default function Settings({
         daily_call_limit: limit ?? budget?.daily_call_limit,
       });
       setBudget(next);
-      notify(next.daily_call_limit ? `Paid AI calls a day: ${next.daily_call_limit}.` : "Paid AI is off: only your free plans will run.");
+      notify(next.daily_call_limit ? `Paid AI calls a day: ${next.daily_call_limit}.` : "Paid AI is off: only your subscription plans will run.");
     });
 
   const saveMailConnection = () =>
@@ -267,6 +273,15 @@ export default function Settings({
       setMailConnection(connection);
       setMailDraft({ connector_id: connection.connector_id || "", expected_email: connection.expected_email || "" });
       notify("Mail settings saved for this profile. The mailbox will be verified before its first sync.");
+    });
+
+  const saveScreeningMode = (mode: "careful" | "review") =>
+    act("screening", async () => {
+      await api("/v2/ai/settings", "PUT", { screening_mode: mode });
+      setScreeningMode(mode);
+      notify(mode === "review"
+        ? "Borderline matches will be kept with review notes. Resume evidence and readiness checks still apply."
+        : "Careful screening is on. Borderline roles are set aside with their reasons.");
     });
 
   const saveDemoMode = (on: boolean) =>
@@ -311,14 +326,13 @@ export default function Settings({
           <Badge tone="green">In use: {choiceLabel(data.main)}</Badge>
         </div>
         <p className="muted">
-          Every agent uses this choice. Kimi Code, Codex and Claude Code use your
-          plans on this PC and need no key; the others need an API key (add it
-          below). Auto uses the free plans first and moves to the next one when a
-          plan reaches its usage limit.
+          Every agent uses this choice. Claude Code, Codex, Antigravity and Kimi Code
+          use your plans on this PC and need no key; API providers are optional.
+          Auto moves to the next plan when one reaches its usage limit.
         </p>
         {(
           [
-            ["auto", "Recommended: uses your free plans first"],
+            ["auto", "Recommended: uses your subscription plans first"],
             ["local", "No key needed — uses your subscription on this machine"],
             ["api", "Pay-as-you-go with an API key"],
           ] as const
@@ -555,12 +569,12 @@ export default function Settings({
             </Badge>
           </div>
           <p className="muted">
-            A cap on calls that cost money: Azure and any API key. Kimi Code,
-            Codex and Claude Code never count here: each plan has its own usage
-            limit, and Auto moves to the next plan when one is used up
+            A cap on calls that cost money: Azure and any API key. Subscription CLIs
+            never count here: each plan has its own usage limit, and Auto moves to
+            the next plan when one is used up
             {budget.free_calls_today ? ` (${budget.free_calls_today} calls on your plans today)` : ""}.
-            When this cap is reached, Auto keeps going on your free plans and
-            skips Azure until tomorrow. Set 0 to never pay.
+            When this cap is reached, Auto keeps going on your subscription plans and
+            skips paid APIs until tomorrow. New profiles start at 0; raise it only if you choose to pay.
           </p>
           <form
             className="actions"
@@ -586,28 +600,29 @@ export default function Settings({
       )}
 
       <section className="card spaced">
+        <div className="section-title"><h2>Job screening</h2><Badge tone={screeningMode === "careful" ? "green" : "amber"}>{screeningMode === "careful" ? "Careful" : "Show borderline"}</Badge></div>
+        <p className="muted">Choose whether borderline roles are set aside or kept with their review reasons. Evidence, readiness, duplicate and never-re-apply checks still apply.</p>
+        <Field label="Screening preference">
+          <select aria-label="Screening preference" value={screeningMode} disabled={busy === "screening"} onChange={(event) => void saveScreeningMode(event.target.value as "careful" | "review")}>
+            <option value="careful">Careful screening (recommended)</option>
+            <option value="review">Show borderline matches for review</option>
+          </select>
+        </Field>
+      </section>
+
+      {data.synthetic_demo && <section className="card spaced">
         <div className="section-title">
           <h2>Demo mode</h2>
           <Badge tone={demoMode ? "amber" : "neutral"}>{demoMode ? "On" : "Off"}</Badge>
         </div>
         <p className="muted">
-          For POC demos only. With demo mode on, evidence gates are optional and a search
-          never turns a job away for sponsorship wording, relevance, legitimacy or fit:
-          the job is kept with a note, taken end to end, and the ready-to-submit check
-          still shows what would normally gate. Never-re-apply and duplicate rules still
-          apply, and resumes are still written from registered evidence only.
+          For synthetic practice only. Evidence and rejection gates become advisory, while the interface still shows what would normally need attention.
         </p>
         <label className="actions" style={{ gap: 8 }}>
-          <input
-            type="checkbox"
-            aria-label="Demo mode"
-            checked={demoMode}
-            disabled={busy === "demo"}
-            onChange={(e) => void saveDemoMode(e.target.checked)}
-          />
-          Demo mode (evidence optional — for POC demos)
+          <input type="checkbox" aria-label="Demo mode" checked={demoMode} disabled={busy === "demo"} onChange={(e) => void saveDemoMode(e.target.checked)} />
+          Demo mode (synthetic practice)
         </label>
-      </section>
+      </section>}
 
       <section className="card spaced">
         <div className="section-title">

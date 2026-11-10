@@ -2,6 +2,8 @@
 
 export const PROVIDER_LABEL: Record<string, string> = {
   auto: "Auto",
+  antigravity: "Antigravity",
+  demo: "Guided practice",
   azure_openai: "Azure OpenAI",
   claude_code: "Claude Code",
   codex: "Codex",
@@ -56,6 +58,6 @@ export const clock = (iso: string) =>
 export const providerText = (p?: string | null, m?: string | null, routed = false) =>
   p
     ? `${routed ? "Auto → " : ""}${PROVIDER_LABEL[p] || p}${
-        m && !["codex-runtime", "kimi-runtime", "auto"].includes(m) ? " · " + m : ""
+        m && !["codex-runtime", "kimi-runtime", "antigravity-runtime", "guided-practice", "auto"].includes(m) ? " · " + m : ""
       }`
     : "";

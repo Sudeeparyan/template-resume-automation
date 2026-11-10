@@ -6,6 +6,24 @@ for each one. You review and submit applications yourself;
 the assistant never applies or contacts employers. The GitHub copy starts empty: no person,
 no jobs, no keys. Begin with **[START-HERE.md](START-HERE.md)** for the chat-to-app workflow.
 
+## Choose the simplest start
+
+- **Explore with no AI account:** double-click **Start Demo.cmd** on Windows or run
+  `bash "Start Demo.command"` on macOS/Linux. Two synthetic student profiles, fictional local
+  postings, and a guided checklist demonstrate profile review, tailoring, clean document export,
+  independent review, and application tracking. The practice provider calls no AI or live job board.
+- **Use your own documents:** start the dashboard, add your resume, and answer only the questions
+  your documents leave open. Antigravity, Claude Code, Codex, and Kimi Code can use an existing
+  plan with no API key. New profiles allow **zero paid API calls** until you explicitly opt in.
+- **Paste one job link:** the app reads the employer's posting when possible, asks for full text
+  when needed, and uses the same screening and duplicate checks as every other import.
+
+The student workflow now includes one-click preparation of a saved job, a tailored PDF and matching
+Word resume, an evidence-checked cover letter, an editable application-email draft, a final review
+checklist, user-confirmed application tracking, and 30/90-day/all-time funnel views. PDF and DOCX
+exports contain no added watermark, hidden text, revision residue, or generator metadata. ATS and
+readiness scores describe checks that ran; they do not guarantee an ATS decision or interview.
+
 There are two ways to use it, and they work together:
 
 | | Just an AI app | AI app + the dashboard |
@@ -26,7 +44,7 @@ AI-only output is not automatically imported into the dashboard.
 
 1. Install Python 3.12 and Node.js 20+ (below), keep this folder **outside OneDrive**, and
    double-click **Start Dashboard.cmd** (macOS: `bash "Start Dashboard.command"`).
-2. On the first page, set up an AI if none is ready: sign in to Claude Code, Codex or Kimi Code
+2. On the first page, set up an AI if none is ready: sign in to Antigravity, Claude Code, Codex or Kimi Code
    on this computer, or paste an API key (saved in `career-dashboard/.env`, tested on the spot).
 3. Add your CV, then in **Build settings** confirm your permission to work in Ireland (for
    example Stamp 1G and its exact expiry day), your degree's award date and NFQ level, and
@@ -57,11 +75,12 @@ AI-only output is not automatically imported into the dashboard.
    `bash "Start Dashboard.command"` from this folder. The launcher creates a private Python
    environment, installs the pinned backend and frontend packages, reports which optional tools and
    AI providers are ready, builds the web client, then opens the app on `127.0.0.1:8000`.
-4. The app's AI steps use an AI app signed in on this computer (Claude Code, Codex or Kimi Code)
+4. The app's AI steps use an AI app signed in on this computer (Antigravity, Claude Code, Codex or Kimi Code)
    or an API key. When none is ready, the new-profile page shows **First, an AI to read your
    documents**: sign in to an app and press *Check again*, or paste a key, which is saved in
-   `career-dashboard/.env` and tested at once. (Copying `career-dashboard/.env.example` to
-   `career-dashboard/.env` by hand also works.) The `.env` file and each profile folder stay on
+   `career-dashboard/.env` and tested at once. API keys are under **Advanced** and are not required
+   for a supported subscription CLI. New profiles have **Paid AI calls a day = 0** unless you opt in.
+   (Copying `career-dashboard/.env.example` to `career-dashboard/.env` by hand also works.) The `.env` file and each profile folder stay on
    your computer. Keep the whole folder outside OneDrive or another sync folder: syncing can lock
    or damage the app's databases while it runs (`career doctor` warns about it).
 5. Create a profile once: in the dashboard (add a DOCX, PDF, TXT, MD or typed

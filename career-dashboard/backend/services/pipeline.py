@@ -155,7 +155,7 @@ def steps_for(root) -> list[dict]:
 
 # Signed-in local apps: their calls count against the person's plan's
 # usage limit, never an API bill.
-LOCAL_APPS = ("claude_code", "codex", "kimi_cli")
+LOCAL_APPS = ("claude_code", "codex", "kimi_cli", "antigravity")
 CLAUDE_MODELS = [
     ("sonnet", "Sonnet", "Balanced. Recommended for most days."),
     ("opus", "Opus", "Best writing. Slowest, and uses the most of your limit."),
@@ -183,10 +183,15 @@ def default_speed(provider: str, model: str) -> float:
 
 def local_models(provider_id: str) -> list:
     """The model choices for one local app: Claude's three, or the app's default plus what the plan lists."""
-    from backend.ai import codex, kimi_cli
+    from backend.ai import antigravity, codex, kimi_cli
 
     if provider_id == "claude_code":
         return [{"id": m, "label": name, "hint": hint} for m, name, hint in CLAUDE_MODELS]
+    if provider_id == antigravity.ID:
+        listed = [{"id": model, "label": model, "hint": "Offered by your Antigravity plan."}
+                  for model in antigravity.models() if model not in antigravity.MODELS][:MAX_LISTED_MODELS]
+        return [{"id": antigravity.MODELS[0], "label": "Default",
+                 "hint": "Antigravity picks its usual model."}] + listed
     if provider_id == codex.ID:
         listed = [m for m in codex.listed_models() if m["id"] not in codex.MODELS][:MAX_LISTED_MODELS]
         return [{"id": codex.MODELS[0], "label": "Default",
@@ -259,11 +264,19 @@ class Pipeline:
 
     def providers(self) -> list:
         """Every AI the page can offer: the local apps always (ready or not), hosted APIs only when keyed."""
-        from backend.ai import catalog, codex, kimi_cli, provider_label, ready_providers
+        from backend.ai import antigravity, catalog, codex, kimi_cli, provider_label, ready_providers
 
         ready = ready_providers(self.w.root)
-        signed_in = {codex.ID: codex.signed_in, kimi_cli.ID: kimi_cli.signed_in}
-        listed = [self._auto_entry(ready)]
+        signed_in = {codex.ID: codex.signed_in, kimi_cli.ID: kimi_cli.signed_in,
+                     antigravity.ID: antigravity.signed_in}
+        listed = []
+        if ready.get("demo"):
+            listed.append({
+                "id": "demo", "label": "Guided practice (local)", "kind": "local", "ready": True, "web": True,
+                "cost": "Simulated locally. No account, AI call or live web search.", "note": None,
+                "models": [{"id": "guided-practice", "label": "Guided practice", "hint": "Deterministic synthetic answers"}],
+            })
+        listed.append(self._auto_entry(ready))
         for provider_id in LOCAL_APPS:
             label = provider_label(provider_id)
             installed = bool(ready.get(provider_id))
@@ -277,8 +290,9 @@ class Pipeline:
             elif provider_id in signed_in and not signed_in[provider_id]():
                 note = f"{label} may not be signed in. If a step fails, open {label}, sign in and try again."
             listed.append({
-                "id": provider_id, "label": label, "kind": "local", "ready": installed, "web": True,
-                "cost": "Uses your plan's usage limit. No extra bill.", "note": note,
+                "id": provider_id, "label": label, "kind": "local", "ready": installed,
+                "web": provider_id != antigravity.ID,
+                "cost": "Uses your plan's usage limit. No extra API bill.", "note": note,
                 "models": local_models(provider_id),
             })
         for provider_id in catalog.PROVIDERS:
@@ -522,6 +536,40 @@ class Pipeline:
             from backend import telemetry
 
             self.thread = threading.Thread(target=telemetry.carry(self._traced), args=(id,), name="career-pipeline", daemon=True)
+            self.thread.start()
+        return self.get(id)
+
+    def prepare_existing(self, job_id: str, values: dict | None = None) -> dict:
+        """Prepare one already-saved job through the normal helper chain, without a new search."""
+        from backend.countries import require_known_authorization
+
+        job = self.w.get_job(job_id)
+        if job.get("status") not in {"saved", "prepared"}:
+            raise ValueError("This application already has recorded progress. Open its current documents instead.")
+        require_known_authorization(self.w.root, job.get("market") or None)
+        config = self.validate({**(values or {}), "count": 1, "include_unprepared": False})
+        with self.lock:
+            if self._latest(active=True):
+                raise ValueError("A search or application preparation is already running. Wait for it to finish, or stop it first.")
+            if hunt_active(self.w):
+                raise ValueError("An overnight hunt is running. Stop it on Daily Search, or wait for it to finish.")
+            id = uuid.uuid4().hex
+            progress = {
+                "stage": "Waiting to prepare " + job["title"], "jobs_target": 1, "started_epoch": time.time(),
+                "find": {"state": "done", "found": 0, "note": "Existing saved job; no new search."},
+                "jobs": [{"id": job_id, "company": job["company"], "title": job["title"],
+                          "fit": job.get("fit_score"),
+                          "steps": {step: {"state": "waiting"} for step in STEP_IDS if config["steps"].get(step)}}],
+            }
+            now = self.s.now()
+            with self.w.connect() as db:
+                db.execute(
+                    "INSERT INTO pipeline_runs(id,state,config,progress,created_at,updated_at) VALUES(?,?,?,?,?,?)",
+                    (id, "queued", json.dumps(config), json.dumps(progress), now, now))
+                self.w.record_event(db, "application_preparation_started", job_id, run_id=id)
+            from backend import telemetry
+
+            self.thread = threading.Thread(target=telemetry.carry(self._traced), args=(id,), name="career-application-prepare", daemon=True)
             self.thread.start()
         return self.get(id)
 
@@ -771,7 +819,12 @@ class Pipeline:
     def _team(self, config):
         from backend.ai import _default_model, route_options, router, usage_recorder
         from backend.ai.agents.graph import AgentTeam
+        from backend.services.demo import synthetic_demo
 
+        if synthetic_demo(self.w.root):
+            from backend.ai.demo import DemoTeam
+
+            return DemoTeam(self.s)
         provider, model = config["provider"], config["model"]
         # Reading and classifying runs on the provider's light model; writing on the chosen one.
         # Auto picks each plan's writing and reading model itself.
@@ -819,7 +872,7 @@ class Pipeline:
         if step in {"posting", "ready"}:
             return getattr(self, "_" + step)(job_id, config)
         evidence = self.w.evidence()
-        inputs = {"version": "preparation-v2", "jd": digest(job.get("description")),
+        inputs = {"version": "preparation-v4", "jd": digest(job.get("description")),
                   "profile": self.w.profile(), "evidence_revision": evidence.get("candidate_revision"),
                   "config": {k: config.get(k) for k in ("provider", "model", "free_only")},
                   "salary": job.get("opportunity")}

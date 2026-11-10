@@ -30,9 +30,9 @@ describe("An empty chat and the chat bar", () => {
     const open = renderToStaticMarkup(<MoreMenu {...props} open autoApply />);
     expect(open).toContain("Search this chat");
     expect(open).toContain("Download as a file");
-    expect(open).toContain("Auto-apply changes");
+    expect(open).toContain("Apply local edits automatically");
     expect(open).toContain('aria-checked="true"');
-    expect(open).toContain("run without asking first");
+    expect(open).toContain("Applications, removals and mail decisions always need your yes");
     const empty = renderToStaticMarkup(<MoreMenu {...props} open empty autoApply={false} />);
     expect(empty.match(/role="menuitem" disabled=""/g)).toHaveLength(2);
   });

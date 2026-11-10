@@ -395,3 +395,22 @@ def test_demo_mode_keeps_a_below_bar_posting_with_a_note(tmp_path, monkeypatch):
     _, result = search(tmp_path / "off", demo=False)
     assert result["added_job_ids"] == []
     assert any("relevance gate" in line for line in result["rejected_leads"])
+
+
+def test_borderline_screening_keeps_a_role_for_review(tmp_path, monkeypatch):
+    from backend.services import job_sources
+    from backend.services.agents import AgentRunner
+
+    services = ireland_profile(tmp_path)
+    services.set_pref("screening_mode", "review")
+    runner = AgentRunner(services)
+    odd = posting(9, company="Mercy Hospital", title="Senior Neurologist")
+    odd["description"] = ("Consultant neurologist for our Dublin hospital. 15+ years of clinical practice and "
+                          "board certification in neurology are required.\n" + JD)
+    monkeypatch.setattr(job_sources, "harvest", lambda root, sources, **kw: ([dict(odd)], ["stub coverage"]))
+    result = wait_for(services, runner.enqueue("discovery", None, None, None, "feeds", count=1,
+                                               focus={"hunt": True, "sources": ["directory"],
+                                                      "min_fit": 95, "require_ai_fit": True})["id"])
+    assert len(result["added_job_ids"]) == 1, result.get("summary")
+    job = services.w.get_job(result["added_job_ids"][0])
+    assert "demo:" in (job.get("notes") or "")

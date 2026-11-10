@@ -58,7 +58,8 @@ Claude Code discovers `.claude/skills/`, whose pointer files must keep the same 
 | What only the person can do now (Dashboard and morning list) | `services/needs_you.py`, `summary.needs_you` |
 | Resume Studio, page contract, PDF | `services/resume_studio.py`, `resume_contract.py`, `pdf_compiler.py` (Tectonic), `ai_marks.py` |
 | Assistant (one chat, every feature as a tool) | `services/assistant.py`, `services/assistant_tools.py` (`Toolbox`) |
-| AI providers and routing (Kimi Code, Codex, Claude Code, keyed APIs) | `ai/router.py`, `ai/providers.py`, `ai/agents/` |
+| Optional local MCP connector | `services/mcp_connector.py`, `scripts/mcp_server.py`, `requirements-mcp.txt` |
+| AI providers and routing (Antigravity, Kimi Code, Codex, Claude Code, optional keyed APIs) | `ai/antigravity.py`, `ai/router.py`, `ai/providers.py`, `ai/agents/` |
 | Morning task (Windows Task Scheduler) | `services/schedule_tasks.py` |
 | Tracing (agent runs, AI calls, web requests; local SQLite, optional OTLP) | `telemetry/`, `GET /agents/runs/<id>/spans`, `career trace` ([OBSERVABILITY.md](OBSERVABILITY.md)) |
 | Irish employment-permit rules (dated, with review date) | `countries/ie/permit-rules.yml`, `services/permit_assessment.py` (`freshness`) |
@@ -244,18 +245,27 @@ that passed live runs on 2026-10-04: `graph_research` on Kimi Code and `graph_tr
 which needs no AI); `graph_pipeline` stays off until it has run on friends' computers. The
 overnight hunt has no graph switch: it keeps its own resumable loop.
 
-Build the synthetic Irish graduate with the backend Python:
+Build the isolated synthetic student tour with the backend Python:
 
 ```text
-python career-dashboard/backend/scripts/make_demo_profile.py --as-of 2026-10-03
+python career-dashboard/backend/scripts/make_demo_profile.py --seed
 ```
 
-It writes to ignored `career-dashboard/data/demo/profiles`, with its own registry
-and a synthetic marker. It refuses existing profile data and the users' registry.
-It uses the normal deterministic evidence and resume builder, does not weaken
-the evidence gates, and does not call AI or compile a PDF. Pass its separate
-registry to smoke tools; demo/Studio tools must call `require_synthetic_demo`
-before opening a workspace. Real profiles stay outside these tests.
+Students instead use `Start Demo.cmd` / `Start Demo.command`, which seed two synthetic
+personas and serve only ignored `career-dashboard/data/demo/profiles` on port 8010.
+The registry and each workspace carry synthetic markers. The seeder is idempotent,
+uses the normal evidence builder, adds local fictional postings, and never opens the
+users' registry. `backend/ai/demo.py` supplies deterministic practice answers; real PDFs
+and DOCX files are compiled and validated when the student runs the workflow. Demo/Studio
+tools must call `require_synthetic_demo` before opening a workspace. Real profiles stay
+outside these tests.
+
+`backend/services/mcp_connector.py` is the optional profile-scoped connector for
+Antigravity, Claude and Codex. Install `backend/requirements-mcp.txt`, print (never silently
+write) host configuration with `career mcp --profile <id> --host <host>`, and run stdio with
+`career mcp --profile <id> --serve`. `backend/scripts/mcp_server.py` uses the official MCP
+SDK 2.x `MCPServer` API. The connector reuses CareerServices, ResumeStudio and Pipeline;
+it has no send, delete, outreach or employer-submission tools.
 
 The rules must be reverified before January 2027: the official remuneration
 roadmap schedules another change then, so the 2026 figures expire after

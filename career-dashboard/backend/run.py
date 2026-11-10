@@ -111,7 +111,7 @@ def ai_apps_line():
 
         ready = ready_providers(APP_ROOT)
         local = ", ".join(provider_label(p) + (" ready" if ready.get(p) else " not found")
-                          for p in ("claude_code", "codex", "kimi_cli"))
+                          for p in ("claude_code", "codex", "kimi_cli", "antigravity"))
         keyed = [provider_label(p) for p in ("openai", "azure_openai", "anthropic", "openrouter", "gemini", "kimi") if ready.get(p)]
         pdf = "ready" if tectonic_executable() else "not found (resumes cannot be turned into PDFs until Tectonic is installed)"
         kimi = ("\nKimi Code: only the VS Code extension is installed. To use Kimi here, run in PowerShell: "
@@ -135,8 +135,9 @@ def open_when_ready(url, deadline_seconds=30.0):
 
 def build_parser():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--port", type=int, default=DEFAULT_PORT)
+    parser.add_argument("--port", type=int, default=None)
     parser.add_argument("--no-browser", action="store_true")
+    parser.add_argument("--demo", action="store_true", help="Open the isolated synthetic student demo on port 8010")
     parser.add_argument("--restart", action="store_true",
                         help="Restart a running copy of this dashboard even if its code is current")
     return parser
@@ -148,18 +149,21 @@ def main(argv=None):
     keep_traces_local()
     parser = build_parser()
     args = parser.parse_args(argv)
-    if not 1024 <= args.port <= 65535:
+    port = args.port or (8010 if args.demo else DEFAULT_PORT)
+    if not 1024 <= port <= 65535:
         parser.error("Choose a port from 1024 to 65535")
     if importlib.util.find_spec("uvicorn") is None:
         raise SystemExit(
             "Install dependencies first: python -m pip install -r requirements.txt"
         )
-    url = f"http://127.0.0.1:{args.port}"
-    state, detail = port_state(args.port)
+    url = f"http://127.0.0.1:{port}"
+    state, detail = port_state(port)
     if state == "ours":
         # A copy started before the code last changed would hide new features, so
         # replace it, but never while it is in the middle of a search or an agent run.
         document = health(url) or {}
+        if (document.get("mode") == "demo") != args.demo:
+            raise SystemExit(f"Port {port} belongs to the {'demo' if document.get('mode') == 'demo' else 'live'} dashboard. Choose another port.")
         started = document.get("started_at")
         stale = isinstance(started, (int, float)) and newest_source_time() > started
         if (stale or args.restart) and document.get("pid"):
@@ -168,7 +172,7 @@ def main(argv=None):
                       "Start again when it finishes to load the newest version.", flush=True)
             else:
                 print("Restarting the dashboard so it runs the newest version...", flush=True)
-                if stop_server(document, args.port):
+                if stop_server(document, port):
                     state = "free"
                 else:
                     print("The running dashboard did not stop. Close its window, then start again.", flush=True)
@@ -182,10 +186,20 @@ def main(argv=None):
         return
     if state == "other":
         raise SystemExit(
-            f"Port {args.port} is already used by {detail}.\n"
+            f"Port {port} is already used by {detail}.\n"
             f"That is not {APP_TITLE}, so no browser tab was opened.\n"
-            f"Start this app on a free port instead:  python run.py --port {args.port + 1}"
+            f"Start this app on a free port instead:  python run.py --port {port + 1}"
         )
+
+    profiles = None
+    if args.demo:
+        from backend.profiles import ProfileStore
+        from make_demo_profile import seed_demo
+
+        demo_base = APP_ROOT / "data/demo/profiles"
+        seeded = seed_demo(demo_base)
+        profiles = ProfileStore(base=demo_base, legacy_root=demo_base.parent / "no-legacy")
+        print(f"Practice workspace: {len(seeded['profiles'])} synthetic student profiles; no live AI or applications.", flush=True)
 
     from build_frontend import build
 
@@ -198,8 +212,9 @@ def main(argv=None):
     import uvicorn
     from backend.dashboard.shell import create_shell
 
-    print(ai_apps_line(), flush=True)
-    print(f"{APP_TITLE}: {url}", flush=True)
+    if not args.demo:
+        print(ai_apps_line(), flush=True)
+    print(f"{APP_TITLE}{' Practice' if args.demo else ''}: {url}", flush=True)
     if not args.no_browser:
         opener = threading.Thread(target=open_when_ready, args=(url,), daemon=True)
         opener.start()
@@ -208,7 +223,7 @@ def main(argv=None):
 
     telemetry.setup_tracing()
     # One server for every profile; each profile is its own isolated app under /p/<id>/.
-    uvicorn.run(create_shell(schedule=True), host="127.0.0.1", port=args.port, log_level="info")
+    uvicorn.run(create_shell(profiles, schedule=not args.demo, demo=args.demo), host="127.0.0.1", port=port, log_level="info")
 
 
 if __name__ == "__main__":

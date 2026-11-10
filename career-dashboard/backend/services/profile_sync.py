@@ -224,6 +224,8 @@ def yaml_put_entry(text, section, entry):
                 end -= 1
             lines[index:end] = new
             return "\n".join(lines)
+    if lines[parent[0]].strip() in {section + ": []", section + ": {}"}:
+        lines[parent[0]] = section + ":"
     lines[parent[1]:parent[1]] = new
     return "\n".join(lines)
 
@@ -335,9 +337,9 @@ class ProfileSync:
             items[index] = entry
         self.texts[EVIDENCE] = yaml_put_entry(self.texts[EVIDENCE], group, entry)
 
-    def _stamp(self, entry, verb):
+    def _stamp(self, entry, verb, source=""):
         refs = [r for r in entry.get("source_refs") or [] if isinstance(r, str)]
-        note = f"Profile page (dashboard) > {verb} {self.today}"
+        note = (source + "#answer") if str(source).startswith("data/context/sources/") else f"Profile page (dashboard) > {verb} {self.today}"
         if note not in refs:
             refs.append(note)
         entry["source_refs"] = refs
@@ -373,7 +375,7 @@ class ProfileSync:
         group, _, current = self._find(key)
         if current is None:
             return
-        entry = self._stamp(copy.deepcopy(current), "removed")
+        entry = self._stamp(copy.deepcopy(current), "removed", row.get("source"))
         entry["status"] = "hold"
         entry["profile_removed"] = self.today
         self._put(group, entry)
@@ -446,7 +448,7 @@ class ProfileSync:
             return row["data"]
         if entry.get("status") == "missing" and (entry.get("value") or entry.get("approved_facts")):
             entry["status"] = "user_reported"  # supplied now, so no longer missing
-        entry = self._stamp(entry, "added" if before is None else "edited")
+        entry = self._stamp(entry, "added" if before is None else "edited", row.get("source"))
         self._check(group, entry, before, row)
         self._put(group, entry)
         self.changes.append((group, before, entry))
@@ -464,7 +466,8 @@ class ProfileSync:
         entry = {"id": registry_id, "status": "user_reported"}
         if kind != "project":
             entry["category"] = CATEGORY.get(kind, kind)
-        entry["approved_external_use"] = "always; added by the candidate on the Profile page"
+        where = "Profile chat" if str(row.get("source") or "").startswith("data/context/sources/profile-chat-") else "Profile page"
+        entry["approved_external_use"] = "always; added by the candidate in " + where
         entry["source_refs"] = []
         if kind == "project":
             content = data.get("resume_content") or {}

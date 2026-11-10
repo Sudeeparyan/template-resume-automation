@@ -19,7 +19,7 @@ from contextlib import nullcontext
 from pathlib import Path
 from typing import Any
 
-from backend.ai import catalog, claude_code, codex, kimi_cli, models, router
+from backend.ai import antigravity, catalog, claude_code, codex, kimi_cli, models, router
 from backend.ai.agents.specialists import GROUNDING, REGISTRY, Specialist
 
 
@@ -271,7 +271,7 @@ class AgentTeam:
             return result
 
     def _invoke_endpoint(self, agent: Specialist, text: str, provider: str, model: str, max_tokens: int):
-        if provider in (claude_code.ID, codex.ID, kimi_cli.ID):
+        if provider in (claude_code.ID, codex.ID, kimi_cli.ID, antigravity.ID):
             return self._invoke_local(agent, text, provider, model)
         llm = models.build(self.root, provider, model, max_tokens=max_tokens)
         structured = llm.with_structured_output(agent.schema, include_raw=True)
@@ -289,16 +289,11 @@ class AgentTeam:
         return result["parsed"]
 
     def _invoke_local(self, agent: Specialist, text: str, provider: str, model: str):
-        """The same step through a local CLI (Claude Code, Codex or Kimi Code)
-        instead of LangChain.
-
-        The specialist's system text and schema are passed as they are; the
-        isolation rules above apply unchanged because the payload is built
-        before this point.
-        """
+        """Run one specialist through its signed-in local CLI, not LangChain."""
         from pydantic import ValidationError
 
-        runtime = {claude_code.ID: claude_code, codex.ID: codex, kimi_cli.ID: kimi_cli}[provider]
+        runtime = {claude_code.ID: claude_code, codex.ID: codex, kimi_cli.ID: kimi_cli,
+                   antigravity.ID: antigravity}[provider]
         started = time.time()
         system = agent.system_for(self.persona) + "\n\n" + GROUNDING
         try:

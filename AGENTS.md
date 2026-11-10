@@ -24,7 +24,8 @@ follow the same rules and the same skills in `.agents/skills/`. Work only inside
      build, missing AI sign-in or zero profiles is not permission to bypass the app's checks.
 3. Never open `backup/`, another person's profile, `.env` files or keys. Never run
    `Start Dashboard`, `Check Workspace` or installers from a sandbox; the person runs those on
-   their own computer.
+   their own computer. For a synthetic product tour, the person can instead run `Start Demo`:
+   it uses only the separate marked demo registry and local practice provider.
 
 ## What people ask, and the skill to read
 
@@ -62,8 +63,8 @@ follow the same rules and the same skills in `.agents/skills/`. Work only inside
   completed list, an uploaded source is not a completed profile build, and an existing PDF is
   not proof that it belongs to the current job or passed its checks. Report fewer jobs and the
   recorded blocker when needed; never fill gaps with invented jobs, scores or artifacts.
-- The UI, built-in Assistant and `career` commands share the selected profile's services and
-  SQLite database. For each new progress, job or profile question, re-read `career ws summary
+- The UI, built-in Assistant, `career` commands and optional local MCP connector share the selected
+  profile's services and SQLite database. For each new progress, job or profile question, re-read `career ws summary
   --profile <id>` and, when candidate facts matter, `career ws profile --profile <id>`.
   Changes made in the dashboard after an earlier chat must be treated as current; do not
   reuse a previous chat's copy of facts, status, goals or job results. Dashboard Profile form

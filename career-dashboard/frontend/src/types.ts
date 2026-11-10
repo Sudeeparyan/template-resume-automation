@@ -269,6 +269,10 @@ export type Summary = {
     ghosted: number;
   };
   activity: { id: number; action: string; occurred_at: string; details: any }[];
+  funnel?: {
+    periods: Record<"30" | "90" | "all", { saved: number; applied: number; interviews: number; offers: number }>;
+    next_actions: { job_id: string; company: string; title: string; text: string }[];
+  };
   /** Workspace-wide notices, for example Irish permit thresholds that are due for review. */
   notices?: { id: string; level: "warning" | "info"; text: string }[];
   /** What only the person can do now (backend/services/needs_you.py), most urgent first. */

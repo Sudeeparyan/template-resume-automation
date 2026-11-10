@@ -229,10 +229,14 @@ def test_global_slots_allow_two_providers_but_serialize_each_provider():
 
 
 def test_a_queued_call_waits_longer_than_one_web_call_unless_configured(monkeypatch):
+    from backend.ai import claude_code, codex, kimi_cli
+    from backend.services.task_execution import SLOT_TIMEOUT
+
     monkeypatch.delenv("CAREER_AI_SLOT_TIMEOUT", raising=False)
-    assert slot_timeout() > 900  # a web call may take 900 seconds; the next one must outwait it
+    longest = max(module.TIMEOUT["web"] for module in (kimi_cli, codex, claude_code))
+    assert slot_timeout() > longest  # the next call on the same plan must outwait the longest web call
     monkeypatch.setenv("CAREER_AI_SLOT_TIMEOUT", "1200")
     assert slot_timeout() == 1200
     for bad in ("soon", "0", "-5"):
         monkeypatch.setenv("CAREER_AI_SLOT_TIMEOUT", bad)
-        assert slot_timeout() == 960
+        assert slot_timeout() == SLOT_TIMEOUT

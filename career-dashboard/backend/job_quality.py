@@ -349,9 +349,9 @@ class JobQualityService:
             verdict = self.s.gate(job["company"], text, job["url"], job.get("location", ""),
                                   market=job.get("market") or "")
             if verdict.excluded and not sponsorship.overridden(job.get("sponsor_evidence"), verdict):
-                from backend.services.demo import demo_mode
-                if demo_mode(self.s):
-                    evidence.append(f'Demo mode: the posting now says: "{verdict.screen.sentence}" The role stays on the list.')
+                from backend.services.demo import flexible_screening
+                if flexible_screening(self.s):
+                    evidence.append(f'Review mode: the posting now says: "{verdict.screen.sentence}" The role stays on the list, marked for review.')
                 else:
                     refusal = verdict
                     evidence.append(f'The posting now says: "{verdict.screen.sentence}" It moved to Excluded roles.')

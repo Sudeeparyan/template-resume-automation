@@ -53,7 +53,9 @@ EXTENSION = "~/.vscode/extensions/moonshot-ai.kimi-code-*"
 INSTALL_COMMAND = "irm https://code.kimi.com/kimi-code/install.ps1 | iex"
 
 # Seconds before a call is abandoned. Web research takes longer than a rewrite.
-TIMEOUT = {"web": 900, "text": 600}
+# Kimi Code searches the web more slowly than Codex: a live discovery pass took 8-9 minutes and
+# two of four hit 15, losing everything they had found. 25 minutes lets such a pass finish.
+TIMEOUT = {"web": 1500, "text": 600}
 
 # Past this many characters the prompt goes to a file instead of the command
 # line, which on Windows is limited to about 32k characters.

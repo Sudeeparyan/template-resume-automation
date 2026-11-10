@@ -20,7 +20,7 @@ def test_status_lists_ai_apps_and_key_providers_without_values(tmp_path, monkeyp
     with client(tmp_path) as shell:
         status = shell.get("/api/ai/status").json()
     assert status["any_ready"] is False
-    assert {cli["id"] for cli in status["clis"]} == {"claude_code", "codex", "kimi_cli"}
+    assert {cli["id"] for cli in status["clis"]} == {"claude_code", "codex", "kimi_cli", "antigravity"}
     assert {"anthropic", "openai", "gemini"} <= {key["id"] for key in status["keys"]}
     assert all(key["get_key"].startswith("https://") for key in status["keys"])
     assert "sk-" not in str(status)

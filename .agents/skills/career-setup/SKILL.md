@@ -17,6 +17,10 @@ run. If this person's profile already exists, use `--profile <id>` to resume or 
 do not create another profile after a failed build. Resolve multiple profiles before reading
 sources. The shared `me/` inbox should contain only the selected person's files.
 
+For a product tour rather than a real profile, the person can run `Start Demo.cmd` or
+`bash "Start Demo.command"` themselves. Its fictional profiles stay in the separate demo registry;
+do not treat its practice jobs or answers as candidate evidence.
+
 ## 1. Find their documents
 
 - Look in `me/` for a resume or CV (PDF, DOCX, TXT or MD) and for `me/about-me.md`.

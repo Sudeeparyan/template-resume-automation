@@ -23,7 +23,7 @@ import time
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -131,7 +131,7 @@ class Shell:
         return await self.api(scope, receive, send)
 
 
-def create_shell(profiles: ProfileStore | None = None, schedule: bool = False, frontend: Path | None = None):
+def create_shell(profiles: ProfileStore | None = None, schedule: bool = False, frontend: Path | None = None, demo: bool = False):
     profiles = profiles or default_store()
     profiles.purge_trash()
     apps = ProfileApps(profiles, schedule=schedule)
@@ -156,6 +156,7 @@ def create_shell(profiles: ProfileStore | None = None, schedule: bool = False, f
     api = FastAPI(title=APP_TITLE, version="2.0.0", lifespan=lifespan)
     api.state.profiles = profiles
     api.state.apps = apps
+    api.state.demo = demo
     intake_jobs: dict = {}  # replaced below by the intake's own job table
     from backend.dashboard.app import guard
 
@@ -171,7 +172,8 @@ def create_shell(profiles: ProfileStore | None = None, schedule: bool = False, f
         # pid, started_at and busy let the launcher replace a server running older
         # code, and never one that is in the middle of a search or an agent run.
         return {"app": APP_ID, "version": "2.0.0", "root": str(APP_ROOT), "pid": os.getpid(),
-                "started_at": started_at, "busy": apps.busy(), "profiles": True}
+                "started_at": started_at, "busy": apps.busy(), "profiles": True,
+                "mode": "demo" if demo else "live"}
 
     # ---- AI on this computer, before any profile exists ---------------------------------
     # Keys belong to the installation (career-dashboard/.env), not to a person: onboarding
@@ -187,6 +189,46 @@ def create_shell(profiles: ProfileStore | None = None, schedule: bool = False, f
         from backend.ai import settings as ai_settings
 
         return {**ai_settings.save_machine_key(provider, data.value), "status": ai_settings.machine_status()}
+
+    if demo:
+        @api.get("/demo/postings/{slug}")
+        def practice_page(slug: str):
+            import html
+            import json
+
+            from backend.services.demo import practice_posting
+
+            try:
+                posting = practice_posting(slug)
+            except ValueError as error:
+                raise HTTPException(404, str(error)) from None
+            structured = {
+                "@context": "https://schema.org",
+                "@type": "JobPosting",
+                "title": posting["title"],
+                "description": posting["description"],
+                "url": posting["url"],
+                "hiringOrganization": {"@type": "Organization", "name": posting["company"]},
+                "jobLocation": {"@type": "Place", "address": {
+                    "@type": "PostalAddress",
+                    "addressLocality": posting["location"].split(",", 1)[0],
+                    "addressCountry": "IE",
+                }},
+                "identifier": {"@type": "PropertyValue", "value": "PRACTICE-" + slug.upper()},
+            }
+            return HTMLResponse(
+                "<!doctype html><html><head><meta charset='utf-8'><title>"
+                + html.escape(posting["title"])
+                + " · Practice</title><script type='application/ld+json'>"
+                + json.dumps(structured, ensure_ascii=False).replace("</", "<\\/")
+                + "</script></head><body><main>"
+                + "<p><strong>Practice workspace:</strong> fictional employer and posting. Nothing can be submitted.</p>"
+                + "<h1>" + html.escape(posting["title"]) + "</h1><h2>"
+                + html.escape(posting["company"]) + "</h2><p>"
+                + html.escape(posting["location"]) + "</p><pre style='white-space:pre-wrap;font:inherit'>"
+                + html.escape(posting["description"]) + "</pre>"
+                + "<p><a href='/'>Return to the practice dashboard</a></p></main></body></html>"
+            )
 
     # ---- profiles -------------------------------------------------------------
     def describe(profile: dict) -> dict:

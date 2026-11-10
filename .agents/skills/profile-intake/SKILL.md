@@ -30,10 +30,12 @@ must cite), built from the source documents. Do not edit those files by hand.
   `career setup --profile <id>`. It adds changed files as new source versions and rebuilds; job
   history is kept, and a failed build leaves the previous profile active.
 - **A fact in words** ("I finished the AWS Cloud Practitioner course in September"): the
-  dashboard's Profile page (Profile request) or the Assistant turn it into a proposal the person
-  reviews. You may also save it as a note in `me/` (for example `me/notes-2026-10.md`, their exact
-  words and the date) and rebuild as above.
-- Tell them that open resume drafts pick up the change after **Sync profile** in Resume Studio.
+  dashboard's Profile page (Profile request) or the Assistant turns it into a proposal the person
+  confirms. Their exact answer is saved as a source, reconciled immediately, and synchronized into
+  open unapplied drafts. You may also save it as a note in `me/` (for example
+  `me/notes-2026-10.md`, their exact words and the date) and rebuild as above.
+- Tell them which facts and drafts changed. They still review and recompile an affected PDF before
+  using it; a previously submitted resume remains unchanged.
 
 ## AI-only mode
 
