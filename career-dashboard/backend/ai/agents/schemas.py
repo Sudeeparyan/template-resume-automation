@@ -79,6 +79,16 @@ class CoverLetterDraft(BaseModel):
     unsupported_claims: list[str] = Field(description="Anything written that the evidence does not support. Should be empty.")
 
 
+class UnsupportedSentence(BaseModel):
+    sentence: str = Field(description="The letter's sentence, copied exactly")
+    why: str = Field(description="What it says about the candidate that the evidence does not state")
+
+
+class LetterAudit(BaseModel):
+    unsupported: list[UnsupportedSentence] = Field(
+        description="Sentences about the candidate that the evidence does not support; empty when all are supported")
+
+
 class MailVerdict(BaseModel):
     kind: Literal["application_receipt", "rejection", "interview_invite", "offer", "unrelated"]
     company: Optional[str] = None
@@ -120,10 +130,26 @@ class TailoredSkill(BaseModel):
     evidence_id: str = Field(default="", description="Registry claim id for verified items; empty for predicted")
 
 
+class BulletRewrite(BaseModel):
+    """New wording for one registered project bullet, in the posting's vocabulary.
+
+    It states the same facts: the same numbers, and only names and tools that the registered
+    bullet, the evidence in `cited_ids` or the registered skills hold. services/rewrite_guard.py
+    checks it word by word; one that fails keeps the registered wording.
+    """
+    evidence_id: str = Field(description="The kept verified project's registry id")
+    bullet: int = Field(description="Which of its registered bullets this rewords: 1, 2 or 3")
+    text: str = Field(description="The new wording, one resume line")
+    cited_ids: list[str] = Field(default_factory=list,
+                                 description="Other registered evidence ids (for example a skill) whose words it uses")
+
+
 class TailoringResult(BaseModel):
     """A per-job Projects + Skills plan. Experience, Education and personal sections are never part of it."""
     projects: list[TailoredProject]
     skills: list[TailoredSkill]
+    rewrites: list[BulletRewrite] = Field(default_factory=list,
+                                          description="Optional rewordings of kept verified project bullets; empty when the registered wording fits")
     rationale: str = Field(description="One short paragraph on why this mix fits the role")
 
 
@@ -207,6 +233,9 @@ class IntakeEducation(BaseModel):
     location: str = ""
     start: str = Field(default="", description="As written, e.g. 'September 2024' or '2019'")
     end: str = Field(default="", description="As written; 'Present' if ongoing")
+    award_date_as_supplied: str = Field(default="", description="Award date explicitly stated, verbatim; never infer it from an end or expected graduation date")
+    nfq_level_as_supplied: str = Field(default="", description="Explicit NFQ level wording, verbatim; never infer from a degree title")
+    irish_institution_as_supplied: str = Field(default="", description="Explicit statement that this award is from an Irish institution, verbatim; never infer from its name or location")
     grade: str = Field(default="", description="GPA/CGPA/classification exactly as written, e.g. 'CGPA 7.41, First Class'")
     coursework: list[str] = Field(default_factory=list, description="Modules or courses named")
     facts: list[str] = Field(default_factory=list, description="Other concrete facts about this degree, each one sentence in their words")

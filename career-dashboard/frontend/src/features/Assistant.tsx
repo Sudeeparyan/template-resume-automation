@@ -43,9 +43,10 @@ import type {
   AssistantOverview,
   AssistantStep,
   ApplicationDocuments,
+  Job,
   Summary,
 } from "../types";
-import { useTierTitles } from "../components/JobList";
+import { TierBadge } from "../components/JobList";
 import { useMarket, useProfiles } from "../profiles";
 import SourceLibrary from "./SourceLibrary";
 
@@ -609,8 +610,8 @@ export default function Assistant({ data, refresh, notify, onJob, asked, onAsked
       adopt(next);
       notify(
         enabled
-          ? "Auto-apply on: changes run without asking first. Each one is still listed in the chat, marked auto-applied."
-          : "Auto-apply off: every change asks for your yes first.",
+          ? "Automatic local edits on: resume, profile and planning changes run with a diff and audit entry. Applications, removals and mail decisions still ask."
+          : "Automatic local edits off: local changes ask for your yes first; protected actions always ask.",
       );
     } catch (e) {
       notify((e as Error).message, true);
@@ -804,6 +805,7 @@ export default function Assistant({ data, refresh, notify, onJob, asked, onAsked
                     onEdit={prompt}
                     now={now}
                     jobTier={m.data.job_id ? jobs.get(m.data.job_id)?.sponsor_tier : undefined}
+                    jobs={jobs}
                     stopping={stopping && m.state === "processing"}
                     latest={i === shown.length - 1 && !echo}
                   />
@@ -1291,8 +1293,8 @@ export function MoreMenu({
           <label className="chat-menu-toggle" role="menuitemcheckbox" aria-checked={autoApply}>
             <input type="checkbox" checked={autoApply} onChange={(e) => onAutoApply(e.target.checked)} />
             <span>
-              <b>Auto-apply changes</b>
-              <small>In this chat, changes like marking a job applied run without asking first. Each one is still listed.</small>
+              <b>Apply local edits automatically</b>
+              <small>Reversible resume, profile and planning edits run without asking. Applications, removals and mail decisions always need your yes.</small>
             </span>
           </label>
         </div>
@@ -1313,6 +1315,7 @@ export function Exchange({
   onEdit,
   now,
   jobTier,
+  jobs,
   stopping = false,
   latest = false,
 }: {
@@ -1328,11 +1331,11 @@ export function Exchange({
   onEdit?: (text: string) => void;
   now: number;
   jobTier?: string | null;
+  jobs?: Map<string, Job>;
   stopping?: boolean;
   /** The newest exchange: only its open question gets answer buttons. */
   latest?: boolean;
 }) {
-  const tierTitle = useTierTitles();
   const long = m.message.length > FOLD_AT;
   const shown = long && !expanded ? m.message.slice(0, FOLD_AT) + "…" : m.message;
   const working = m.state === "processing";
@@ -1502,12 +1505,7 @@ export function Exchange({
                         {m.data.company} — {m.data.title}
                       </b>
                       {(m.data.tier || jobTier) && (
-                        <Badge
-                          tone={tier === "S" ? "green" : tier === "A" ? "lime" : "neutral"}
-                          title={tierTitle[tier as keyof typeof tierTitle]}
-                        >
-                          Tier {tier}
-                        </Badge>
+                        <TierBadge job={{ ...(m.data.job_id ? jobs?.get(m.data.job_id) : undefined), sponsor_tier: tier } as Job} />
                       )}
                       {m.data.revision != null && <small>v{m.data.revision}</small>}
                     </div>
@@ -1567,12 +1565,7 @@ export function Exchange({
                       {card.revision != null && <small> · v{card.revision}</small>}
                     </span>
                     {card.tier && (
-                      <Badge
-                        tone={card.tier === "S" ? "green" : card.tier === "A" ? "lime" : "neutral"}
-                        title={tierTitle[card.tier as keyof typeof tierTitle]}
-                      >
-                        Tier {card.tier}
-                      </Badge>
+                      <TierBadge job={{ ...jobs?.get(card.job_id), sponsor_tier: card.tier } as Job} />
                     )}
                     {(card.coverage != null || card.ats != null) && (
                       <small className="chat-card-scores">

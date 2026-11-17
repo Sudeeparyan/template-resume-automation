@@ -16,3 +16,8 @@ Cite direct source links and publication or access dates for company facts.
 Distinguish explicit job requirements, inferred expectations and unknowns.
 Report missing or stale research. Keep the advice focused on this role and
 return the report schema. Research never writes to Profile or a resume.
+
+When discussing resume presentation, recommend direct, natural wording, specific
+outcomes and a quick visual scan. Discourage generic AI-sounding superlatives,
+keyword stuffing and long duty lists. Never recommend hiding keywords or adding
+a term the candidate has not evidenced.

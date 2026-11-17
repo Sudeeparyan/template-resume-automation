@@ -77,6 +77,14 @@ describe("The overnight hunt", () => {
     const html = renderToStaticMarkup(<HuntSetup info={empty} choice={choice()} onChoice={noop} starting={false} onStart={noop} />);
     expect(html).toContain("Add your target roles");
   });
+  it("still shows the controls when the search plan could not be read", () => {
+    // The server sends only { error, strategies } when the plan fails to build.
+    const broken = info({ plan: { error: "profile.yml could not be read", strategies: [] } as unknown as HuntInfo["plan"] });
+    const html = renderToStaticMarkup(<HuntSetup info={broken} choice={choice()} onChoice={noop} starting={false} onStart={noop} />);
+    expect(html).toContain("no target roles yet");
+    expect(html).toContain("The search plan could not be read: profile.yml could not be read");
+    expect(html).toContain("Add your target roles");
+  });
   it("shows progress, the wait and each pass while it runs", () => {
     const html = renderToStaticMarkup(<HuntProgress run={run()} onStop={noop} onJob={noop} />);
     expect(html).toContain("Overnight hunt running");

@@ -13,8 +13,10 @@ paper_label: US Letter
 resume_word: resume
 spelling: US English spelling (modeling, specializing, analyze)
 # The USCIS H-1B Employer Data Hub (data/sponsors) ranks employers and proves
-# legal presence. Public data, read-only, shared by every US profile.
+# legal presence. Public data, read-only, shared by every US profile. Mid-size and
+# large employers in the balanced list need an H-1B record (or a posting that says yes).
 sponsor_index: uscis
+sponsor_history: required
 
 messages:
   location_screen: "US location is not established by this posting; only United States roles are pursued."

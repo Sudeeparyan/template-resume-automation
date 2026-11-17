@@ -1,0 +1,4 @@
+# Optional: send the app's traces to a local trace viewer such as Arize Phoenix as well
+# (set CAREER_OTEL_ENDPOINT=http://127.0.0.1:6006/v1/traces). See docs/OBSERVABILITY.md.
+-r requirements.txt
+opentelemetry-exporter-otlp-proto-http==1.45.0

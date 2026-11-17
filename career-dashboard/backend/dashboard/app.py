@@ -259,6 +259,51 @@ def create_app(root=ROOT, schedule: bool = False):
             ".json",
         }:
             raise HTTPException(404, "File not found")
+        if path.suffix in {".pdf", ".tex", ".png"}:
+            # The generic file route must enforce the same evidence rule as
+            # Resume Studio downloads, including older saved previews.
+            import yaml
+
+            output = (root / "data/output").resolve()
+            source_path = path if path.suffix == ".tex" else None
+            job_id = None
+            parent = path.parent
+            while parent.is_relative_to(output) and parent != output:
+                if source_path is None and (parent / "resume.tex").is_file():
+                    source_path = parent / "resume.tex"
+                mapping_path = parent / "evidence-map.yml"
+                if job_id is None and mapping_path.is_file():
+                    try:
+                        mapping_path = safe_child(output, str(mapping_path.relative_to(output)))
+                        mapping = yaml.safe_load(mapping_path.read_text(encoding="utf-8")) or {}
+                        if isinstance(mapping, dict):
+                            job_id = mapping.get("job_id")
+                    except (OSError, ValueError, yaml.YAMLError):
+                        raise HTTPException(409, "Resume evidence metadata needs review") from None
+                parent = parent.parent
+            with workspace.connect() as db:
+                jobs = db.execute("SELECT id, folder FROM jobs WHERE folder IS NOT NULL").fetchall()
+            for job in jobs:
+                if not job["folder"]:
+                    continue
+                try:
+                    folder = safe_child(root, job["folder"])
+                except ValueError:
+                    continue
+                if job_id is None and path.is_relative_to(folder):
+                    job_id = job["id"]
+                    break
+            if job_id is not None:
+                if source_path is None or not source_path.is_file():
+                    raise HTTPException(409, "This resume artifact has no saved source to verify")
+                try:
+                    source_path = safe_child(output, str(source_path.relative_to(output)))
+                except ValueError:
+                    raise HTTPException(409, "Resume source is outside this profile's output folder") from None
+                source = source_path.read_text(encoding="utf-8")
+                problem = app.state.studio.resume_evidence_problem(job_id, source)
+                if problem:
+                    raise HTTPException(409, problem)
         return FileResponse(
             path, media_type="application/pdf" if path.suffix == ".pdf" else None
         )

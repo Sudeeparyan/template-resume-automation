@@ -90,6 +90,8 @@ def is_us_location(location: str) -> bool:
         return False
     return not _FOREIGN_TWIN.search(location) or bool(_US_STATE_SUFFIX.search(location))
 SENIORITY_BLOCK = re.compile(r"\b(senior|sr\.?|staff|lead|principal|director|head(?: of)?|manager|architect|distinguished|fellow|vp|vice president)\b", re.I)
+# The same words market/normalize.py reads as an internship.
+INTERNSHIP = re.compile(r"\b(intern(ship)?|placement|co-?op|summer student|work experience)\b", re.I)
 # A PhD that is merely preferred, or one option among degrees ("MS or PhD"),
 # is not a hard requirement.
 _PHD = r"ph\.?\s?d\.?"
@@ -189,6 +191,11 @@ class ProfileRules:
         self.roles = _track_regexes(profile, excluded_titles)
         targets = profile.get("target_roles") or {}
         self.max_years = int(targets.get("max_years_required") or 0)
+        # Levels the person chose (graduate, junior, entry, ...). Internships and student placements
+        # count only when they chose them: a finished graduate needs a job, not a co-op for students.
+        levels = [str(s).casefold() for s in targets.get("seniority") or []]
+        self.block_internships = bool(levels) and not any(s.startswith(("intern", "placement", "co-op", "coop"))
+                                                          for s in levels)
         scoring = profile.get("scoring") or {}
         self.degree = str(scoring.get("highest_degree") or "unknown qualifications")
         self.block_seniority = bool(scoring.get("block_seniority", False))
@@ -254,28 +261,38 @@ class JobQualityService:
 
     @staticmethod
     def _fetch(url: str) -> dict:
-        request = Request(
-            url,
-            headers={
-                "User-Agent": "Mozilla/5.0 (compatible; CareerDashboardVerifier/1.0)",
-                "Accept": "text/html,application/xhtml+xml",
-            },
-        )
-        try:
-            with urlopen(request, timeout=12) as response:
-                body = response.read(750_000).decode(
-                    response.headers.get_content_charset() or "utf-8", "replace"
-                )
-                text = unescape(re.sub(r"<[^>]+>", " ", body))
-                return {
-                    "status": response.status,
-                    "final_url": response.geturl(),
-                    "text": re.sub(r"\s+", " ", text)[:250_000],
-                }
-        except HTTPError as exc:
-            return {"status": exc.code, "final_url": exc.geturl(), "text": ""}
-        except (URLError, TimeoutError, socket.timeout) as exc:
-            return {"status": None, "final_url": url, "text": "", "error": type(exc).__name__}
+        from backend import telemetry
+
+        host = (urlsplit(url).hostname or "").lower()
+        with telemetry.span(f"GET {host}", **{"http.request.method": "GET", "url.full": telemetry.safe_url(url),
+                                              "server.address": host, "career.http.purpose": "verify_posting"}) as current:
+            request = Request(
+                url,
+                headers={
+                    "User-Agent": "Mozilla/5.0 (compatible; CareerDashboardVerifier/1.0)",
+                    "Accept": "text/html,application/xhtml+xml",
+                },
+            )
+            try:
+                with urlopen(request, timeout=12) as response:
+                    body = response.read(750_000).decode(
+                        response.headers.get_content_charset() or "utf-8", "replace"
+                    )
+                    text = unescape(re.sub(r"<[^>]+>", " ", body))
+                    result = {
+                        "status": response.status,
+                        "final_url": response.geturl(),
+                        "text": re.sub(r"\s+", " ", text)[:250_000],
+                    }
+            except HTTPError as exc:
+                result = {"status": exc.code, "final_url": exc.geturl(), "text": ""}
+            except (URLError, TimeoutError, socket.timeout) as exc:
+                result = {"status": None, "final_url": url, "text": "", "error": type(exc).__name__}
+            telemetry.set_attributes(current, **{"http.response.status_code": result["status"],
+                                                 "career.http.chars": len(result["text"]), "error.type": result.get("error")})
+            if result.get("error") or (result["status"] is not None and result["status"] >= 400):
+                telemetry.mark_failed(current, result.get("error") or f"HTTP {result['status']}")
+            return result
 
     def ensure_company(self, name: str) -> str:
         cid = company_id(name)
@@ -332,8 +349,12 @@ class JobQualityService:
             verdict = self.s.gate(job["company"], text, job["url"], job.get("location", ""),
                                   market=job.get("market") or "")
             if verdict.excluded and not sponsorship.overridden(job.get("sponsor_evidence"), verdict):
-                refusal = verdict
-                evidence.append(f'The posting now says: "{verdict.screen.sentence}" It moved to Excluded roles.')
+                from backend.services.demo import flexible_screening
+                if flexible_screening(self.s):
+                    evidence.append(f'Review mode: the posting now says: "{verdict.screen.sentence}" The role stays on the list, marked for review.')
+                else:
+                    refusal = verdict
+                    evidence.append(f'The posting now says: "{verdict.screen.sentence}" It moved to Excluded roles.')
         checked = utcnow()
         closed_at = checked if state == "expired" else None
         with self.w.connect() as db:
@@ -405,6 +426,8 @@ class JobQualityService:
             blockers.append(pack.text("location_blocker"))
         if rules.block_seniority and SENIORITY_BLOCK.search(title):
             blockers.append("Seniority in the title is outside this profile's configured target level.")
+        if rules.block_internships and INTERNSHIP.search(title) and not re.search(r"(?i)\bgraduate\b", title):
+            blockers.append("An internship or student placement is outside this profile's target levels.")
         if not rules.roles.search(title):
             blockers.append(rules.role_blocker)
         years = years_required(description)
@@ -463,7 +486,9 @@ class JobQualityService:
         # A cited registry or company-page URL is the record itself, so sources count as much as notes.
         legal_terms = ("company register", "secretary of state", "sec.gov", "edgar", "opencorporates",
                        "legal entity", "trading presence", "registered", "incorporated", "bbb.org",
-                       "linkedin.com/company", "crunchbase", "uscis h-1b employer data hub")
+                       "linkedin.com/company", "crunchbase", "uscis h-1b employer data hub",
+                       "dete employment permits issued to companies", "employment-permit-statistics-",
+                       "permits-issued-to-companies-")
         cited_record = any(term in url.casefold() for url in source_urls for term in legal_terms)
         positive_finding = any(
             any(term in finding.casefold() for term in legal_terms)
@@ -515,9 +540,9 @@ class JobQualityService:
     def balanced_five(self, candidates: list[dict], total: int = 5) -> dict:
         """Return an honest 2 startup / 1 mid / 2 large subset, scaled to ``total`` jobs. Mid and large companies must be tier S/A/B (cap-exempt, says yes, or proven sponsor); startups may be tier C.
 
-        That sponsor-record rule needs a sponsor history to check against (the US pack's
-        USCIS index). A country without one (Ireland) has no proven-sponsor tier, so there
-        the gate's own verdict is the rule: a posting that refuses a permit is already out."""
+        That sponsor-record rule applies only where the pack requires it (the US pack's USCIS
+        history). Where history only ranks (Ireland's DETE permits), the gate's own verdict is
+        the rule: a posting that refuses a permit is already out, and silence never excludes."""
         from backend.countries import pack_for
 
         primary = pack_for(self.w.root).code
@@ -537,7 +562,7 @@ class JobQualityService:
                 item for item in valid
                 if item.get("size_category") == category
                 and (category == "startup"
-                     or not pack_for(self.w.root, item.get("market") or primary).sponsor_index
+                     or not pack_for(self.w.root, item.get("market") or primary).sponsor_history_required
                      or item.get("sponsor_tier") in {"S", "A", "B"})
             ]
             if category == "startup":

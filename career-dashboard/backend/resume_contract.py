@@ -180,7 +180,7 @@ def load_contract(profile_path: str | None = None, evidence_path: str | None = N
         source_values.append("pdfauthor={" + candidate["full_name"] + "}")
 
     # Whenever an employer or degree is printed, one of its registered "title dates" or
-    # "name dates" lines must be printed with it (Soliton has two roles, so any one counts).
+    # "name dates" lines must be printed with it (an employer with two roles needs only one of them).
     pairs: dict[str, list[str]] = {}
     for claim in registry.values():
         if claim.get("category") in {"employment", "education"} and claim.get("status") not in {"hold", "missing"} and claim.get("dates"):

@@ -28,8 +28,14 @@ from typing import Any
 from urllib.parse import urlsplit
 
 from backend.paths import CONFIG, COUNTRIES, DATA
+from backend.permits.history import PermitHistoryIndex
 
 RULES_PATH = CONFIG / "sponsorship.yml"
+TEMPORAL_SPONSORSHIP_REFUSAL = (
+    r"(?:without\s+(the\s+need\s+for\s+)?|must\s+not\s+require\s+|excludes?\s+)"
+    r"(?:current|present)\s*(?:or|and|/)\s*future\s+"
+    r"((visa|employer|employment|immigration|work|H-?1B)\s+){0,2}(sponsorship|permits?)"
+)
 SPONSORS_DIR = DATA / "sponsors"
 SPONSORS_CSV = COUNTRIES / "us" / "sponsors-uscis.csv"
 INDEX_DB = SPONSORS_DIR / "index.db"
@@ -84,6 +90,7 @@ class Verdict:
     h1b_years: list[str] = field(default_factory=list)
     everify: bool = False
     restored: bool = False       # the candidate reviewed the exclusion sentence and restored the posting
+    permit_record: dict = field(default_factory=dict)  # DETE history ranks; it never promises support
     tier_labels: dict = field(default_factory=dict, repr=False)  # a profile's own wording (sponsorship.yml)
 
     @property
@@ -95,6 +102,13 @@ class Verdict:
         return self.screen.sentence if self.excluded else ""
 
     def label(self) -> str:
+        if self.tier == "B" and self.permit_record.get("found"):
+            from backend.permits.history import describe
+
+            names = ", ".join(self.permit_record.get("matched_names") or [])
+            recent = self.permit_record.get("permits_24_months", 0)
+            return (f"DETE permits issued to {names}: {recent:,} in the last 24 months "
+                    f"({describe(self.permit_record)}); posting is silent")
         if self.tier == "B" and self.h1b_approvals:
             years = ", ".join(self.h1b_years) if self.h1b_years else "recent years"
             return f"H-1B history: {self.h1b_approvals:,} approvals ({years}); posting is silent"
@@ -116,6 +130,7 @@ class Verdict:
             "h1b_matched_name": self.h1b_matched_name,
             "h1b_approvals": self.h1b_approvals,
             "h1b_years": self.h1b_years,
+            "permit_record": self.permit_record,
             "everify": self.everify,
             "positive_evidence": self.screen.evidence,
             "restored": self.restored,
@@ -159,6 +174,9 @@ def rules_for(root, market: str | None = None) -> dict[str, Any]:
     custom = root / "data/config" / ("sponsorship.yml" if code == primary else f"sponsorship-{code}.yml")
     path = custom if custom.is_file() else pack.template("sponsorship.yml")
     rules = load_rules(str(path))
+    if not rules["neutral_notices"] and path != pack.template("sponsorship.yml"):
+        # A profile's copy older than the country's notice list still ignores the notices.
+        rules = {**rules, "neutral_notices": load_rules(str(pack.template("sponsorship.yml")))["neutral_notices"]}
     try:
         profile = yaml.safe_load((root / "data/config/profile.yml").read_text(encoding="utf-8")) or {}
     except (OSError, yaml.YAMLError):
@@ -188,9 +206,24 @@ def _compile_rules(path: str, _stamp: int) -> dict[str, Any]:
         cfg = yaml.safe_load(stream) or {}
     compiled: dict[str, Any] = {}
     for group in ("exclude_no_sponsorship", "exclude_cannot_hire", "positive_sponsorship",
-                  "everify_signals", "do_not_exclude_on", "negation_guards", "ambiguous_sponsor_noun"):
+                  "everify_signals", "do_not_exclude_on", "negation_guards", "ambiguous_sponsor_noun",
+                  "neutral_notices"):
         patterns = []
         for raw in cfg.get(group, []) or []:
+            # Old profiles contain copied country rules. Retire these unsafe broad
+            # patterns without modifying private config files or trusting a phrase
+            # about time as evidence that an employer refuses sponsorship.
+            if group == "exclude_no_sponsorship" and raw in {
+                r"now\s+or\s+in\s+the\s+future",
+                r"(current|present)\s*(or|and|/)\s*future\s+((visa|employer|employment|immigration|work)\s+){0,2}(sponsorship|permits?)",
+                r"(current|present)\s*(or|and|/)\s*future\s+((visa|employer|employment|immigration|work|H-?1B)\s+){0,2}sponsorship",
+                r"no\s+(C2C|corp\s*to\s*corp|third[- ]party)",
+            }:
+                if "(current|present)" in raw:
+                    patterns.append(re.compile(TEMPORAL_SPONSORSHIP_REFUSAL, re.IGNORECASE))
+                continue
+            if group == "positive_sponsorship" and "stamp" in raw.lower():
+                continue  # acceptance of a current stamp does not promise a future permit
             try:
                 patterns.append(re.compile(raw, re.IGNORECASE))
             except re.error:
@@ -202,6 +235,8 @@ def _compile_rules(path: str, _stamp: int) -> dict[str, Any]:
     # Optional per-country wording; the defaults are the US wording.
     compiled["labels"] = {**REASON_LABEL, **(cfg.get("labels") or {})}
     compiled["tier_labels"] = dict(cfg.get("tier_labels") or {})
+    compiled["sponsor_index"] = cfg.get("sponsor_index") or ""
+    compiled["tier_b_min_permits"] = max(1, int(cfg.get("tier_b_min_permits") or 1))
     return compiled
 
 
@@ -216,6 +251,15 @@ def split_sentences(text: str) -> list[str]:
     normalized = re.sub(r"([.!?;])(?:\s*\.)+", r"\1", normalized)
     parts = re.split(r"(?<=[.!?;])\s+", normalized)
     return [p.strip() for p in parts if p.strip()]
+
+
+def _original_sentences(text: str) -> list[str]:
+    """Split posting text without changing the wording returned as evidence."""
+    # Mask only abbreviation punctuation, preserving every character's position.
+    protected = re.sub(r"\b(?:U\.S\.(?:A\.)?|e\.g\.|i\.e\.|etc\.|vs\.|Inc\.|Corp\.|Ltd\.|St\.)",
+                       lambda match: match.group().replace(".", "\x00"), text or "", flags=re.IGNORECASE)
+    parts = re.split(r"(?<=[.!?;])\s+|[\r\n\u2022\u00b7\u25aa\u25cf]+", protected)
+    return [part.replace("\x00", ".").strip() for part in parts if part.strip()]
 
 
 # A reviewer's note that reports the ABSENCE of restrictive wording ("No sponsorship or
@@ -236,7 +280,24 @@ ABSENCE_CLAIMS = [re.compile(pattern, re.IGNORECASE) for pattern in (
 )]
 
 
-CONTRAST = re.compile(r"\b(?:but|however|although|though|except\s+that)\b", re.IGNORECASE)
+INDEPENDENT_CLAUSE = re.compile(
+    r"\b(?:but|however|although|though|except\s+that|and(?=\s+(?:"
+    r"we\b|they\b|you\b|applicants\b|candidates\b|the\s+(?:company|employer|posting)\b|"
+    r"this\s+(?:role|position)\b|cannot\b|can't\b|must\b|will\s+not\b|do(?:es)?\s+not\b)))\b",
+    re.IGNORECASE,
+)
+_REQUIREMENT_NOUN = (r"(?:(?:a|an|any)\s+)?(?:(?:security|active|U\.?S\.?|United\s+States|Irish|EU|EEA)\s+)?"
+                     r"(?:clearance|citizenship|sponsorship|work\s+permit|employment\s+permit|visa)")
+NEGATED_REQUIREMENT_LIST = re.compile(
+    r"\b(?:does|do|will)\s+not\s+require\s+" + _REQUIREMENT_NOUN
+    + r"(?:\s*(?:,\s*(?:and|or)?|and|or)\s*" + _REQUIREMENT_NOUN + r")*",
+    re.IGNORECASE,
+)
+NON_IMMIGRATION_SPONSOR = re.compile(
+    r"\bsponsor(?:s|ing|ed)?\s+(?:(?:a|an|the|our)\s+)?(?:(?:local|community|charity|sports?|sporting|annual)\s+)?"
+    r"(?:teams?|events?|conferences?|meetups?|projects?|content|research\s+grants?)\b",
+    re.IGNORECASE,
+)
 
 
 def _first_match(patterns, sentence: str):
@@ -246,33 +307,62 @@ def _first_match(patterns, sentence: str):
     return None
 
 
+def _first_unguarded_match(patterns, sentence: str, guards):
+    """Ignore only wording covered by a negation or an innocent sponsor noun.
+
+    A sentence can contain both a routine check and a separate permit refusal.
+    Skipping that whole sentence would lose the actual restriction.
+    """
+    protected = []
+    for guard in guards:
+        for match in guard.finditer(sentence):
+            # "Could not see the precise sentence about security clearance" is
+            # a note about missing text. Its final list belongs to that note too.
+            end = len(sentence) if re.search(r"\b" + _META + r"\b", match.group(), re.IGNORECASE) else match.end()
+            protected.append((match.start(), end))
+    for pattern in patterns:
+        for match in pattern.finditer(sentence):
+            if not any(start < match.end() and match.start() < end for start, end in protected):
+                return pattern
+    return None
+
+
+def strip_notices(text: str, rules: dict[str, Any]) -> str:
+    """The posting without the statutory notices a job board adds to every advert.
+
+    JobsIreland and EURES append a reminder that non-EEA nationals need a permit. It restates
+    the law; it is not this employer's statement, so it neither excludes nor counts as wording.
+    """
+    for pattern in rules.get("neutral_notices") or []:
+        text = pattern.sub(" ", text)
+    return text
+
+
 def screen(jd_text: str, rules: dict[str, Any] | None = None) -> Screen:
     """Read the posting's own words. Never raises on odd input.
 
-    Order per sentence: skip innocent "sponsor" nouns; skip sentences that negate
-    the requirement ("no clearance required"); Group 2 (cannot hire) then Group 1
-    (won't sponsor) exclude on first hit; positive sentences are collected.
+    Ignore guarded phrases ("no clearance required"), then Group 2 (cannot hire)
+    and Group 1 (won't sponsor) exclude on first hit. A separate restriction in
+    the same sentence still applies; positive sentences are collected.
     A sentence matching only `do_not_exclude_on` ("must be authorized to work")
     does not itself exclude; the profile's confirmed eligibility is checked separately.
     """
     rules = rules or load_rules()
     labels = rules.get("labels") or REASON_LABEL
+    jd_text = strip_notices(jd_text or "", rules)
     everify = bool(_first_match(rules["everify_signals"], jd_text or ""))
     positives: list[dict] = []
-    for sentence in split_sentences(jd_text or ""):
-        if _first_match(rules["ambiguous_sponsor_noun"], sentence):
-            continue
-        if _first_match(rules["negation_guards"], sentence) or _first_match(ABSENCE_CLAIMS, sentence):
-            # A guard covers what it negates, not what follows a "but": "no such sentence was
-            # visible, but the posting says: without sponsorship" still refuses.
-            parts = CONTRAST.split(sentence, maxsplit=1)
-            if len(parts) < 2:
-                continue
-            sentence = parts[1].strip(" ,:;")
-            if _first_match(rules["negation_guards"], sentence) or _first_match(ABSENCE_CLAIMS, sentence):
-                continue
-        hard = _first_match(rules["exclude_cannot_hire"], sentence)
-        soft = None if hard else _first_match(rules["exclude_no_sponsorship"], sentence)
+    for original in _original_sentences(jd_text or ""):
+        sentence = " ".join(split_sentences(original))
+        guards = [*rules["negation_guards"], *ABSENCE_CLAIMS, *rules["ambiguous_sponsor_noun"],
+                  NEGATED_REQUIREMENT_LIST, NON_IMMIGRATION_SPONSOR]
+        # Some absence-note guards cover a long phrase. A contrast starts a new
+        # assertion, so those guards must not swallow the following restriction.
+        clauses = INDEPENDENT_CLAUSE.split(sentence)
+        hard = next((match for clause in clauses
+                     if (match := _first_unguarded_match(rules["exclude_cannot_hire"], clause, guards))), None)
+        soft = None if hard else next((match for clause in clauses
+                                      if (match := _first_unguarded_match(rules["exclude_no_sponsorship"], clause, guards))), None)
         if hard or soft:
             # "Must be authorized to work in the US" on its own is fine; it only excludes
             # when a refusal phrase is present in the same sentence, which is what matched.
@@ -281,13 +371,14 @@ def screen(jd_text: str, rules: dict[str, Any] | None = None) -> Screen:
                 verdict="EXCLUDED",
                 reason="cannot_hire" if hard else "no_sponsorship",
                 reason_label=labels["cannot_hire" if hard else "no_sponsorship"],
-                sentence=sentence[:400],
+                sentence=original,
                 pattern=matched.pattern,
                 everify=everify,
             )
-        positive = _first_match(rules["positive_sponsorship"], sentence)
+        positive = next((match for clause in clauses
+                         if (match := _first_unguarded_match(rules["positive_sponsorship"], clause, guards))), None)
         if positive:
-            positives.append({"pattern": positive.pattern, "sentence": sentence[:400]})
+            positives.append({"pattern": positive.pattern, "sentence": original})
     if positives:
         return Screen("KEEP", "explicit_sponsorship", labels["explicit_sponsorship"],
                       sentence=positives[0]["sentence"], evidence=positives[:3], everify=everify)
@@ -351,8 +442,9 @@ CREATE TABLE IF NOT EXISTS sponsor_meta (
 """
 
 
-class SponsorIndex:
+class SponsorIndex(PermitHistoryIndex):
     """SQLite cache over the USCIS CSV; rebuilt whenever the CSV changes. Lookups take milliseconds."""
+    kind = "uscis"
 
     def __init__(self, csv_path: Path = SPONSORS_CSV, db_path: Path = INDEX_DB):
         self.csv_path = Path(csv_path)
@@ -478,11 +570,18 @@ class NullIndex:
         return {"employers": 0, "built_at": None, "csv": ""}
 
 
-def index_for(root, market: str | None = None) -> SponsorIndex | NullIndex:
-    """The employer-history index a workspace's country pack uses (USCIS H-1B for the US)."""
+def index_for(root, market: str | None = None) -> PermitHistoryIndex | NullIndex:
+    """The selected country's public employer history (USCIS or Irish DETE)."""
     from backend.countries import pack_for
 
-    return index() if pack_for(root, market).sponsor_index == "uscis" else NullIndex()
+    source = pack_for(root, market).sponsor_index
+    if source == "uscis":
+        return index()
+    if source == "dete":
+        from backend.permits.history import index as dete_index
+
+        return dete_index()
+    return NullIndex()
 
 
 # --------------------------------------------------------------------------
@@ -502,7 +601,7 @@ def resolve_tier(result: Screen, cap_exempt: bool, approvals: int) -> str:
 
 def evaluate(company: str, jd_text: str, url: str = "", location: str = "",
              extra_sentences: list[str] | None = None, employer_type: str = "",
-             rules: dict[str, Any] | None = None, sponsor_index: SponsorIndex | None = None) -> Verdict:
+             rules: dict[str, Any] | None = None, sponsor_index: PermitHistoryIndex | NullIndex | None = None) -> Verdict:
     """Gate a posting. `extra_sentences` lets discovery pass the verbatim restriction wording it found."""
     rules = rules or load_rules()
     text = jd_text or ""
@@ -510,12 +609,27 @@ def evaluate(company: str, jd_text: str, url: str = "", location: str = "",
         text = text + "\n" + "\n".join(s for s in extra_sentences if s)
     result = screen(text, rules)
     cap_exempt, cap_reason = is_cap_exempt(company, domain_of(url), rules, employer_type)
-    history = (sponsor_index or index()).lookup(company, _state_of(location))
-    tier = resolve_tier(result, cap_exempt, int(history.get("approvals") or 0))
+    if sponsor_index is None:
+        # Callers without a profile must explicitly identify their history source.
+        if rules.get("sponsor_index") == "dete":
+            from backend.permits.history import index as dete_index
+
+            sponsor_index = dete_index()
+        elif rules.get("sponsor_index") == "uscis":
+            sponsor_index = index()
+        else:
+            sponsor_index = NullIndex()
+    history = sponsor_index.lookup(company, _state_of(location))
+    is_dete = "permits_24_months" in history
+    approvals = int(history.get("permits_24_months") or 0) if is_dete else int(history.get("approvals") or 0)
+    if is_dete and approvals < int(rules.get("tier_b_min_permits") or 1):
+        approvals = 0
+    tier = resolve_tier(result, cap_exempt, approvals)
     return Verdict(
         tier=tier, screen=result, cap_exempt=cap_exempt, cap_exempt_reason=cap_reason,
-        h1b_found=bool(history.get("found")), h1b_matched_name=history.get("matched_name"),
-        h1b_approvals=int(history.get("approvals") or 0), h1b_years=list(history.get("years") or []),
+        h1b_found=bool(history.get("found")) and not is_dete, h1b_matched_name=history.get("matched_name") if not is_dete else None,
+        h1b_approvals=int(history.get("approvals") or 0) if not is_dete else 0, h1b_years=list(history.get("years") or []) if not is_dete else [],
+        permit_record=history if is_dete else {},
         everify=result.everify, tier_labels=rules.get("tier_labels") or {},
     )
 

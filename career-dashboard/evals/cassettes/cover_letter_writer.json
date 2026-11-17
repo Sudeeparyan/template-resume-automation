@@ -1,0 +1,88 @@
+{
+ "first:5f8821095b3f958c": [
+  {
+   "body": "I am applying for the Graduate Data Analyst role at Example Analytics. I have completed an MSc in Computer Science at Example Institute (2026), and my strongest match for this position is my Synthetic Dataset Explorer project, in which I wrote SQL queries to summarise a synthetic dataset and used Python to validate its records.\n\nIn that project I worked in Python and SQL throughout. On the SQL side, I wrote queries to summarise the dataset, which reflects the SQL querying this role involves. On the Python side, I used the language to validate records in the dataset, giving me direct practice in applying Python to data. I also use Git alongside Python and SQL, so I am used to working with version control as part of my programming.\n\nMy MSc coursework in Databases and Software Engineering supports this practical work. The databases element underpins my SQL, while software engineering informs how I structure and write my Python code. Together with the project, this gives me a foundation in the two languages at the centre of the role: writing SQL queries and working with data in Python.\n\nI would welcome the chance to bring this combination of SQL querying, Python work and a computer science degree to the operations reporting described in the posting. Thank you for considering my application.",
+   "evidence_ids": [
+    "EDU-MSC-001",
+    "COURSEWORK-MSC-001",
+    "SKILL-PROGRAMMING-001",
+    "PROJ-P01-SYNTHETIC"
+   ],
+   "unsupported_claims": []
+  }
+ ],
+ "first:f45c8506c16f0982": [
+  {
+   "unsupported": [
+    {
+     "sentence": "In that project I worked in Python and SQL throughout.",
+     "why": "The evidence states the project used Python and SQL for two specific tasks, but does not state any frequency or extent such as working in them 'throughout' the project."
+    },
+    {
+     "sentence": "I also use Git alongside Python and SQL, so I am used to working with version control as part of my programming.",
+     "why": "The evidence lists Git as a skill alongside Python and SQL, but does not state that the candidate uses Git together with those languages in practice, nor that they are habitually used to working with version control as part of their programming."
+    },
+    {
+     "sentence": "The databases element underpins my SQL, while software engineering informs how I structure and write my Python code.",
+     "why": "The evidence states coursework in Databases and Software Engineering, but does not state that software engineering informs how the candidate structures and writes their Python code — a claim about their coding practice and method."
+    }
+   ]
+  }
+ ],
+ "retry:5f8821095b3f958c": [
+  {
+   "body": "I am applying for the Graduate Data Analyst role at Example Analytics in Dublin. I completed an MSc in Computer Science at Example Institute in 2026, and my skill set includes Python, SQL and Git, which match the SQL and Python work the role describes.\n\nFor my Synthetic Dataset Explorer project, I used Python to validate records in a synthetic dataset, and I wrote SQL queries to summarise the synthetic dataset. This gave me direct practice in the two tasks at the centre of this posting: writing SQL queries and working with data in Python. The SQL queries I wrote were aimed at summarising the dataset, which is the same kind of output a report for the operations team would draw on.\n\nMy MSc coursework covered Databases and Software Engineering. Alongside this, my programming skills are Python, SQL and Git, as listed in my skill set. The degree in computer science that the posting requires is the qualification I hold.\n\nI would welcome the chance to bring my Python and SQL work to the operations team's reporting. Thank you for considering my application.",
+   "evidence_ids": [
+    "EDU-MSC-001",
+    "COURSEWORK-MSC-001",
+    "SKILL-PROGRAMMING-001",
+    "PROJ-P01-SYNTHETIC"
+   ],
+   "unsupported_claims": []
+  }
+ ],
+ "first:83de9d132683c207": [
+  {
+   "unsupported": []
+  }
+ ],
+ "first:c328cb9a119c84dc": [
+  {
+   "body": "I am applying for the Junior Software Engineer role at Sample Software. I hold an MSc in Computer Science from Example Institute, completed 2026, and my skills include Python, SQL and Git, which match the core of what this role asks for.\n\nIn my Synthetic Dataset Explorer project, I used Python to validate records in a synthetic dataset and wrote SQL queries to summarise the synthetic dataset. This gave me direct practice with the two languages the role centres on: writing Python that processes data, and writing SQL to summarise it. I would bring this same approach to building and testing Python services and writing SQL at Sample Software.\n\nMy master's coursework covered Databases and Software Engineering, which underpins the database and development work described in the posting. Alongside Python and SQL, I work with Git, so I am prepared to use version control as part of how the team builds and reviews code.\n\nI would welcome the opportunity to discuss how my Python, SQL and Git skills and my MSc background could contribute to the team. Thank you for considering my application.",
+   "evidence_ids": [
+    "EDU-MSC-001",
+    "COURSEWORK-MSC-001",
+    "SKILL-PROGRAMMING-001",
+    "PROJ-P01-SYNTHETIC"
+   ],
+   "unsupported_claims": []
+  }
+ ],
+ "first:ad57c96fdd10e685": [
+  {
+   "unsupported": [
+    {
+     "sentence": "This gave me direct practice with the two languages the role centres on: writing Python that processes data, and writing SQL to summarise it.",
+     "why": "The evidence states the project actions (using Python to validate records, writing SQL to summarise the dataset) but does not state that this constituted 'direct practice' — a characterisation of the kind/quality of experience gained that the evidence does not mention."
+    }
+   ]
+  }
+ ],
+ "retry:c328cb9a119c84dc": [
+  {
+   "body": "I am applying for the Junior Software Engineer position at Sample Software. I have recently completed an MSc in Computer Science at Example Institute, and my skills include Python, SQL and Git — the three tools this role asks for.\n\nFor my Synthetic Dataset Explorer project, I used Python to validate records in a synthetic dataset, and I wrote SQL queries to summarise that dataset. This matches the core of the role: building and testing Python services and writing SQL. My master's coursework also covered Databases and Software Engineering, which sits alongside the day-to-day work the posting describes.\n\nThe role also mentions reviewing code with the team. My skill set includes Git, so I am familiar with the tool used for that kind of collaboration, and I would welcome the chance to develop my code review practice within a team setting.\n\nThe posting welcomes a relevant master's degree, and my MSc in Computer Science, completed in 2026, fits that description. I would be glad to discuss how my project work and coursework could contribute to your team.",
+   "evidence_ids": [
+    "EDU-MSC-001",
+    "COURSEWORK-MSC-001",
+    "SKILL-PROGRAMMING-001",
+    "PROJ-P01-SYNTHETIC"
+   ],
+   "unsupported_claims": []
+  }
+ ],
+ "first:97fc7d91e9746048": [
+  {
+   "unsupported": []
+  }
+ ]
+}

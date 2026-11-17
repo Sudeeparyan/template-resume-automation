@@ -1,0 +1,213 @@
+schema_version: 2
+source: DETE employment permits issued to companies
+format: One row per legal employer and year. monthly_permits lists only the months
+  with permits, as MM:count pairs (04:1;05:2); each year's published months are in
+  sources[].months_covered, so a covered month missing from a row had none. Matching
+  keys are derived from the employer name by the app.
+retrieved_at: '2026-10-04T09:49:56+00:00'
+privacy_policy: Only identifiable corporate or institutional employers and curated
+  organisations; individuals, households, sole traders and ambiguous names omitted.
+months_policy: Published workbook months; no inferred counts. Rolling history uses
+  complete calendar months.
+rows: 33393
+csv_sha256: 0872bbe066c63d03e8c1b97a591ebeb1b6a1a9052dcbdac7c1d6a43fd696df19
+sources:
+- year: 2022
+  sheet: Sheet1
+  months_covered:
+  - 2022-01
+  - 2022-02
+  - 2022-03
+  - 2022-04
+  - 2022-05
+  - 2022-06
+  - 2022-07
+  - 2022-08
+  - 2022-09
+  - 2022-10
+  - 2022-11
+  - 2022-12
+  source_rows: 6626
+  source_total: 39955
+  source_monthly_totals:
+    2022-01: 2278
+    2022-02: 2539
+    2022-03: 3458
+    2022-04: 4012
+    2022-05: 3996
+    2022-06: 3877
+    2022-07: 3956
+    2022-08: 3536
+    2022-09: 3423
+    2022-10: 3064
+    2022-11: 3599
+    2022-12: 2217
+  published_rows: 5851
+  published_raw_rows: 5852
+  merged_whitespace_rows: 1
+  published_permits: 36621
+  dropped_individual_or_ambiguous_rows: 774
+  dropped_permits: 3334
+  totals_validated: true
+  statistics_url: https://enterprise.gov.ie/en/publications/employment-permit-statistics-2022.html
+  workbook_url: https://enterprise.gov.ie/en/publications/publication-files/permits-issued-to-companies-2022.xlsx
+  sha256: d9980c0d567966abd5fea8da3e49b531ed102f03b9891766281a1618ec4310b6
+  retrieved_at: '2026-10-04T09:49:56+00:00'
+- year: 2023
+  sheet: Sheet1
+  months_covered:
+  - 2023-01
+  - 2023-02
+  - 2023-03
+  - 2023-04
+  - 2023-05
+  - 2023-06
+  - 2023-07
+  - 2023-08
+  - 2023-09
+  - 2023-10
+  - 2023-11
+  - 2023-12
+  source_rows: 6754
+  source_total: 30981
+  source_monthly_totals:
+    2023-01: 2527
+    2023-02: 2192
+    2023-03: 2546
+    2023-04: 2179
+    2023-05: 2758
+    2023-06: 3138
+    2023-07: 3031
+    2023-08: 2411
+    2023-09: 2203
+    2023-10: 2544
+    2023-11: 3005
+    2023-12: 2447
+  published_rows: 6047
+  published_raw_rows: 6049
+  merged_whitespace_rows: 2
+  published_permits: 28353
+  dropped_individual_or_ambiguous_rows: 705
+  dropped_permits: 2628
+  totals_validated: true
+  statistics_url: https://enterprise.gov.ie/en/publications/employment-permit-statistics-2023.html
+  workbook_url: https://enterprise.gov.ie/en/publications/publication-files/permits-issued-to-companies-2023.xlsx
+  sha256: c031ca83fdd7d4b7958a95a18df9e1a5cb64f953e890e174c2240429aae049aa
+  retrieved_at: '2026-10-04T09:49:56+00:00'
+- year: 2024
+  sheet: Sheet1
+  months_covered:
+  - 2024-01
+  - 2024-02
+  - 2024-03
+  - 2024-04
+  - 2024-05
+  - 2024-06
+  - 2024-07
+  - 2024-08
+  - 2024-09
+  - 2024-10
+  - 2024-11
+  - 2024-12
+  source_rows: 8062
+  source_total: 39390
+  source_monthly_totals:
+    2024-01: 3423
+    2024-02: 3453
+    2024-03: 2959
+    2024-04: 3508
+    2024-05: 2935
+    2024-06: 3019
+    2024-07: 4519
+    2024-08: 3363
+    2024-09: 2989
+    2024-10: 2946
+    2024-11: 3286
+    2024-12: 2990
+  published_rows: 7137
+  published_raw_rows: 7141
+  merged_whitespace_rows: 4
+  published_permits: 35628
+  dropped_individual_or_ambiguous_rows: 921
+  dropped_permits: 3762
+  totals_validated: true
+  statistics_url: https://enterprise.gov.ie/en/publications/employment-permit-statistics-2024.html
+  workbook_url: https://enterprise.gov.ie/en/publications/publication-files/permits-issued-to-companies-2024.xlsx
+  sha256: 6ffba7b67a44c1998f0f3cfa50a5d263244139aca722ddc4d817408ce494b59c
+  retrieved_at: '2026-10-04T09:49:56+00:00'
+- year: 2025
+  sheet: Sheet1
+  months_covered:
+  - 2025-01
+  - 2025-02
+  - 2025-03
+  - 2025-04
+  - 2025-05
+  - 2025-06
+  - 2025-07
+  - 2025-08
+  - 2025-09
+  - 2025-10
+  - 2025-11
+  - 2025-12
+  source_rows: 8330
+  source_total: 31044
+  source_monthly_totals:
+    2025-01: 3798
+    2025-02: 2994
+    2025-03: 3191
+    2025-04: 1668
+    2025-05: 1820
+    2025-06: 1684
+    2025-07: 2180
+    2025-08: 2661
+    2025-09: 2627
+    2025-10: 3092
+    2025-11: 2889
+    2025-12: 2440
+  published_rows: 7408
+  published_raw_rows: 7408
+  merged_whitespace_rows: 0
+  published_permits: 28562
+  dropped_individual_or_ambiguous_rows: 922
+  dropped_permits: 2482
+  totals_validated: true
+  statistics_url: https://enterprise.gov.ie/en/publications/employment-permit-statistics-2025.html
+  workbook_url: https://enterprise.gov.ie/en/publications/publication-files/permits-issued-to-companies-2025.xlsx
+  sha256: e44867719bd3bf9a0627c3698873877755446a4770e55f32574dfd7e2a1a3750
+  retrieved_at: '2026-10-04T09:49:56+00:00'
+- year: 2026
+  sheet: Export
+  months_covered:
+  - 2026-01
+  - 2026-02
+  - 2026-03
+  - 2026-04
+  - 2026-05
+  - 2026-06
+  - 2026-07
+  - 2026-08
+  - 2026-09
+  source_rows: 7741
+  source_total: 29989
+  source_monthly_totals:
+    2026-01: 3226
+    2026-02: 2823
+    2026-03: 2940
+    2026-04: 3356
+    2026-05: 3306
+    2026-06: 3476
+    2026-07: 3842
+    2026-08: 3694
+    2026-09: 3326
+  published_rows: 6950
+  published_raw_rows: 6950
+  merged_whitespace_rows: 0
+  published_permits: 27894
+  dropped_individual_or_ambiguous_rows: 791
+  dropped_permits: 2095
+  totals_validated: true
+  statistics_url: https://enterprise.gov.ie/en/publications/employment-permit-statistics-2026.html
+  workbook_url: https://enterprise.gov.ie/en/publications/publication-files/employment-permits-issued-to-companies-2026.xlsx
+  sha256: b323b30b134370901d86d1d86182da47550c86f78503ef86fd251ac51ebd776f
+  retrieved_at: '2026-10-04T09:49:56+00:00'

@@ -26,9 +26,9 @@ import {
   Square,
   TriangleAlert,
 } from "lucide-react";
-import { Switch } from "../components/UI";
+import { Badge, Switch } from "../components/UI";
 import { useMarket } from "../profiles";
-import type { PipelineChoice, PipelineInfo, PipelineRun, PipelineStepState } from "../types";
+import type { PipelineChoice, PipelineInfo, PipelineRun, PipelineStepState, ReadinessVerdict } from "../types";
 import {
   QUICK_PICKS,
   clockAfter,
@@ -426,6 +426,14 @@ function StateIcon({ state }: { state: PipelineStepState["state"] }) {
   return <CircleDashed size={15} aria-label="waiting" />;
 }
 
+// The ready-to-submit check's verdict (backend/services/readiness.py): a readiness score, not interview odds.
+const VERDICT_LABEL: Record<ReadinessVerdict, string> = {
+  ready: "Ready to submit",
+  review: "Needs your review",
+  blocked: "Not ready",
+};
+const VERDICT_TONE: Record<ReadinessVerdict, string> = { ready: "green", review: "amber", blocked: "red" };
+
 export function PipelineProgress({
   run,
   info,
@@ -464,6 +472,7 @@ export function PipelineProgress({
       ? "Nothing after the problem ran."
       : `${plural(found, "new job")} found` +
         (found && Object.keys(progress.jobs[0].steps).length ? `, ${prepared} fully prepared` : "") +
+        (progress.ready?.ready ? `, ${progress.ready.ready} ready to submit` : "") +
         (counts.failed ? `, ${plural(counts.failed, "step")} had a problem` : "");
   const find = progress.find;
   return (
@@ -522,6 +531,15 @@ export function PipelineProgress({
                 </span>
               ))}
             </div>
+            {job.steps.ready?.verdict && (
+              <p className="pipe-verdict">
+                <Badge tone={VERDICT_TONE[job.steps.ready.verdict]}>
+                  {VERDICT_LABEL[job.steps.ready.verdict]}
+                  {typeof job.steps.ready.score === "number" ? ` · ${job.steps.ready.score}/100` : ""}
+                </Badge>
+                <span>{job.steps.ready.next?.[0] ?? "Every check passed. Read it once, then apply through the posting link."}</span>
+              </p>
+            )}
             {Object.entries(job.steps)
               .filter(([, step]) => step.state === "failed")
               .map(([id, step]) => (

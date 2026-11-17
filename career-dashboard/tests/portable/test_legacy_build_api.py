@@ -76,7 +76,7 @@ def _wait_intake(client, base, state):
 
 
 @pytest.mark.skipif(not tectonic_executable(), reason="Tectonic is required for the PDF release gate")
-def test_reviewed_intake_build_keeps_user_edits_and_validates_pdf(tmp_path, monkeypatch):
+def test_reviewed_intake_build_keeps_user_edits_and_validates_pdf(tmp_path, monkeypatch, us_enabled):
     team = Team()
     store, test_client = _client(tmp_path, monkeypatch, team)
     with test_client as client:
@@ -166,6 +166,12 @@ def test_setup_chat_build_uses_reviewed_run_and_finishes_once(tmp_path, monkeypa
                 choice, other = "Customer Support Specialist", ""
             elif key == "sponsor":
                 choice, other = "no", ""
+            elif key == "permit_type":
+                # The documents say "citizen", so that option is offered first.
+                assert pending["options"][0]["value"] == "irish_or_eea_citizen"
+                choice, other = "irish_or_eea_citizen", ""
+            elif key == "graduate_search":
+                choice, other = "no", ""
             else:
                 pytest.fail("Unexpected setup question: " + key)
             answered = client.post(base + "/intake/chat/answer", json={"question_id": pending["id"],
@@ -188,3 +194,8 @@ def test_setup_chat_build_uses_reviewed_run_and_finishes_once(tmp_path, monkeypa
         assert len([m for m in chat["messages"] if m["kind"] == "built"]) == 1
         [run] = client.get(base + "/build-runs").json()["runs"]
         assert run["status"] == "completed" and run["reviewed_draft"] is True
+        import yaml
+
+        profile = yaml.safe_load((store.root_for(pid) / "data/config/profile.yml").read_text(encoding="utf-8"))
+        irish = profile["work_authorization_by_market"]["ie"]
+        assert (irish["permission_type"], irish["status"], irish["citizenship"]) == ("irish_or_eea_citizen", "authorized", "citizen")

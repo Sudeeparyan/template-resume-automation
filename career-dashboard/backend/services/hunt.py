@@ -4,8 +4,8 @@ A Daily Search run is one pass: one search, whatever it finds, done. The hunt is
 with a deadline ("find 10 jobs that fit at 70 or better by 7 AM") and it loops:
 
 1. Every no-AI source first (services/job_sources.py): the tracked companies, the
-   country's verified employer directory and, for Ireland, gradireland, jobs.ie and the
-   askmanavi graduate tracker. These give full posting text for free.
+   country's verified employer directory and, for Ireland, gradireland and jobs.ie. These
+   give full posting text for free.
 2. Then focused AI web-search passes (services/search_plan.py), one site group and one
    target role at a time: employer careers and ATS pages, Irish job boards, LinkedIn and
    the public sector, graduate programmes.
@@ -19,8 +19,9 @@ with a deadline ("find 10 jobs that fit at 70 or better by 7 AM") and it loops:
    held (services/search_memory.py) and checked when one is back.
 5. The search memory skips postings an earlier pass (or an earlier night) already decided.
 6. When the target is met, the search time is used up or every source is exhausted, each saved
-   job gets the enabled helpers (research, tailored resume, study plan, PDF) through the
-   Daily Search pipeline, and HUNT-REPORT.md is written.
+   job gets the enabled helpers through the Daily Search pipeline (posting check, research with
+   the hiring-manager view and profile fit, tailored resume, PDF, independent review, study
+   plan, ready-to-submit check), and HUNT-REPORT.md is written.
 
 Nothing is ever submitted and no one is contacted. The hunt only saves and prepares.
 """
@@ -28,17 +29,19 @@ Nothing is ever submitted and no one is contacted. The hunt only saves and prepa
 from __future__ import annotations
 
 import json
+import re
 import threading
 import time
 import uuid
 from datetime import datetime, timezone
 
 from backend.services import search_memory
+from backend.services.pipeline import DEFAULT_STEPS
 
 MAX_TARGET = 40
 MAX_HOURS = 12.0
 DEFAULTS = {"target": 10, "hours": 8.0, "min_fit": 70, "sources": "all", "allow_paid": False,
-            "require_ai_fit": True, "steps": {"research": True, "tailor": True, "study_plan": True, "pdf": True}}
+            "require_ai_fit": True, "steps": dict(DEFAULT_STEPS)}
 SOURCE_CHOICES = ("all", "feeds", "ai")
 # At most this many cycles through every strategy; between cycles the hunt pauses so boards can refresh.
 MAX_CYCLES = 3
@@ -53,7 +56,20 @@ FIT_ROUNDS = 6
 PREPARE_SHARE = 0.3
 # The longest single sleep, so Stop is noticed quickly.
 NAP_SECONDS = 20
+# After the app restarts mid-hunt, it carries on by itself while at least this much time is left,
+# at most this many times per hunt.
+RESUME_MIN_MINUTES = 20
+MAX_RESUMES = 3
+# A helper step that failed for one of these reasons is tried once more after a short pause.
+TRANSIENT = re.compile(r"time(?:d)? ?out|timeout|connection|temporar|unavailable|overloaded|network|"
+                       r"\b50[234]\b|reset by peer|try again", re.IGNORECASE)
+TRANSIENT_PAUSE_SECONDS = 60
 ACTIVE = ("queued", "running", "waiting")
+# A saved job whose posting states no pay, and no market estimate reaches the floor, gets comparable-pay
+# research (services/salary_research.py) on a free AI plan only, at most this many a day per profile.
+PAY_RESEARCH_PER_DAY = 4
+PAY_RESEARCH_PREF = "pay_research_today"
+PAY_RESEARCH_TIMEOUT_MINUTES = 30
 
 
 class Stopped(Exception):
@@ -142,19 +158,42 @@ class Hunt:
         unknown = [step for step in steps if step not in STEP_IDS]
         if unknown:
             raise ValueError("Unknown helper(s): " + ", ".join(unknown))
+        from backend.ai import router
+
         providers = {p["id"]: p for p in self.pipeline.providers()}
+        allow_paid = bool(merged.get("allow_paid"))
+        if not allow_paid:
+            # A saved main provider can be a paid API. This run's permission takes
+            # precedence: Auto is usable only when a free plan is installed.
+            free_plans = [p for name, p in providers.items() if name in router.FREE]
+            free_ready = any(p["ready"] for p in free_plans)
+            # A reduced catalog may expose only Auto. Its per-call free policy
+            # remains authoritative when the individual plans are not listed.
+            if not free_plans:
+                free_ready = bool((providers.get(router.ID) or {}).get("ready"))
+            providers = {name: p for name, p in providers.items()
+                         if name in router.FREE or (name == router.ID and free_ready)}
         provider = providers.get(merged.get("provider") or "")
         if provider is None or not provider["ready"]:
-            raise ValueError("The AI chosen in Settings is not ready on this PC. Choose Auto or sign in to a plan.")
-        model = merged.get("model") or provider["models"][0]["id"]
-        if model not in [m["id"] for m in provider["models"]]:
-            model = provider["models"][0]["id"]
-        return {"target": target, "hours": round(hours, 2), "min_fit": min_fit, "sources": merged["sources"],
-                "allow_paid": bool(merged.get("allow_paid")), "require_ai_fit": bool(merged.get("require_ai_fit", True)),
+            # The AI chosen in Settings is not ready: any AI that is (Auto comes first) takes over.
+            provider = next((p for p in providers.values() if p["ready"]), None)
+        sources, no_ai = merged["sources"], provider is None
+        if no_ai:
+            # No AI at all on this PC right now: the hunt still reads the job boards and employer
+            # feeds and holds what it finds for the AI requirement check, instead of refusing to start.
+            provider, model, sources = {"id": router.ID}, router.ID, "feeds"
+        else:
+            model = merged.get("model") or provider["models"][0]["id"]
+            if model not in [m["id"] for m in provider["models"]]:
+                model = provider["models"][0]["id"]
+        return {"target": target, "hours": round(hours, 2), "min_fit": min_fit, "sources": sources,
+                "requested_sources": merged["sources"], "no_ai": no_ai,
+                "allow_paid": allow_paid, "require_ai_fit": bool(merged.get("require_ai_fit", True)),
                 "steps": {step: bool(steps.get(step, DEFAULTS["steps"][step])) for step in STEP_IDS},
                 "provider": provider["id"], "model": model}
 
-    def start(self, values: dict) -> dict:
+    def start(self, values: dict, *, carry: dict | None = None) -> dict:
+        """Start a hunt. ``carry`` continues an interrupted one: its saved jobs and finished helper steps."""
         from backend.countries import require_known_authorization
 
         require_known_authorization(self.w.root)
@@ -174,15 +213,24 @@ class Hunt:
             progress = {"stage": "Waiting to start", "started_epoch": now, "search_until_epoch": search_end,
                         "deadline_epoch": now + config["hours"] * 3600, "target": config["target"], "cycle": 0,
                         "saved": [], "passes": [], "waiting": None, "prepare": {"state": "waiting", "jobs": []}}
+            if carry:
+                progress.update(saved=list(carry["saved"]), done_steps=carry["done_steps"],
+                                resumed_from=carry["id"], resumes=carry["resumes"])
             id = uuid.uuid4().hex
             stamp = self.s.now()
             with self.w.connect() as db:
                 db.execute("INSERT INTO hunt_runs(id,state,config,progress,created_at,updated_at) VALUES(?,?,?,?,?,?)",
                            (id, "queued", json.dumps(config), json.dumps(progress), stamp, stamp))
-                self.w.record_event(db, "hunt_started", run_id=id, **{k: config[k] for k in ("target", "hours", "min_fit", "sources")})
-            self.s.set_pref("hunt_preferences", {k: config[k] for k in ("target", "hours", "min_fit", "sources",
-                                                                          "allow_paid", "require_ai_fit", "steps")})
-            self.thread = threading.Thread(target=self._run, args=(id,), name="career-hunt", daemon=True)
+                self.w.record_event(db, "hunt_resumed" if carry else "hunt_started", run_id=id,
+                                    **{k: config[k] for k in ("target", "hours", "min_fit", "sources")})
+            if not carry:
+                # The person's own choices are remembered, not a fallback made for this run only.
+                self.s.set_pref("hunt_preferences", {**{k: config[k] for k in ("target", "hours", "min_fit", "allow_paid",
+                                                                              "require_ai_fit", "steps")},
+                                                     "sources": config["requested_sources"]})
+            from backend import telemetry
+
+            self.thread = threading.Thread(target=telemetry.carry(self._traced), args=(id,), name="career-hunt", daemon=True)
             self.thread.start()
         return self.get(id)
 
@@ -198,6 +246,45 @@ class Hunt:
                        "WHERE state IN ('queued','running','waiting')",
                        ("The app stopped during this hunt. Jobs it saved stay saved; start it again to continue "
                         "(the search memory skips what it already checked).", self.s.now(), self.s.now()))
+
+    def resume_interrupted(self) -> dict | None:
+        """After the app restarted mid-hunt: carry on with the latest interrupted hunt while its time lasts.
+
+        The new run keeps the jobs already saved and skips the helper steps already done; the
+        search memory skips the postings already checked. At most MAX_RESUMES times per hunt,
+        so a hunt that keeps stopping the app is not started again and again.
+        """
+        with self.w.connect() as db:
+            row = db.execute("SELECT * FROM hunt_runs WHERE state='interrupted' "
+                             "ORDER BY created_at DESC, rowid DESC LIMIT 1").fetchone()
+        if not row or self._latest(active=True):
+            return None
+        old = self._public(row)
+        progress = old["progress"]
+        left = float(progress.get("deadline_epoch") or 0) - self.clock()
+        resumes = int(progress.get("resumes") or 0)
+        if progress.get("resumed_into") or left < RESUME_MIN_MINUTES * 60 or resumes >= MAX_RESUMES:
+            return None
+        config = old["config"]
+        values = {k: config.get(k) for k in ("target", "min_fit", "allow_paid", "require_ai_fit", "steps")}
+        values.update(sources=config.get("requested_sources") or config.get("sources") or "all",
+                      hours=round(min(MAX_HOURS, max(0.25, left / 3600)), 2))
+        done = {job_id: list(steps) for job_id, steps in (progress.get("done_steps") or {}).items()}
+        for job in (progress.get("prepare") or {}).get("jobs") or []:
+            finished = [step for step, state in (job.get("steps") or {}).items() if state.get("state") == "done"]
+            done[job["id"]] = sorted(set(done.get(job["id"], [])) | set(finished))
+        try:
+            new = self.start(values, carry={"id": old["id"], "saved": progress.get("saved") or [],
+                                            "done_steps": done, "resumes": resumes + 1})
+        except Exception:  # noqa: BLE001 - the person can still start one by hand
+            return None
+        progress["resumed_into"] = new["id"]
+        with self.w.connect() as db:
+            db.execute("UPDATE hunt_runs SET progress=?, error=? WHERE id=?",
+                       (json.dumps(progress, ensure_ascii=False),
+                        "The app stopped during this hunt, so it carried on by itself in a new run "
+                        "with the jobs already saved.", old["id"]))
+        return new
 
     def get(self, id: str) -> dict | None:
         with self.w.connect() as db:
@@ -239,6 +326,19 @@ class Hunt:
                 raise Stopped()
             self.sleep(min(NAP_SECONDS, max(0.0, end - self.clock())))
 
+    def _traced(self, id: str) -> None:
+        from backend import telemetry
+
+        with telemetry.bind(profile_root=self.w.root, run={"id": f"hunt:{id}", "kind": "hunt"}):
+            with telemetry.span("hunt.run", **{"career.hunt_id": id}) as current:
+                self._run(id)
+                with self.w.connect() as db:
+                    row = db.execute("SELECT state,error FROM hunt_runs WHERE id=?", (id,)).fetchone()
+                if row:
+                    telemetry.set_attributes(current, **{"career.run_state": row["state"]})
+                    if row["state"] == "failed":
+                        telemetry.mark_failed(current, row["error"])
+
     def _run(self, id: str) -> None:
         with self.w.connect() as db:
             row = db.execute("SELECT * FROM hunt_runs WHERE id=?", (id,)).fetchone()
@@ -246,8 +346,12 @@ class Hunt:
         config["free_only"] = not config.get("allow_paid")
         state, error = "completed", None
         try:
-            self._search(id, config, progress)
-            self._prepare(id, config, progress)
+            from backend import telemetry
+
+            with telemetry.span("hunt.step search", **{"career.node": "search"}):
+                self._search(id, config, progress)
+            with telemetry.span("hunt.step prepare", **{"career.node": "prepare"}):
+                self._prepare(id, config, progress)
         except Stopped:
             state = "stopped"
             progress["stage"] = "Stopped"
@@ -437,29 +541,93 @@ class Hunt:
                      excluded=len(result.get("excluded") or []), held=int(result.get("held") or 0),
                      ai_checked=int(fit_check.get("by_ai") or 0))
         self._save(id, progress)
+        pending = [job_id for job_id in result.get("pending_salary_job_ids") or [] if job_id not in added]
+        if pending:
+            self._research_pay(id, config, progress, pending, strategy)
         return looked
+
+    def _research_pay(self, id, config, progress, job_ids, strategy) -> None:
+        """Comparable-pay research for saved jobs whose posting states no pay: free AI plans only, at most
+        PAY_RESEARCH_PER_DAY a day. A job whose researched pay then reaches the floor joins the saved list,
+        with the note to confirm the actual salary (opportunities.pay_note); the research never becomes the
+        vacancy's pay."""
+        from backend.ai import router
+        from backend.services.opportunities import preparation_issue
+
+        if not self.s.agent_enabled("salary_research"):
+            return
+        today = self.s.today()
+        used = self.s.pref(PAY_RESEARCH_PREF, {}) or {}
+        count = int(used.get("count") or 0) if used.get("day") == today else 0
+        provider, model = self.pipeline._web_choice(config)
+        if provider and router.is_paid(provider):
+            provider = model = None  # Auto, held to the free plans below
+        for job_id in job_ids:
+            if count >= PAY_RESEARCH_PER_DAY or len(progress["saved"]) >= config["target"] \
+                    or self.clock() >= progress["search_until_epoch"]:
+                break
+            if self._stop_requested(id):
+                raise Stopped()
+            try:
+                job = self.w.get_job(job_id)
+            except ValueError:
+                continue
+            if (job.get("opportunity") or {}).get("section") != "needs_research":
+                continue
+            if not self._ai_state({**config, "allow_paid": False})[0]:
+                break  # no free plan is ready now; paid AI is never used for this
+            count += 1
+            self.s.set_pref(PAY_RESEARCH_PREF, {"day": today, "count": count})
+            entry = {"job_id": job_id, "company": job["company"], "title": job["title"], "state": "running"}
+            progress.setdefault("pay_research", []).append(entry)
+            progress["stage"] = f"Researching comparable pay for {job['title']} at {job['company']} (free AI plans only)"
+            self._save(id, progress)
+            try:
+                queued = self.runner.enqueue("salary_research", job_id, provider, model, free_only=True)
+                self._wait_run(id, queued["id"], PAY_RESEARCH_TIMEOUT_MINUTES, "This pay research")
+            except Stopped:
+                entry["state"] = "stopped"
+                raise
+            except Exception as exc:  # noqa: BLE001 - one job's research never ends the hunt
+                entry.update(state="failed", note=str(exc)[:300])
+                continue
+            job = self.w.get_job(job_id)
+            issue = preparation_issue(job)
+            entry.update(state="saved" if not issue else "not_confirmed",
+                         note="Comparable published pay reaches your floor; confirm the actual salary with the recruiter."
+                         if not issue else issue)
+            if not issue:
+                progress["saved"].append({"id": job_id, "company": job["company"], "title": job["title"],
+                                          "location": job.get("location") or "", "fit": job.get("fit_score"),
+                                          "url": job.get("url") or "",
+                                          "pass": strategy["label"] + " (comparable pay researched)"})
+        self._save(id, progress)
 
     def _discovery(self, id, preset, count, focus, provider, model, *, free_only) -> dict:
         queued = self.runner.enqueue("discovery", None, provider, model, preset, count=count, focus=focus,
                                      free_only=free_only)
-        deadline = self.clock() + PASS_TIMEOUT_MINUTES * 60
+        return self._wait_run(id, queued["id"], PASS_TIMEOUT_MINUTES, "This pass")
+
+    def _wait_run(self, id, run_id, minutes, what) -> dict:
+        """Wait for one agent run to finish; its result, or why it failed."""
+        deadline = self.clock() + minutes * 60
         while self.clock() < deadline:
             with self.w.connect() as db:
-                row = db.execute("SELECT id, state, result, error FROM agent_runs WHERE id=?", (queued["id"],)).fetchone()
+                row = db.execute("SELECT id, state, result, error FROM agent_runs WHERE id=?", (run_id,)).fetchone()
             if row and row["state"] == "completed":
                 return {"id": row["id"], "result": json.loads(row["result"] or "{}")}
             if row and row["state"] == "failed":
-                raise ValueError(row["error"] or "The pass failed without a reason.")
+                raise ValueError(row["error"] or f"{what} failed without a reason.")
             if self._stop_requested(id):
                 raise Stopped()
             self.sleep(self.poll)
-        raise ValueError(f"This pass did not finish within {PASS_TIMEOUT_MINUTES} minutes.")
+        raise ValueError(f"{what} did not finish within {minutes} minutes.")
 
     # ----- preparing what was found --------------------------------------------------------
 
     def _prepare(self, id, config, progress) -> None:
         from backend.ai import limits
-        from backend.services.pipeline import STEP, STEP_IDS
+        from backend.services.pipeline import STEP, STEP_IDS, JobStopped, open_draft, step_entry
 
         steps = [step for step in STEP_IDS if config["steps"].get(step)]
         saved = progress["saved"]
@@ -469,19 +637,29 @@ class Hunt:
         jobs = [{"id": job["id"], "company": job["company"], "title": job["title"],
                  "steps": {step: {"state": "waiting"} for step in steps}} for job in saved]
         progress["prepare"] = {"state": "running", "jobs": jobs}
+        done_steps = progress.get("done_steps") or {}
         for number, job in enumerate(jobs, 1):
-            try:
-                self.pipeline.studio.open(job["id"])
-            except Exception as exc:  # noqa: BLE001
-                for step in steps:
-                    job["steps"][step] = {"state": "failed", "error": "Could not open this job's resume: " + str(exc)[:300]}
-                self._save(id, progress)
-                continue
+            done_before = set(done_steps.get(job["id"]) or [])
+            stopped, opened = None, False
             for step in steps:
                 if self._stop_requested(id):
                     raise Stopped()
+                if stopped:
+                    job["steps"][step] = {"state": "skipped", "note": stopped}
+                    continue
                 if self.clock() >= progress["deadline_epoch"]:
                     job["steps"][step] = {"state": "skipped", "note": "The hunt's time ran out."}
+                    continue
+                try:
+                    from backend.services.opportunities import preparation_issue
+                    issue = preparation_issue(self.w.get_job(job["id"]))
+                    if step != "posting" and issue:
+                        raise JobStopped(issue)
+                    opened = open_draft(self.pipeline.studio, job["id"], step, opened)
+                except Exception as exc:  # noqa: BLE001
+                    stopped = "Could not open this job's resume: " + str(exc)[:300]
+                    job["steps"][step] = {"state": "failed", "error": stopped}
+                    self._save(id, progress)
                     continue
                 progress["stage"] = f"{STEP[step]['label']} for {job['company']} (job {number} of {len(jobs)})"
                 job["steps"][step] = {"state": "running"}
@@ -490,7 +668,12 @@ class Hunt:
                 for attempt in (1, 2):
                     try:
                         done = self.pipeline.run_step(step, job["id"], config)
-                        job["steps"][step] = {"state": "done", "seconds": round(self.clock() - started, 1), **done}
+                        job["steps"][step] = step_entry(done, round(self.clock() - started, 1))
+                        break
+                    except JobStopped as exc:  # the posting closed: nothing more for this job
+                        stopped = str(exc)
+                        job["steps"][step] = {"state": "failed", "seconds": round(self.clock() - started, 1),
+                                              "error": stopped}
                         break
                     except Exception as exc:  # noqa: BLE001
                         message = str(exc)
@@ -506,6 +689,14 @@ class Hunt:
                                 self._nap(id, max(0.0, wake - self.clock()) + 30)
                                 progress["waiting"] = None
                                 continue
+                        # A dropped connection or a timeout: pause, then try once more.
+                        if attempt == 1 and TRANSIENT.search(message) and not limits.is_limit(message) \
+                                and self.clock() + TRANSIENT_PAUSE_SECONDS < progress["deadline_epoch"]:
+                            progress["stage"] = (f"{STEP[step]['label']} for {job['company']} did not finish "
+                                                 "(the AI app did not answer); trying again in a minute")
+                            self._save(id, progress)
+                            self._nap(id, TRANSIENT_PAUSE_SECONDS)
+                            continue
                         break
                 self._save(id, progress)
         progress["prepare"]["state"] = "done"
@@ -526,7 +717,12 @@ class Hunt:
         lines.append(f"**{len(saved)} of {config['target']} jobs saved** at a fit bar of {config['min_fit']} "
                      f"({state}{': ' + error if error else ''}).")
         if progress.get("exhausted"):
-            lines.append("Every source was searched and nothing new passed the checks, so the hunt ended early.")
+            lines.append("No new matches passed the checks in the attempted sources. Coverage may still be partial.")
+        if progress.get("resumed_from"):
+            lines.append("The app stopped during the night; the hunt carried on by itself with the jobs already saved.")
+        if config.get("no_ai"):
+            lines.append("No AI app was ready, so the hunt read the job boards and employer feeds only; what it found "
+                         "waits for the AI requirement check. Sign in to Kimi Code, Codex or Claude Code to finish it.")
         lines.append("")
         prepared = {job["id"]: job for job in (progress.get("prepare") or {}).get("jobs") or []}
         for job in saved:
@@ -548,6 +744,8 @@ class Hunt:
                         if step.get("state") in ("failed", "skipped")]
             if done:
                 lines.append("- Prepared: " + ", ".join(done))
+            if (steps.get("ready") or {}).get("verdict"):
+                lines.append("- Final check: " + str(steps["ready"].get("note") or steps["ready"]["verdict"]))
             for problem in problems:
                 lines.append(f"- ⚠ {problem}")
             lines.append("")

@@ -42,6 +42,25 @@ describe("Agent report safety", () => {
     expect(html).toContain("Hiring criteria are inferred");
     expect(html).toContain("<h3>Skills</h3>");
   });
+  it("shows a blocked independent review and safely renders its issues", () => {
+    const html = renderToStaticMarkup(<ReportView report={{
+      summary: "Check the resume before applying", report: "Review text", sources: [], limitations: [],
+      verdict: "blocked", issues: ["<script>Unsupported experience</script>"],
+    }} />);
+    expect(html).toContain("Review blocked");
+    expect(html).toContain('class="badge red"');
+    expect(html).toContain('aria-label="Review issues"');
+    expect(html).toContain("Unsupported experience");
+    expect(html).not.toContain("<script>");
+  });
+  it("keeps a review with unresolved issues out of the passed state", () => {
+    const html = renderToStaticMarkup(<ReportView report={{
+      summary: "Check this issue", report: "Review text", sources: [], limitations: [],
+      verdict: "pass", issues: ["An unsupported skill is printed"],
+    }} />);
+    expect(html).toContain("Needs your review");
+    expect(html).not.toContain("Review passed");
+  });
 });
 
 it("renders hiring comparisons as safe tables", () => {

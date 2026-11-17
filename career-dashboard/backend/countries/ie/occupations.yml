@@ -1,0 +1,3241 @@
+schema_version: 1
+verified_at: '2026-10-03'
+review_after: '2027-01-01'
+retrieved_at: '2026-10-03T21:58:42+00:00'
+notice: Dated occupation-list facts only. Duties, qualifications and exceptions require confirmation. Not immigration
+  advice.
+sources:
+  critical:
+    title: Critical Skills Occupations List
+    page_url: https://enterprise.gov.ie/en/what-we-do/workplace-and-skills/economic-migration-policy/occupations-lists-and-reviews/csol.html
+    url: https://enterprise.gov.ie/en/publications/publication-files/critical-skills-occupations-list.docx
+    sha256: d2ca0f466668418f3070c76a23cd6227e5ee3d6fceeea5636e69603080d7fb22
+    bytes: 36843
+    row_count: 60
+    soc4_count: 60
+  ineligible:
+    title: Ineligible Occupations List
+    page_url: https://enterprise.gov.ie/en/what-we-do/workplace-and-skills/economic-migration-policy/occupations-lists-and-reviews/iol.html
+    url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+    sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+    bytes: 67160
+    row_count: 188
+    soc4_count: 187
+entries:
+- id: critical:1122
+  list: critical
+  soc3: '112'
+  soc4: '1122'
+  category: Production Managers and Directors
+  title: Site Manager
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/critical-skills-occupations-list.docx
+  source_sha256: d2ca0f466668418f3070c76a23cd6227e5ee3d6fceeea5636e69603080d7fb22
+- id: critical:1136
+  list: critical
+  soc3: '113'
+  soc4: '1136'
+  category: ICT Professionals
+  title: Information technology and telecommunications directors
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/critical-skills-occupations-list.docx
+  source_sha256: d2ca0f466668418f3070c76a23cd6227e5ee3d6fceeea5636e69603080d7fb22
+- id: critical:1181
+  list: critical
+  soc3: '118'
+  soc4: '1181'
+  category: Health and Social Services Managers and Directors
+  title: Senior health services and public health managers and directors
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/critical-skills-occupations-list.docx
+  source_sha256: d2ca0f466668418f3070c76a23cd6227e5ee3d6fceeea5636e69603080d7fb22
+- id: critical:1213
+  list: critical
+  soc3: '121'
+  soc4: '1213'
+  category: Managers and Proprietors in Agriculture Related Services
+  title: 'Professional Forester
+
+    Resource modelling, earth observation and data analyst.'
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/critical-skills-occupations-list.docx
+  source_sha256: d2ca0f466668418f3070c76a23cd6227e5ee3d6fceeea5636e69603080d7fb22
+- id: critical:2111
+  list: critical
+  soc3: '211'
+  soc4: '2111'
+  category: Natural and Social Science Professionals
+  title: Chemical scientists in manufacturing (including food & beverages, medical devices), product development,
+    analytical development, clinical co-vigilance, or biotechnology or related and relevant specialist skills, qualifications
+    or experience
+  qualifiers:
+  - in manufacturing (including food & beverages, medical devices), product development, analytical development,
+    clinical co-vigilance, or biotechnology or related and relevant specialist skills, qualifications or experience
+  exceptions: []
+  conditional: true
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/critical-skills-occupations-list.docx
+  source_sha256: d2ca0f466668418f3070c76a23cd6227e5ee3d6fceeea5636e69603080d7fb22
+- id: critical:2112
+  list: critical
+  soc3: '211'
+  soc4: '2112'
+  category: Natural and Social Science Professionals
+  title: 'Medical laboratory scientists
+
+    Biological scientists and biochemists in manufacturing (including food & beverages, medical devices), product
+    development, analytical development, clinical co-vigilance, or biotechnology or related and relevant specialist
+    skills, qualifications or experience
+
+    Agronomist'
+  qualifiers:
+  - 'in manufacturing (including food & beverages, medical devices), product development, analytical development,
+    clinical co-vigilance, or biotechnology or related and relevant specialist skills, qualifications or experience
+
+    Agronomist'
+  exceptions: []
+  conditional: true
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/critical-skills-occupations-list.docx
+  source_sha256: d2ca0f466668418f3070c76a23cd6227e5ee3d6fceeea5636e69603080d7fb22
+- id: critical:2113
+  list: critical
+  soc3: '211'
+  soc4: '2113'
+  category: Natural and Social Science Professionals
+  title: 'Physical scientists in manufacturing (including food & beverages, medical devices), product development,
+    analytical development, clinical co-vigilance, or biotechnology or related and relevant specialist skills, qualifications
+    or experience
+
+    Meteorologist
+
+    Operational Forecaster'
+  qualifiers:
+  - 'in manufacturing (including food & beverages, medical devices), product development, analytical development,
+    clinical co-vigilance, or biotechnology or related and relevant specialist skills, qualifications or experience
+
+    Meteorologist
+
+    Operational Forecaster'
+  exceptions: []
+  conditional: true
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/critical-skills-occupations-list.docx
+  source_sha256: d2ca0f466668418f3070c76a23cd6227e5ee3d6fceeea5636e69603080d7fb22
+- id: critical:2121
+  list: critical
+  soc3: '212'
+  soc4: '2121'
+  category: Engineering Professionals
+  title: 'Civil Engineers
+
+    Structural Engineers and Site Engineers'
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/critical-skills-occupations-list.docx
+  source_sha256: d2ca0f466668418f3070c76a23cd6227e5ee3d6fceeea5636e69603080d7fb22
+- id: critical:2122
+  list: critical
+  soc3: '212'
+  soc4: '2122'
+  category: Engineering Professionals
+  title: Mechanical engineers
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/critical-skills-occupations-list.docx
+  source_sha256: d2ca0f466668418f3070c76a23cd6227e5ee3d6fceeea5636e69603080d7fb22
+- id: critical:2123
+  list: critical
+  soc3: '212'
+  soc4: '2123'
+  category: Engineering Professionals
+  title: Electrical engineers
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/critical-skills-occupations-list.docx
+  source_sha256: d2ca0f466668418f3070c76a23cd6227e5ee3d6fceeea5636e69603080d7fb22
+- id: critical:2124
+  list: critical
+  soc3: '212'
+  soc4: '2124'
+  category: Engineering Professionals
+  title: 'Electronics engineers specialising in:
+
+    Chip design, test engineering, or application engineering, or
+
+    Process automation engineering, or
+
+    Power generation, transmission and distribution, or
+
+    Related and relevant specialist skills, qualifications or experience'
+  qualifiers:
+  - 'specialising in:
+
+    Chip design, test engineering, or application engineering, or
+
+    Process automation engineering, or
+
+    Power generation, transmission and distribution, or
+
+    Related and relevant specialist skills, qualifications or experience'
+  exceptions: []
+  conditional: true
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/critical-skills-occupations-list.docx
+  source_sha256: d2ca0f466668418f3070c76a23cd6227e5ee3d6fceeea5636e69603080d7fb22
+- id: critical:2126
+  list: critical
+  soc3: '212'
+  soc4: '2126'
+  category: Engineering Professionals
+  title: 'Design and development engineers specialising in:
+
+    Quality control, or validation and regulation engineering (high tech industry; food and beverages), or
+
+    Chip design, test engineering, or application engineering, or
+
+    Process automation engineering, or
+
+    Power generation, transmission and distribution, or
+
+    Related and relevant specialist skills, qualifications or experience'
+  qualifiers:
+  - 'specialising in:
+
+    Quality control, or validation and regulation engineering (high tech industry; food and beverages), or
+
+    Chip design, test engineering, or application engineering, or
+
+    Process automation engineering, or
+
+    Power generation, transmission and distribution, or
+
+    Related and relevant specialist skills, qualifications or experience'
+  exceptions: []
+  conditional: true
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/critical-skills-occupations-list.docx
+  source_sha256: d2ca0f466668418f3070c76a23cd6227e5ee3d6fceeea5636e69603080d7fb22
+- id: critical:2127
+  list: critical
+  soc3: '212'
+  soc4: '2127'
+  category: Engineering Professionals
+  title: 'Production and process engineers specialising in:
+
+    Quality control, or validation and regulation engineering (high tech industry; food and beverages), or
+
+    Chemical process engineering, or
+
+    Process automation engineering, or
+
+    Power generation, transmission and distribution, or
+
+    Related and relevant specialist skills, qualifications or experience
+
+    Chemical Engineer'
+  qualifiers:
+  - 'specialising in:
+
+    Quality control, or validation and regulation engineering (high tech industry; food and beverages), or
+
+    Chemical process engineering, or
+
+    Process automation engineering, or
+
+    Power generation, transmission and distribution, or
+
+    Related and relevant specialist skills, qualifications or experience
+
+    Chemical Engineer'
+  exceptions: []
+  conditional: true
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/critical-skills-occupations-list.docx
+  source_sha256: d2ca0f466668418f3070c76a23cd6227e5ee3d6fceeea5636e69603080d7fb22
+- id: critical:2129
+  list: critical
+  soc3: '212'
+  soc4: '2129'
+  category: Engineering Professionals
+  title: 'Material scientists
+
+    Setting Out Engineer
+
+    Façade Designer
+
+    Project Engineer'
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/critical-skills-occupations-list.docx
+  source_sha256: d2ca0f466668418f3070c76a23cd6227e5ee3d6fceeea5636e69603080d7fb22
+- id: critical:2133
+  list: critical
+  soc3: '213'
+  soc4: '2133'
+  category: Information Technology and Telecommunications Professionals
+  title: 'IT specialist managers
+
+    BIM Manager'
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/critical-skills-occupations-list.docx
+  source_sha256: d2ca0f466668418f3070c76a23cd6227e5ee3d6fceeea5636e69603080d7fb22
+- id: critical:2134
+  list: critical
+  soc3: '213'
+  soc4: '2134'
+  category: Information Technology and Telecommunications Professionals
+  title: IT project and programme managers
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/critical-skills-occupations-list.docx
+  source_sha256: d2ca0f466668418f3070c76a23cd6227e5ee3d6fceeea5636e69603080d7fb22
+- id: critical:2135
+  list: critical
+  soc3: '213'
+  soc4: '2135'
+  category: Information Technology and Telecommunications Professionals
+  title: IT business analysts, architects and systems designers
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/critical-skills-occupations-list.docx
+  source_sha256: d2ca0f466668418f3070c76a23cd6227e5ee3d6fceeea5636e69603080d7fb22
+- id: critical:2136
+  list: critical
+  soc3: '213'
+  soc4: '2136'
+  category: Information Technology and Telecommunications Professionals
+  title: Programmers and software development professionals
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/critical-skills-occupations-list.docx
+  source_sha256: d2ca0f466668418f3070c76a23cd6227e5ee3d6fceeea5636e69603080d7fb22
+- id: critical:2137
+  list: critical
+  soc3: '213'
+  soc4: '2137'
+  category: Information Technology and Telecommunications Professionals
+  title: Web design and development professionals
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/critical-skills-occupations-list.docx
+  source_sha256: d2ca0f466668418f3070c76a23cd6227e5ee3d6fceeea5636e69603080d7fb22
+- id: critical:2139
+  list: critical
+  soc3: '213'
+  soc4: '2139'
+  category: Information Technology and Telecommunications Professionals
+  title: All other ICT professionals not elsewhere classified
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/critical-skills-occupations-list.docx
+  source_sha256: d2ca0f466668418f3070c76a23cd6227e5ee3d6fceeea5636e69603080d7fb22
+- id: critical:2211
+  list: critical
+  soc3: '221'
+  soc4: '2211'
+  category: Health Professionals
+  title: Medical practitioners
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/critical-skills-occupations-list.docx
+  source_sha256: d2ca0f466668418f3070c76a23cd6227e5ee3d6fceeea5636e69603080d7fb22
+- id: critical:2212
+  list: critical
+  soc3: '221'
+  soc4: '2212'
+  category: Health Professionals
+  title: Psychologist
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/critical-skills-occupations-list.docx
+  source_sha256: d2ca0f466668418f3070c76a23cd6227e5ee3d6fceeea5636e69603080d7fb22
+- id: critical:2213
+  list: critical
+  soc3: '221'
+  soc4: '2213'
+  category: Health Professionals
+  title: Pharmacist/Industrial Pharmacists
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/critical-skills-occupations-list.docx
+  source_sha256: d2ca0f466668418f3070c76a23cd6227e5ee3d6fceeea5636e69603080d7fb22
+- id: critical:2214
+  list: critical
+  soc3: '221'
+  soc4: '2214'
+  category: Health Professionals
+  title: 'Optometrist
+
+    Ophthalmic Optician Community Eye Care'
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/critical-skills-occupations-list.docx
+  source_sha256: d2ca0f466668418f3070c76a23cd6227e5ee3d6fceeea5636e69603080d7fb22
+- id: critical:2217
+  list: critical
+  soc3: '221'
+  soc4: '2217'
+  category: Health Professionals
+  title: 'Radiographers
+
+    Radiation therapists
+
+    Cardiac physiologist
+
+    Vascular technologists/physiologists
+
+    Gastro Intestinal technologists/physiologists
+
+    Respiratory physiologist'
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/critical-skills-occupations-list.docx
+  source_sha256: d2ca0f466668418f3070c76a23cd6227e5ee3d6fceeea5636e69603080d7fb22
+- id: critical:2218
+  list: critical
+  soc3: '221'
+  soc4: '2218'
+  category: Health Professionals
+  title: Podiatrist/Chiropodist
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/critical-skills-occupations-list.docx
+  source_sha256: d2ca0f466668418f3070c76a23cd6227e5ee3d6fceeea5636e69603080d7fb22
+- id: critical:2219
+  list: critical
+  soc3: '221'
+  soc4: '2219'
+  category: Health Professionals
+  title: 'Audiologists
+
+    Perfusionists
+
+    Dietician
+
+    Medical Scientist'
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/critical-skills-occupations-list.docx
+  source_sha256: d2ca0f466668418f3070c76a23cd6227e5ee3d6fceeea5636e69603080d7fb22
+- id: critical:2221
+  list: critical
+  soc3: '222'
+  soc4: '2221'
+  category: Therapy Professionals
+  title: Physiotherapist
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/critical-skills-occupations-list.docx
+  source_sha256: d2ca0f466668418f3070c76a23cd6227e5ee3d6fceeea5636e69603080d7fb22
+- id: critical:2222
+  list: critical
+  soc3: '222'
+  soc4: '2222'
+  category: Therapy Professionals
+  title: Occupational Therapist
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/critical-skills-occupations-list.docx
+  source_sha256: d2ca0f466668418f3070c76a23cd6227e5ee3d6fceeea5636e69603080d7fb22
+- id: critical:2223
+  list: critical
+  soc3: '222'
+  soc4: '2223'
+  category: Therapy Professionals
+  title: Speech & Language Therapist
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/critical-skills-occupations-list.docx
+  source_sha256: d2ca0f466668418f3070c76a23cd6227e5ee3d6fceeea5636e69603080d7fb22
+- id: critical:2229
+  list: critical
+  soc3: '222'
+  soc4: '2229'
+  category: Therapy Professionals
+  title: Orthoptists
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/critical-skills-occupations-list.docx
+  source_sha256: d2ca0f466668418f3070c76a23cd6227e5ee3d6fceeea5636e69603080d7fb22
+- id: critical:2231
+  list: critical
+  soc3: '223'
+  soc4: '2231'
+  category: Nursing and Midwifery Professionals
+  title: Registered Nurses
+  qualifiers:
+  - Registered Nurses
+  exceptions: []
+  conditional: true
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/critical-skills-occupations-list.docx
+  source_sha256: d2ca0f466668418f3070c76a23cd6227e5ee3d6fceeea5636e69603080d7fb22
+- id: critical:2232
+  list: critical
+  soc3: '223'
+  soc4: '2232'
+  category: Nursing and Midwifery Professionals
+  title: Registered Midwives
+  qualifiers:
+  - Registered Midwives
+  exceptions: []
+  conditional: true
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/critical-skills-occupations-list.docx
+  source_sha256: d2ca0f466668418f3070c76a23cd6227e5ee3d6fceeea5636e69603080d7fb22
+- id: critical:2311
+  list: critical
+  soc3: '231'
+  soc4: '2311'
+  category: Teaching and Educational Professionals
+  title: 'Academics who hold a qualification equivalent to Level 10 of the National Framework of Qualification in
+    a given discipline awarded no less than two calendar years prior to the date of application for an employment
+    permit, with a minimum of one academic year of relevant teaching experience, and the employment concerned
+
+    is in a third level institution governed by the Irish Universities Act 1997 (No. 24 of 1997), the Institutes
+    of Technology Act 2006 (No. 25 of 2006) and the Technological Universities Act 2018 (No. 3 of 2018); or
+
+    involves delivering a programme largely or wholly concerned with information and communications technology,
+    which leads to a major award at QQI level 8 and/or level 9 as validated by Quality and Qualifications Ireland.'
+  qualifiers:
+  - 'who hold a qualification equivalent to Level 10 of the National Framework of Qualification in a given discipline
+    awarded no less than two calendar years prior to the date of application for an employment permit, with a minimum
+    of one academic year of relevant teaching experience, and the employment concerned
+
+    is in a third level institution governed by the Irish Universities Act 1997 (No. 24 of 1997), the Institutes
+    of Technology Act 2006 (No. 25 of 2006) and the Technological Universities Act 2018 (No. 3 of 2018); or
+
+    involves delivering a programme largely or wholly concerned with information and communications technology,
+    which leads to a major award at QQI level 8 and/or level 9 as validated by Quality and Qualifications Ireland.'
+  exceptions: []
+  conditional: true
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/critical-skills-occupations-list.docx
+  source_sha256: d2ca0f466668418f3070c76a23cd6227e5ee3d6fceeea5636e69603080d7fb22
+- id: critical:2419
+  list: critical
+  soc3: '241'
+  soc4: '2419'
+  category: Legal Professionals
+  title: Intellectual Property Professionals
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/critical-skills-occupations-list.docx
+  source_sha256: d2ca0f466668418f3070c76a23cd6227e5ee3d6fceeea5636e69603080d7fb22
+- id: critical:2421
+  list: critical
+  soc3: '242'
+  soc4: '2421'
+  category: Business, Research and Administrative Professionals
+  title: 'Chartered and certified accountants, and taxation experts specialising in tax, compliance, regulation,
+    solvency or financial management or related and relevant specialist skills, qualifications or experience.
+
+    Qualified accountants with at least three years’ auditing experience, who are full members of the American Institute
+    of Certified Public Accountants (AICPA), Philippine Institute of Certified Public Accountants (PICPA) and the
+    Institute of Chartered Accountants of Pakistan (ICAP) and whom have relevant work experience in the areas of
+    US GAAP reporting and Global Audit and Advisory Services and the employment concerned is in MNC Global Audit
+    Services.
+
+    Tax consultant specialising in non-EEA tax consultancy and compliance with a professional tax qualification
+    or legal qualification with tax specialism, and has a minimum of three years’ experience of tax consultancy
+    requirements and regulations in the relevant non-EEA market.'
+  qualifiers:
+  - 'specialising in tax, compliance, regulation, solvency or financial management or related and relevant specialist
+    skills, qualifications or experience.
+
+    Qualified accountants with at least three years’ auditing experience, who are full members of the American Institute
+    of Certified Public Accountants (AICPA), Philippine Institute of Certified Public Accountants (PICPA) and the
+    Institute of Chartered Accountants of Pakistan (ICAP) and whom have relevant work experience in the areas of
+    US GAAP reporting and Global Audit and Advisory Services and the employment concerned is in MNC Global Audit
+    Services.
+
+    Tax consultant specialising in non-EEA tax consultancy and compliance with a professional tax qualification
+    or legal qualification with tax specialism, and has a minimum of three years’ experience of tax consultancy
+    requirements and regulations in the relevant non-EEA market.'
+  exceptions: []
+  conditional: true
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/critical-skills-occupations-list.docx
+  source_sha256: d2ca0f466668418f3070c76a23cd6227e5ee3d6fceeea5636e69603080d7fb22
+- id: critical:2423
+  list: critical
+  soc3: '242'
+  soc4: '2423'
+  category: Business, Research and Administrative Professionals
+  title: Management consultants and business analysts specialising in big data analytics with skills in IT, data
+    mining, modelling, and advanced maths or related and relevant specialist skills, qualifications or experience
+  qualifiers:
+  - specialising in big data analytics with skills in IT, data mining, modelling, and advanced maths or related
+    and relevant specialist skills, qualifications or experience
+  exceptions: []
+  conditional: true
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/critical-skills-occupations-list.docx
+  source_sha256: d2ca0f466668418f3070c76a23cd6227e5ee3d6fceeea5636e69603080d7fb22
+- id: critical:2424
+  list: critical
+  soc3: '242'
+  soc4: '2424'
+  category: Business, Research and Administrative Professionals
+  title: Business and financial project management professionals specialising in finance & investment analytics,
+    risk analytics, credit, fraud analytics or related and relevant specialist skills, qualifications or experience
+  qualifiers:
+  - specialising in finance & investment analytics, risk analytics, credit, fraud analytics or related and relevant
+    specialist skills, qualifications or experience
+  exceptions: []
+  conditional: true
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/critical-skills-occupations-list.docx
+  source_sha256: d2ca0f466668418f3070c76a23cd6227e5ee3d6fceeea5636e69603080d7fb22
+- id: critical:2425
+  list: critical
+  soc3: '242'
+  soc4: '2425'
+  category: Business, Research and Administrative Professionals
+  title: Actuaries, economists and statisticians specialising in big data analytics with skills in IT, data mining,
+    modelling, and advanced maths or related and relevant specialist skills, qualifications or experience
+  qualifiers:
+  - specialising in big data analytics with skills in IT, data mining, modelling, and advanced maths or related
+    and relevant specialist skills, qualifications or experience
+  exceptions: []
+  conditional: true
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/critical-skills-occupations-list.docx
+  source_sha256: d2ca0f466668418f3070c76a23cd6227e5ee3d6fceeea5636e69603080d7fb22
+- id: critical:2431
+  list: critical
+  soc3: '243'
+  soc4: '2431'
+  category: Architects, Town Planners and Surveyors
+  title: Architect
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/critical-skills-occupations-list.docx
+  source_sha256: d2ca0f466668418f3070c76a23cd6227e5ee3d6fceeea5636e69603080d7fb22
+- id: critical:2432
+  list: critical
+  soc3: '243'
+  soc4: '2432'
+  category: Architects, Town Planners and Surveyors
+  title: Town Planning Officer
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/critical-skills-occupations-list.docx
+  source_sha256: d2ca0f466668418f3070c76a23cd6227e5ee3d6fceeea5636e69603080d7fb22
+- id: critical:2433
+  list: critical
+  soc3: '243'
+  soc4: '2433'
+  category: Architects, Town Planners and Surveyors
+  title: Quantity surveyors
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/critical-skills-occupations-list.docx
+  source_sha256: d2ca0f466668418f3070c76a23cd6227e5ee3d6fceeea5636e69603080d7fb22
+- id: critical:2434
+  list: critical
+  soc3: '243'
+  soc4: '2434'
+  category: Architects, Town Planners and Surveyors
+  title: Geospatial Surveyor / Land Surveyor / Geomatics Surveyor
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/critical-skills-occupations-list.docx
+  source_sha256: d2ca0f466668418f3070c76a23cd6227e5ee3d6fceeea5636e69603080d7fb22
+- id: critical:2435
+  list: critical
+  soc3: '243'
+  soc4: '2435'
+  category: Architects, Town Planners and Surveyors
+  title: Architectural Technologist
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/critical-skills-occupations-list.docx
+  source_sha256: d2ca0f466668418f3070c76a23cd6227e5ee3d6fceeea5636e69603080d7fb22
+- id: critical:2436
+  list: critical
+  soc3: '243'
+  soc4: '2436'
+  category: Architects, Town Planners and Surveyors
+  title: 'Construction project managers / Construction Planner / Construction Scheduler
+
+    Commercial Manager'
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/critical-skills-occupations-list.docx
+  source_sha256: d2ca0f466668418f3070c76a23cd6227e5ee3d6fceeea5636e69603080d7fb22
+- id: critical:2442
+  list: critical
+  soc3: '244'
+  soc4: '2442'
+  category: Welfare Professionals
+  title: Social Worker
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/critical-skills-occupations-list.docx
+  source_sha256: d2ca0f466668418f3070c76a23cd6227e5ee3d6fceeea5636e69603080d7fb22
+- id: critical:2461
+  list: critical
+  soc3: '246'
+  soc4: '2461'
+  category: Quality and Regulatory Professionals
+  title: Quality control and planning engineers
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/critical-skills-occupations-list.docx
+  source_sha256: d2ca0f466668418f3070c76a23cd6227e5ee3d6fceeea5636e69603080d7fb22
+- id: critical:2462
+  list: critical
+  soc3: '246'
+  soc4: '2462'
+  category: Quality and Regulatory Professionals
+  title: Quality assurance and regulatory professionals
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/critical-skills-occupations-list.docx
+  source_sha256: d2ca0f466668418f3070c76a23cd6227e5ee3d6fceeea5636e69603080d7fb22
+- id: critical:2463
+  list: critical
+  soc3: '246'
+  soc4: '2463'
+  category: Quality and Regulatory Professionals
+  title: Environmental health professionals
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/critical-skills-occupations-list.docx
+  source_sha256: d2ca0f466668418f3070c76a23cd6227e5ee3d6fceeea5636e69603080d7fb22
+- id: critical:2473
+  list: critical
+  soc3: '247'
+  soc4: '2473'
+  category: Media Professionals
+  title: Art Director in 2D or 3D animation, with at least one year’s experience in the role
+  qualifiers:
+  - in 2D or 3D animation, with at least one year’s experience in the role
+  exceptions: []
+  conditional: true
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/critical-skills-occupations-list.docx
+  source_sha256: d2ca0f466668418f3070c76a23cd6227e5ee3d6fceeea5636e69603080d7fb22
+- id: critical:3122
+  list: critical
+  soc3: '312'
+  soc4: '3122'
+  category: Draughtspersons and Related Architectural Technicians
+  title: BIM Coordinator/ Technician
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/critical-skills-occupations-list.docx
+  source_sha256: d2ca0f466668418f3070c76a23cd6227e5ee3d6fceeea5636e69603080d7fb22
+- id: critical:3213
+  list: critical
+  soc3: '321'
+  soc4: '3213'
+  category: Health Associate Professionals
+  title: 'PHECC registered Paramedics
+
+    PHECC registered Advanced Paramedic Practitioners'
+  qualifiers:
+  - 'registered Paramedics
+
+    PHECC registered Advanced Paramedic Practitioners'
+  exceptions: []
+  conditional: true
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/critical-skills-occupations-list.docx
+  source_sha256: d2ca0f466668418f3070c76a23cd6227e5ee3d6fceeea5636e69603080d7fb22
+- id: critical:3218
+  list: critical
+  soc3: '321'
+  soc4: '3218'
+  category: Health Associate Professionals
+  title: 'Prosthetists
+
+    Orthotists'
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/critical-skills-occupations-list.docx
+  source_sha256: d2ca0f466668418f3070c76a23cd6227e5ee3d6fceeea5636e69603080d7fb22
+- id: critical:3411
+  list: critical
+  soc3: '341'
+  soc4: '3411'
+  category: Artistic, Literary and Media Occupations
+  title: Animation Background and Design Artist in 2D or 3D animation, with at least one year’s experience in the
+    role
+  qualifiers:
+  - in 2D or 3D animation, with at least one year’s experience in the role
+  exceptions: []
+  conditional: true
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/critical-skills-occupations-list.docx
+  source_sha256: d2ca0f466668418f3070c76a23cd6227e5ee3d6fceeea5636e69603080d7fb22
+- id: critical:3417
+  list: critical
+  soc3: '341'
+  soc4: '3417'
+  category: Artistic, Literary and Media Occupations
+  title: Riggers (within the Games Industry)
+  qualifiers:
+  - within the Games Industry)
+  exceptions: []
+  conditional: true
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/critical-skills-occupations-list.docx
+  source_sha256: d2ca0f466668418f3070c76a23cd6227e5ee3d6fceeea5636e69603080d7fb22
+- id: critical:3421
+  list: critical
+  soc3: '342'
+  soc4: '3421'
+  category: Design Occupations
+  title: 'Location Designer in 2D or 3D animation, with at least one year’s experience in the role
+
+    Character Designer in 2D or 3D animation, with at least one year’s experience in the role
+
+    Prop Designer in 2D or 3D animation, with at least one year’s experience in the role
+
+    Animation Layout Artist in 2D or 3D animation, with at least one year’s experience in the role'
+  qualifiers:
+  - 'in 2D or 3D animation, with at least one year’s experience in the role
+
+    Character Designer in 2D or 3D animation, with at least one year’s experience in the role
+
+    Prop Designer in 2D or 3D animation, with at least one year’s experience in the role
+
+    Animation Layout Artist in 2D or 3D animation, with at least one year’s experience in the role'
+  exceptions: []
+  conditional: true
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/critical-skills-occupations-list.docx
+  source_sha256: d2ca0f466668418f3070c76a23cd6227e5ee3d6fceeea5636e69603080d7fb22
+- id: critical:3442
+  list: critical
+  soc3: '344'
+  soc4: '3442'
+  category: Sports and Fitness Occupations
+  title: 'High performance coaches and directors employed by
+
+    National sports organisations, or
+
+    High profile sports organisations engaging in international competition'
+  qualifiers:
+  - 'employed by
+
+    National sports organisations, or
+
+    High profile sports organisations engaging in international competition'
+  exceptions: []
+  conditional: true
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/critical-skills-occupations-list.docx
+  source_sha256: d2ca0f466668418f3070c76a23cd6227e5ee3d6fceeea5636e69603080d7fb22
+- id: critical:3531
+  list: critical
+  soc3: '353'
+  soc4: '3531'
+  category: Business, Finance and Related Associate Professionals
+  title: Estimator
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/critical-skills-occupations-list.docx
+  source_sha256: d2ca0f466668418f3070c76a23cd6227e5ee3d6fceeea5636e69603080d7fb22
+- id: critical:3542
+  list: critical
+  soc3: '354'
+  soc4: '3542'
+  category: Sales, Marketing and Related Associate Professionals
+  title: Business sales executives specialising in International Sales Roles or ITB2B sales roles and with fluency
+    in the official language of a state which is not a Member State of the EEA and is not an official language of
+    an EEA state
+  qualifiers:
+  - specialising in International Sales Roles or ITB2B sales roles and with fluency in the official language of
+    a state which is not a Member State of the EEA and is not an official language of an EEA state
+  exceptions: []
+  conditional: true
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/critical-skills-occupations-list.docx
+  source_sha256: d2ca0f466668418f3070c76a23cd6227e5ee3d6fceeea5636e69603080d7fb22
+- id: critical:3543
+  list: critical
+  soc3: '354'
+  soc4: '3543'
+  category: Sales, Marketing and Related Associate Professionals
+  title: International marketing experts with required domain knowledge specialising in product strategy development
+    and management with technical and product/service knowledge (pharmaceutical, medical devices, Software B2B,
+    SaaS products)
+  qualifiers:
+  - with required domain knowledge specialising in product strategy development and management with technical and
+    product/service knowledge (pharmaceutical, medical devices, Software B2B, SaaS products)
+  exceptions: []
+  conditional: true
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/critical-skills-occupations-list.docx
+  source_sha256: d2ca0f466668418f3070c76a23cd6227e5ee3d6fceeea5636e69603080d7fb22
+- id: ineligible:1225
+  list: ineligible
+  soc3: '122'
+  soc4: '1225'
+  category: Managers in Hospitality and Leisure Services
+  title: Leisure and sports facilities managers
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:1226
+  list: ineligible
+  soc3: '122'
+  soc4: '1226'
+  category: Managers in Hospitality and Leisure Services
+  title: Travel agency managers
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:1242
+  list: ineligible
+  soc3: '124'
+  soc4: '1242'
+  category: Managers in Health and Care Services
+  title: 'Residential, day and domiciliary care managers
+
+    (with the exception of those working in disability services)'
+  qualifiers: []
+  exceptions:
+  - with the exception of those working in disability services)
+  conditional: true
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:1251
+  list: ineligible
+  soc3: '125'
+  soc4: '1251'
+  category: Managers in Other Services
+  title: Property, housing and estate managers
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:1252
+  list: ineligible
+  soc3: '125'
+  soc4: '1252'
+  category: Managers in Other Services
+  title: Garage managers
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:1253
+  list: ineligible
+  soc3: '125'
+  soc4: '1253'
+  category: Managers in Other Services
+  title: Hairdressing and beauty salon managers
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:1254
+  list: ineligible
+  soc3: '125'
+  soc4: '1254'
+  category: Managers in Other Services
+  title: Shopkeepers – wholesale and retail
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:1255
+  list: ineligible
+  soc3: '125'
+  soc4: '1255'
+  category: Managers in Other Services
+  title: Waste disposal and environmental services managers
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:1259
+  list: ineligible
+  soc3: '125'
+  soc4: '1259'
+  category: Managers in Other Services
+  title: 'Other managers in other services not elsewhere classified (includes Betting shop manager, Graphic design
+    manager, Library manager, Plant hire manager, Production manager)
+
+    (with the exception of Safety Manager)'
+  qualifiers: []
+  exceptions:
+  - with the exception of Safety Manager)
+  conditional: true
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:2229
+  list: ineligible
+  soc3: '222'
+  soc4: '2229'
+  category: Therapy Professionals
+  title: 'Other therapy professionals not elsewhere classified
+
+    (with the exception of orthoptists, and chiropractors who are members of the Chiropractic Association of Ireland)
+
+    (with the exception of Play Therapists working in disability services)'
+  qualifiers:
+  - 'who are members of the Chiropractic Association of Ireland)
+
+    (with the exception of Play Therapists working in disability services)'
+  exceptions:
+  - 'with the exception of orthoptists, and chiropractors who are members of the Chiropractic Association of Ireland)
+
+    (with the exception of Play Therapists working in disability services)'
+  conditional: true
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:2443
+  list: ineligible
+  soc3: '244'
+  soc4: '2443'
+  category: Welfare Professionals
+  title: Probation officers
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:2449
+  list: ineligible
+  soc3: '244'
+  soc4: '2449'
+  category: Welfare Professionals
+  title: Other welfare professionals not elsewhere classified
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:3121
+  list: ineligible
+  soc3: '312'
+  soc4: '3121'
+  category: Draughtspersons and Related Architectural Technicians
+  title: Town planning technicians
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:3219
+  list: ineligible
+  soc3: '321'
+  soc4: '3219'
+  category: Health Associate Professionals
+  title: 'Health associate professionals not elsewhere classified (includes Acupuncturists, Homeopaths, Hypnotherapists,
+    Massage therapists, Reflexologists, Sports therapists)
+
+    (with the exception of Genetic Counsellor)'
+  qualifiers: []
+  exceptions:
+  - with the exception of Genetic Counsellor)
+  conditional: true
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:3231
+  list: ineligible
+  soc3: '323'
+  soc4: '3231'
+  category: Welfare and Housing Associate Professionals
+  title: 'Youth and community workers
+
+    (with the exception of Family Support Workers working in disability services)'
+  qualifiers: []
+  exceptions:
+  - with the exception of Family Support Workers working in disability services)
+  conditional: true
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:3233
+  list: ineligible
+  soc3: '323'
+  soc4: '3233'
+  category: Welfare and Housing Associate Professionals
+  title: Child and early years officers
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:3234
+  list: ineligible
+  soc3: '323'
+  soc4: '3234'
+  category: Welfare and Housing Associate Professionals
+  title: Housing officers
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:3235
+  list: ineligible
+  soc3: '323'
+  soc4: '3235'
+  category: Welfare and Housing Associate Professionals
+  title: Counsellors
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:3239
+  list: ineligible
+  soc3: '323'
+  soc4: '3239'
+  category: Welfare and Housing Associate Professionals
+  title: 'Other welfare and housing associate professionals not elsewhere classified
+
+    (with the exception of Project Officer working in disability services)
+
+    (with the exception of Support Worker)'
+  qualifiers: []
+  exceptions:
+  - 'with the exception of Project Officer working in disability services)
+
+    (with the exception of Support Worker)'
+  conditional: true
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:3311
+  list: ineligible
+  soc3: '331'
+  soc4: '3311'
+  category: Protective Service Occupations
+  title: NCOs and other ranks
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:3312
+  list: ineligible
+  soc3: '331'
+  soc4: '3312'
+  category: Protective Service Occupations
+  title: Police officers (sergeant and below)
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:3313
+  list: ineligible
+  soc3: '331'
+  soc4: '3313'
+  category: Protective Service Occupations
+  title: Fire service officers (watch manager and below)
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:3314
+  list: ineligible
+  soc3: '331'
+  soc4: '3314'
+  category: Protective Service Occupations
+  title: Prison service officers (below principal officer)
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:3315
+  list: ineligible
+  soc3: '331'
+  soc4: '3315'
+  category: Protective Service Occupations
+  title: Police community support officers
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:3319
+  list: ineligible
+  soc3: '331'
+  soc4: '3319'
+  category: Protective Service Occupations
+  title: Other protective service associate professionals not elsewhere classified
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:3443
+  list: ineligible
+  soc3: '344'
+  soc4: '3443'
+  category: Sports and Fitness Occupations
+  title: Fitness instructors
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:3520
+  list: ineligible
+  soc3: '352'
+  soc4: '3520'
+  category: Legal Associate Professionals
+  title: 'Legal associate professionals
+
+    (with the exception of employment of a person fluent in the official language of a State which is not a member
+    of the EEA and is not an official language of an EEA state and who has market knowledge of that non-EEA state)'
+  qualifiers:
+  - who has market knowledge of that non-EEA state)
+  exceptions:
+  - with the exception of employment of a person fluent in the official language of a State which is not a member
+    of the EEA and is not an official language of an EEA state and who has market knowledge of that non-EEA state)
+  conditional: true
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:3544
+  list: ineligible
+  soc3: '354'
+  soc4: '3544'
+  category: Sales, Marketing and Related Associate Professionals
+  title: Estate agents and auctioneers
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:3546
+  list: ineligible
+  soc3: '354'
+  soc4: '3546'
+  category: Sales, Marketing and Related Associate Professionals
+  title: Conference and exhibition managers and organisers
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:3561
+  list: ineligible
+  soc3: '356'
+  soc4: '3561'
+  category: Public Services and Other Associate Professionals
+  title: Public services associate professionals
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:3563
+  list: ineligible
+  soc3: '356'
+  soc4: '3563'
+  category: Public Services and Other Associate Professionals
+  title: 'Vocational and industrial trainers and instructors
+
+    (with the exception of mobility instructors and Guide Dog mobility instructors for the visually impaired)
+
+    (with the exception of Autism Assistance Dog Instructor)'
+  qualifiers: []
+  exceptions:
+  - 'with the exception of mobility instructors and Guide Dog mobility instructors for the visually impaired)
+
+    (with the exception of Autism Assistance Dog Instructor)'
+  conditional: true
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:3564
+  list: ineligible
+  soc3: '356'
+  soc4: '3564'
+  category: Public Services and Other Associate Professionals
+  title: 'Careers advisers and vocational guidance specialists
+
+    (with the exception of career guidance teachers in secondary schools)'
+  qualifiers: []
+  exceptions:
+  - with the exception of career guidance teachers in secondary schools)
+  conditional: true
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:3565
+  list: ineligible
+  soc3: '356'
+  soc4: '3565'
+  category: Public Services and Other Associate Professionals
+  title: Inspectors of standards and regulations
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:3567
+  list: ineligible
+  soc3: '356'
+  soc4: '3567'
+  category: Public Services and Other Associate Professionals
+  title: 'Health and safety officers
+
+    (with the exception of Construction Safety Officers)'
+  qualifiers: []
+  exceptions:
+  - with the exception of Construction Safety Officers)
+  conditional: true
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:4112
+  list: ineligible
+  soc3: '411'
+  soc4: '4112'
+  category: 'Administrative Occupations: Government and Related Organisations'
+  title: National government administrative occupations
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:4113
+  list: ineligible
+  soc3: '411'
+  soc4: '4113'
+  category: 'Administrative Occupations: Government and Related Organisations'
+  title: Local government administrative occupations
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:4121
+  list: ineligible
+  soc3: '412'
+  soc4: '4121'
+  category: 'Administrative Occupations: Finance'
+  title: 'Credit controllers
+
+    (with the exception of employment of a person fluent in the official language of a State which is not a member
+    of the EEA and is not an official language of an EEA state, in a role in credit control where the employment
+    is supported by an enterprise development agency)'
+  qualifiers: []
+  exceptions:
+  - with the exception of employment of a person fluent in the official language of a State which is not a member
+    of the EEA and is not an official language of an EEA state, in a role in credit control where the employment
+    is supported by an enterprise development agency)
+  conditional: true
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:4122
+  list: ineligible
+  soc3: '412'
+  soc4: '4122'
+  category: 'Administrative Occupations: Finance'
+  title: 'Bookkeepers, payroll managers and wages clerks
+
+    (with the exception of employment of a person fluent in the official language of a State which is not a member
+    of the EEA and is not an official language of an EEA state in a role in accounts payable where the employment
+    is supported by an enterprise development agency)'
+  qualifiers: []
+  exceptions:
+  - with the exception of employment of a person fluent in the official language of a State which is not a member
+    of the EEA and is not an official language of an EEA state in a role in accounts payable where the employment
+    is supported by an enterprise development agency)
+  conditional: true
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:4123
+  list: ineligible
+  soc3: '412'
+  soc4: '4123'
+  category: 'Administrative Occupations: Finance'
+  title: Bank and post office clerks
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:4124
+  list: ineligible
+  soc3: '412'
+  soc4: '4124'
+  category: 'Administrative Occupations: Finance'
+  title: Finance officers
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:4129
+  list: ineligible
+  soc3: '412'
+  soc4: '4129'
+  category: 'Administrative Occupations: Finance'
+  title: Other financial administrative occupations not elsewhere classified
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:4131
+  list: ineligible
+  soc3: '413'
+  soc4: '4131'
+  category: 'Administrative Occupations: Records'
+  title: Records clerks and assistants
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:4132
+  list: ineligible
+  soc3: '413'
+  soc4: '4132'
+  category: 'Administrative Occupations: Records'
+  title: Pensions and insurance clerks and assistants
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:4133
+  list: ineligible
+  soc3: '413'
+  soc4: '4133'
+  category: 'Administrative Occupations: Records'
+  title: Stock control clerks and assistants
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:4135
+  list: ineligible
+  soc3: '413'
+  soc4: '4135'
+  category: 'Administrative Occupations: Records'
+  title: Library clerks and assistants
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:4138
+  list: ineligible
+  soc3: '413'
+  soc4: '4138'
+  category: 'Administrative Occupations: Records'
+  title: Human resources administrative occupations
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:4151
+  list: ineligible
+  soc3: '415'
+  soc4: '4151'
+  category: Other Administrative Occupations
+  title: Sales administrators
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:4159
+  list: ineligible
+  soc3: '415'
+  soc4: '4159'
+  category: Other Administrative Occupations
+  title: Other administrative occupations not elsewhere classified
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:4161
+  list: ineligible
+  soc3: '416'
+  soc4: '4161'
+  category: 'Administrative Occupations: Office Managers and Supervisors'
+  title: Office managers
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:4162
+  list: ineligible
+  soc3: '416'
+  soc4: '4162'
+  category: 'Administrative Occupations: Office Managers and Supervisors'
+  title: Office supervisors
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:4211
+  list: ineligible
+  soc3: '421'
+  soc4: '4211'
+  category: Secretarial and Related Occupations
+  title: Medical secretaries
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:4212
+  list: ineligible
+  soc3: '421'
+  soc4: '4212'
+  category: Secretarial and Related Occupations
+  title: Legal secretaries
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:4213
+  list: ineligible
+  soc3: '421'
+  soc4: '4213'
+  category: Secretarial and Related Occupations
+  title: School secretaries
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:4214
+  list: ineligible
+  soc3: '421'
+  soc4: '4214'
+  category: Secretarial and Related Occupations
+  title: Company secretaries
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:4215
+  list: ineligible
+  soc3: '421'
+  soc4: '4215'
+  category: Secretarial and Related Occupations
+  title: Personal assistants and other secretaries
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:4216
+  list: ineligible
+  soc3: '421'
+  soc4: '4216'
+  category: Secretarial and Related Occupations
+  title: Receptionists
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:4217
+  list: ineligible
+  soc3: '421'
+  soc4: '4217'
+  category: Secretarial and Related Occupations
+  title: Typists and related keyboard occupations
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:5111
+  list: ineligible
+  soc3: '511'
+  soc4: '5111'
+  category: Agricultural and Related Trades
+  title: Farmers (with the exception of Pig Manager)
+  qualifiers: []
+  exceptions:
+  - with the exception of Pig Manager)
+  conditional: true
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:5112
+  list: ineligible
+  soc3: '511'
+  soc4: '5112'
+  category: Agricultural and Related Trades
+  title: Horticultural trades
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:5113
+  list: ineligible
+  soc3: '511'
+  soc4: '5113'
+  category: Agricultural and Related Trades
+  title: Gardeners and landscape gardeners
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:5114
+  list: ineligible
+  soc3: '511'
+  soc4: '5114'
+  category: Agricultural and Related Trades
+  title: Groundsmen and greenkeepers
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:5119
+  list: ineligible
+  soc3: '511'
+  soc4: '5119'
+  category: Agricultural and Related Trades
+  title: 'Other agricultural and fishing trades not elsewhere classified
+
+    (with the exception of sea fisher in the Irish fishing fleet)
+
+    (with the exception of speciality forestry harvesting technician)'
+  qualifiers: []
+  exceptions:
+  - 'with the exception of sea fisher in the Irish fishing fleet)
+
+    (with the exception of speciality forestry harvesting technician)'
+  conditional: true
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:5236
+  list: ineligible
+  soc3: '523'
+  soc4: '5236'
+  category: Vehicle Trades
+  title: Boat and ship builders and repairers
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:5237
+  list: ineligible
+  soc3: '523'
+  soc4: '5237'
+  category: Vehicle Trades
+  title: Rail and rolling stock builders and repairers
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:5244
+  list: ineligible
+  soc3: '524'
+  soc4: '5244'
+  category: Electrical and Electronic Trades
+  title: TV, video and audio engineers
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:5249
+  list: ineligible
+  soc3: '524'
+  soc4: '5249'
+  category: Electrical and Electronic Trades
+  title: 'Other electrical and electronic trades not elsewhere classified
+
+    (with the exception of lineworker working on behalf of ESB Networks)'
+  qualifiers: []
+  exceptions:
+  - with the exception of lineworker working on behalf of ESB Networks)
+  conditional: true
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:5319
+  list: ineligible
+  soc3: '531'
+  soc4: '5319'
+  category: Construction and building trades
+  title: 'Other construction and building trades not elsewhere classified
+
+    (with the exception of –
+
+    Plastic Lining Technicians
+
+    Steel Fixers
+
+    Fencing Operators / Erectors
+
+    Curtain Wallers)'
+  qualifiers: []
+  exceptions:
+  - 'with the exception of –
+
+    Plastic Lining Technicians
+
+    Steel Fixers
+
+    Fencing Operators / Erectors
+
+    Curtain Wallers)'
+  conditional: true
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:5411
+  list: ineligible
+  soc3: '541'
+  soc4: '5411'
+  category: Textiles and Garments Trades
+  title: Weavers and knitters
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:5413
+  list: ineligible
+  soc3: '541'
+  soc4: '5413'
+  category: Textiles and Garments Trades
+  title: Footwear and leather working trades
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:5419
+  list: ineligible
+  soc3: '541'
+  soc4: '5419'
+  category: Textiles and Garments Trades
+  title: Other textiles, garments and related trades not elsewhere classified
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:5421
+  list: ineligible
+  soc3: '542'
+  soc4: '5421'
+  category: Printing Trades
+  title: Pre-press technicians
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:5423
+  list: ineligible
+  soc3: '542'
+  soc4: '5423'
+  category: Printing Trades
+  title: Print finishing and binding workers
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:5432
+  list: ineligible
+  soc3: '543'
+  soc4: '5432'
+  category: Food Preparation and Hospitality Trades
+  title: Flour confectioners
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:5433
+  list: ineligible
+  soc3: '543'
+  soc4: '5433'
+  category: Food Preparation and Hospitality Trades
+  title: 'Fishmongers and poultry dressers
+
+    (with the exception of fish filleter)'
+  qualifiers: []
+  exceptions:
+  - with the exception of fish filleter)
+  conditional: true
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:5434
+  list: ineligible
+  soc3: '543'
+  soc4: '5434'
+  category: Food Preparation and Hospitality Trades
+  title: 'Chefs
+
+    (with the exception of –
+
+    Executive Chef with minimum of 5 years’ experience
+
+    Head Chef with minimum of 5 years’ experience
+
+    Sous Chef with minimum of 5 years’ experience
+
+    Chef de Partie with minimum of 2 years’ experience
+
+    Commis Chef with minimum of 2 years’ experience
+
+    who will be employed in establishments other than fast food outlets)'
+  qualifiers: []
+  exceptions:
+  - 'with the exception of –
+
+    Executive Chef with minimum of 5 years’ experience
+
+    Head Chef with minimum of 5 years’ experience
+
+    Sous Chef with minimum of 5 years’ experience
+
+    Chef de Partie with minimum of 2 years’ experience
+
+    Commis Chef with minimum of 2 years’ experience
+
+    who will be employed in establishments other than fast food outlets)'
+  conditional: true
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:5435
+  list: ineligible
+  soc3: '543'
+  soc4: '5435'
+  category: Food Preparation and Hospitality Trades
+  title: Cooks
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:5441
+  list: ineligible
+  soc3: '544'
+  soc4: '5441'
+  category: Other Skilled Trades
+  title: Glass and ceramics makers, decorators and finishers
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:5443
+  list: ineligible
+  soc3: '544'
+  soc4: '5443'
+  category: Other Skilled Trades
+  title: Florists
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:5449
+  list: ineligible
+  soc3: '544'
+  soc4: '5449'
+  category: Other Skilled Trades
+  title: All other skilled trades not elsewhere classified
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:6121
+  list: ineligible
+  soc3: '612'
+  soc4: '6121'
+  category: Childcare and Related Personal Services
+  title: Nursery nurses and assistants
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:6122
+  list: ineligible
+  soc3: '612'
+  soc4: '6122'
+  category: Childcare and Related Personal Services
+  title: Childminders and related occupations
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:6125
+  list: ineligible
+  soc3: '612'
+  soc4: '6125'
+  category: Childcare and Related Personal Services
+  title: Teaching assistants
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:6126
+  list: ineligible
+  soc3: '612'
+  soc4: '6126'
+  category: Childcare and Related Personal Services
+  title: Educational support assistants
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:6131
+  list: ineligible
+  soc3: '613'
+  soc4: '6131'
+  category: Animal Care and Control Services
+  title: Veterinary nurses
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:6132
+  list: ineligible
+  soc3: '613'
+  soc4: '6132'
+  category: Animal Care and Control Services
+  title: Pest control officers
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:6139
+  list: ineligible
+  soc3: '613'
+  soc4: '6139'
+  category: Animal Care and Control Services
+  title: Other animal care services occupations not elsewhere classified (with the exception of work riders)
+  qualifiers: []
+  exceptions:
+  - with the exception of work riders)
+  conditional: true
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:6142
+  list: ineligible
+  soc3: '614'
+  soc4: '6142'
+  category: Caring Personal Services
+  title: 'Ambulance staff
+
+    (with the exception of paramedics)'
+  qualifiers: []
+  exceptions:
+  - with the exception of paramedics)
+  conditional: true
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:6143
+  list: ineligible
+  soc3: '614'
+  soc4: '6143'
+  category: Caring Personal Services
+  title: Dental nurses
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:6144
+  list: ineligible
+  soc3: '614'
+  soc4: '6144'
+  category: Caring Personal Services
+  title: Houseparents and residential wardens
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:6146
+  list: ineligible
+  soc3: '614'
+  soc4: '6146'
+  category: Caring Personal Services
+  title: 'Senior care workers
+
+    (with the exception of those working in disability services)'
+  qualifiers: []
+  exceptions:
+  - with the exception of those working in disability services)
+  conditional: true
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:6147
+  list: ineligible
+  soc3: '614'
+  soc4: '6147'
+  category: Caring Personal Services
+  title: Care escorts
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:6148
+  list: ineligible
+  soc3: '614'
+  soc4: '6148'
+  category: Caring Personal Services
+  title: Undertakers, mortuary and crematorium assistants
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:6211
+  list: ineligible
+  soc3: '621'
+  soc4: '6211'
+  category: Leisure and Travel Services
+  title: Sports and leisure assistants
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:6212
+  list: ineligible
+  soc3: '621'
+  soc4: '6212'
+  category: Leisure and Travel Services
+  title: Travel agents
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:6214
+  list: ineligible
+  soc3: '621'
+  soc4: '6214'
+  category: Leisure and Travel Services
+  title: Air travel assistants
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:6215
+  list: ineligible
+  soc3: '621'
+  soc4: '6215'
+  category: Leisure and Travel Services
+  title: Rail travel assistants
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:6219
+  list: ineligible
+  soc3: '621'
+  soc4: '6219'
+  category: Leisure and Travel Services
+  title: 'Other leisure and travel service occupations not elsewhere classified
+
+    (with the exception of tourist guides fluent in the official language of a State which is not a member of the
+    EEA and is not an official language of an EEA state)'
+  qualifiers: []
+  exceptions:
+  - with the exception of tourist guides fluent in the official language of a State which is not a member of the
+    EEA and is not an official language of an EEA state)
+  conditional: true
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:6221
+  list: ineligible
+  soc3: '622'
+  soc4: '6221'
+  category: Hairdressers and Related Services
+  title: Hairdressers, barbers, and related occupations
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:6222
+  list: ineligible
+  soc3: '622'
+  soc4: '6222'
+  category: Hairdressers and Related Services
+  title: Beauticians and related occupations
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:6231
+  list: ineligible
+  soc3: '623'
+  soc4: '6231'
+  category: Housekeeping and Related Services
+  title: Housekeepers and related occupations
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:6232
+  list: ineligible
+  soc3: '623'
+  soc4: '6232'
+  category: Housekeeping and Related Services
+  title: Caretakers
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:6240
+  list: ineligible
+  soc3: '624'
+  soc4: '6240'
+  category: Cleaning and Housekeeping Managers and Supervisors
+  title: Cleaning and housekeeping managers and supervisors
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:7111
+  list: ineligible
+  soc3: '711'
+  soc4: '7111'
+  category: Sales Assistants and Retail Cashiers
+  title: Sales and retail assistants
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:7112
+  list: ineligible
+  soc3: '711'
+  soc4: '7112'
+  category: Sales Assistants and Retail Cashiers
+  title: Retail cashiers and check-out operators
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:7113
+  list: ineligible
+  soc3: '711'
+  soc4: '7113'
+  category: Sales Assistants and Retail Cashiers
+  title: Telephone salespersons
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:7114
+  list: ineligible
+  soc3: '711'
+  soc4: '7114'
+  category: Sales Assistants and Retail Cashiers
+  title: Pharmacy and other dispensing assistants
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:7115
+  list: ineligible
+  soc3: '711'
+  soc4: '7115'
+  category: Sales Assistants and Retail Cashiers
+  title: Vehicle and parts salespersons and advisers
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:7121
+  list: ineligible
+  soc3: '712'
+  soc4: '7121'
+  category: Sales Related Occupations
+  title: Collector salespersons and credit agents
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:7122
+  list: ineligible
+  soc3: '712'
+  soc4: '7122'
+  category: Sales Related Occupations
+  title: Debt, rent and other cash collectors
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:7123
+  list: ineligible
+  soc3: '712'
+  soc4: '7123'
+  category: Sales Related Occupations
+  title: Roundspersons and van salespersons
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:7124
+  list: ineligible
+  soc3: '712'
+  soc4: '7124'
+  category: Sales Related Occupations
+  title: Market and street traders and assistants
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:7125
+  list: ineligible
+  soc3: '712'
+  soc4: '7125'
+  category: Sales Related Occupations
+  title: Merchandisers and window dressers
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:7129
+  list: ineligible
+  soc3: '712'
+  soc4: '7129'
+  category: Sales Related Occupations
+  title: Other sales related occupations not elsewhere classified
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:7130
+  list: ineligible
+  soc3: '713'
+  soc4: '7130'
+  category: Sales Supervisors
+  title: Sales supervisors
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:7211
+  list: ineligible
+  soc3: '721'
+  soc4: '7211'
+  category: Customer Service Occupations
+  title: 'Call and contact centre occupations
+
+    (with the exception of employment of a person fluent in the official language of a State which is not a member
+    of the EEA and is not an official language of an EEA state, where the employment is supported by an enterprise
+    development agency and is in—
+
+    a customer service and sales role with relevant product knowledge,
+
+    a specialist online digital marketing and sales role, or
+
+    a specialist language support and technical sales support role)'
+  qualifiers: []
+  exceptions:
+  - 'with the exception of employment of a person fluent in the official language of a State which is not a member
+    of the EEA and is not an official language of an EEA state, where the employment is supported by an enterprise
+    development agency and is in—
+
+    a customer service and sales role with relevant product knowledge,
+
+    a specialist online digital marketing and sales role, or
+
+    a specialist language support and technical sales support role)'
+  conditional: true
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:7213
+  list: ineligible
+  soc3: '721'
+  soc4: '7213'
+  category: Customer Service Occupations
+  title: Telephonists
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:7214
+  list: ineligible
+  soc3: '721'
+  soc4: '7214'
+  category: Customer Service Occupations
+  title: Communication operators
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:7215
+  list: ineligible
+  soc3: '721'
+  soc4: '7215'
+  category: Customer Service Occupations
+  title: Market research interviewers
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:7219
+  list: ineligible
+  soc3: '721'
+  soc4: '7219'
+  category: Customer Service Occupations
+  title: Other customer service occupations not elsewhere classified
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:7220
+  list: ineligible
+  soc3: '722'
+  soc4: '7220'
+  category: Customer Service Managers and Supervisors
+  title: Customer service managers and supervisors
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:8111
+  list: ineligible
+  soc3: '811'
+  soc4: '8111'
+  category: Process Operatives
+  title: 'Food, drink and tobacco process operatives
+
+    (with the exception of
+
+    Computer Numerical Control Operative
+
+    Meat processor operative
+
+    Seafood Operative)'
+  qualifiers: []
+  exceptions:
+  - 'with the exception of
+
+    Computer Numerical Control Operative
+
+    Meat processor operative
+
+    Seafood Operative)'
+  conditional: true
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:8112
+  list: ineligible
+  soc3: '811'
+  soc4: '8112'
+  category: Process Operatives
+  title: 'Glass and ceramics process operatives
+
+    (with the exception of Computer Numerical Control Operative)'
+  qualifiers: []
+  exceptions:
+  - with the exception of Computer Numerical Control Operative)
+  conditional: true
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:8114
+  list: ineligible
+  soc3: '811'
+  soc4: '8114'
+  category: Process Operatives
+  title: 'Chemical and related process operatives
+
+    (with the exception of Computer Numerical Control Operative)'
+  qualifiers: []
+  exceptions:
+  - with the exception of Computer Numerical Control Operative)
+  conditional: true
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:8115
+  list: ineligible
+  soc3: '811'
+  soc4: '8115'
+  category: Process Operatives
+  title: 'Rubber process operatives
+
+    (with the exception of Computer Numerical Control Operative)'
+  qualifiers: []
+  exceptions:
+  - with the exception of Computer Numerical Control Operative)
+  conditional: true
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:8116
+  list: ineligible
+  soc3: '811'
+  soc4: '8116'
+  category: Process Operatives
+  title: 'Plastics process operatives
+
+    (with the exception of Computer Numerical Control Operative)'
+  qualifiers: []
+  exceptions:
+  - with the exception of Computer Numerical Control Operative)
+  conditional: true
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:8117
+  list: ineligible
+  soc3: '811'
+  soc4: '8117'
+  category: Process Operatives
+  title: 'Metal making and treating process operatives
+
+    (with the exception of Computer Numerical Control Operative)'
+  qualifiers: []
+  exceptions:
+  - with the exception of Computer Numerical Control Operative)
+  conditional: true
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:8118
+  list: ineligible
+  soc3: '811'
+  soc4: '8118'
+  category: Process Operatives
+  title: 'Electroplaters
+
+    (with the exception of Computer Numerical Control Operative)'
+  qualifiers: []
+  exceptions:
+  - with the exception of Computer Numerical Control Operative)
+  conditional: true
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:8119
+  list: ineligible
+  soc3: '811'
+  soc4: '8119'
+  category: Process Operatives
+  title: 'Other process operatives not elsewhere classified
+
+    (with the exception of Computer Numerical Control Operative)'
+  qualifiers: []
+  exceptions:
+  - with the exception of Computer Numerical Control Operative)
+  conditional: true
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:8121
+  list: ineligible
+  soc3: '812'
+  soc4: '8121'
+  category: Plant and Machine Operatives
+  title: 'Paper machine operatives
+
+    (with the exception of Computer Numerical Control Operative)'
+  qualifiers: []
+  exceptions:
+  - with the exception of Computer Numerical Control Operative)
+  conditional: true
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:8122
+  list: ineligible
+  soc3: '812'
+  soc4: '8122'
+  category: Plant and Machine Operatives
+  title: 'Coal mine operatives
+
+    (with the exception of Computer Numerical Control Operative)'
+  qualifiers: []
+  exceptions:
+  - with the exception of Computer Numerical Control Operative)
+  conditional: true
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:8123
+  list: ineligible
+  soc3: '812'
+  soc4: '8123'
+  category: Plant and Machine Operatives
+  title: 'Quarry workers and related operatives
+
+    (with the exception of Computer Numerical Control Operative)'
+  qualifiers: []
+  exceptions:
+  - with the exception of Computer Numerical Control Operative)
+  conditional: true
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:8124
+  list: ineligible
+  soc3: '812'
+  soc4: '8124'
+  category: Plant and Machine Operatives
+  title: 'Energy plant operatives
+
+    (with the exception of Computer Numerical Control Operative)'
+  qualifiers: []
+  exceptions:
+  - with the exception of Computer Numerical Control Operative)
+  conditional: true
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:8125
+  list: ineligible
+  soc3: '812'
+  soc4: '8125'
+  category: Plant and Machine Operatives
+  title: 'Metal working machine operatives
+
+    (with the exception of Computer Numerical Control Operative)'
+  qualifiers: []
+  exceptions:
+  - with the exception of Computer Numerical Control Operative)
+  conditional: true
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:8126
+  list: ineligible
+  soc3: '812'
+  soc4: '8126'
+  category: Plant and Machine Operatives
+  title: 'Water and sewerage plant operatives
+
+    (with the exception of Computer Numerical Control Operative)'
+  qualifiers: []
+  exceptions:
+  - with the exception of Computer Numerical Control Operative)
+  conditional: true
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:8127
+  list: ineligible
+  soc3: '812'
+  soc4: '8127'
+  category: Plant and Machine Operatives
+  title: 'Printing machine assistants
+
+    (with the exception of Computer Numerical Control Operative)'
+  qualifiers: []
+  exceptions:
+  - with the exception of Computer Numerical Control Operative)
+  conditional: true
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:8129
+  list: ineligible
+  soc3: '812'
+  soc4: '8129'
+  category: Plant and Machine Operatives
+  title: 'Other plant and machine operatives not elsewhere classified
+
+    (with the exception of Computer Numerical Control Operative)
+
+    (with the exception of Saw Doctor)'
+  qualifiers: []
+  exceptions:
+  - 'with the exception of Computer Numerical Control Operative)
+
+    (with the exception of Saw Doctor)'
+  conditional: true
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:8131
+  list: ineligible
+  soc3: '813'
+  soc4: '8131'
+  category: Assemblers and Routine Operatives
+  title: 'Assemblers (electrical and electronic products)
+
+    (with the exception of Armature Rewinder)'
+  qualifiers: []
+  exceptions:
+  - with the exception of Armature Rewinder)
+  conditional: true
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:8132
+  list: ineligible
+  soc3: '813'
+  soc4: '8132'
+  category: Assemblers and Routine Operatives
+  title: Assemblers (vehicles and metal goods)
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:8133
+  list: ineligible
+  soc3: '813'
+  soc4: '8133'
+  category: Assemblers and Routine Operatives
+  title: Routine inspectors and testers
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:8134
+  list: ineligible
+  soc3: '813'
+  soc4: '8134'
+  category: Assemblers and Routine Operatives
+  title: Weighers, graders and sorters
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:8135
+  list: ineligible
+  soc3: '813'
+  soc4: '8135'
+  category: Assemblers and Routine Operatives
+  title: Tyre, exhaust and windscreen fitters
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:8137
+  list: ineligible
+  soc3: '813'
+  soc4: '8137'
+  category: Assemblers and Routine Operatives
+  title: 'Sewing machinists
+
+    (with the exception of Industrial Machine Knitter)'
+  qualifiers: []
+  exceptions:
+  - with the exception of Industrial Machine Knitter)
+  conditional: true
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:8139
+  list: ineligible
+  soc3: '813'
+  soc4: '8139'
+  category: Assemblers and Routine Operatives
+  title: Other assemblers and routine operatives not elsewhere classified
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:8142
+  list: ineligible
+  soc3: '814'
+  soc4: '8142'
+  category: Construction Operatives
+  title: Road construction operatives
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:8143
+  list: ineligible
+  soc3: '814'
+  soc4: '8143'
+  category: Construction Operatives
+  title: Rail construction and maintenance operatives
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:8149
+  list: ineligible
+  soc3: '814'
+  soc4: '8149'
+  category: Construction Operatives
+  title: Other construction operatives not elsewhere classified
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:8211
+  list: ineligible
+  soc3: '821'
+  soc4: '8211'
+  category: Road Transport Drivers
+  title: 'Large goods vehicle drivers
+
+    (with the exception of heavy goods vehicle drivers who have-
+
+    a category CE or C1E driving licence, or
+
+    an equivalent category to a category CE or C1E driving licence identified through a mutual recognition agreement
+    between the Road Safety Authority and the appropriate regulatory authority in another jurisdiction).'
+  qualifiers:
+  - 'who have-
+
+    a category CE or C1E driving licence, or
+
+    an equivalent category to a category CE or C1E driving licence identified through a mutual recognition agreement
+    between the Road Safety Authority and the appropriate regulatory authority in another jurisdiction).'
+  exceptions:
+  - 'with the exception of heavy goods vehicle drivers who have-
+
+    a category CE or C1E driving licence, or
+
+    an equivalent category to a category CE or C1E driving licence identified through a mutual recognition agreement
+    between the Road Safety Authority and the appropriate regulatory authority in another jurisdiction).'
+  conditional: true
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:8212
+  list: ineligible
+  soc3: '821'
+  soc4: '8212'
+  category: Road Transport Drivers
+  title: Van drivers
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:8213
+  list: ineligible
+  soc3: '821'
+  soc4: '8213'
+  category: Road Transport Drivers
+  title: 'Bus and coach drivers
+
+    (with the exception of bus and coach drivers who have-
+
+    A category D, DE, D1 or D1E driving licence, or
+
+    an equivalent category to a category D, DE, D1 or D1E driving licence identified through a mutual recognition
+    agreement between the Road Safety Authority and the appropriate regulatory authority in another jurisdiction)'
+  qualifiers:
+  - 'who have-
+
+    A category D, DE, D1 or D1E driving licence, or
+
+    an equivalent category to a category D, DE, D1 or D1E driving licence identified through a mutual recognition
+    agreement between the Road Safety Authority and the appropriate regulatory authority in another jurisdiction)'
+  exceptions:
+  - 'with the exception of bus and coach drivers who have-
+
+    A category D, DE, D1 or D1E driving licence, or
+
+    an equivalent category to a category D, DE, D1 or D1E driving licence identified through a mutual recognition
+    agreement between the Road Safety Authority and the appropriate regulatory authority in another jurisdiction)'
+  conditional: true
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:8214
+  list: ineligible
+  soc3: '821'
+  soc4: '8214'
+  category: Road Transport Drivers
+  title: Taxi and cab drivers and chauffeurs
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:8215
+  list: ineligible
+  soc3: '821'
+  soc4: '8215'
+  category: Road Transport Drivers
+  title: Driving instructors
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:8222
+  list: ineligible
+  soc3: '822'
+  soc4: '8222'
+  category: Mobile Machine Drivers and Operatives
+  title: Fork-lift truck drivers
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:8223
+  list: ineligible
+  soc3: '822'
+  soc4: '8223'
+  category: Mobile Machine Drivers and Operatives
+  title: Agricultural machinery drivers
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:8229
+  list: ineligible
+  soc3: '822'
+  soc4: '8229'
+  category: Mobile Machine Drivers and Operatives
+  title: 'Other mobile machine drivers and operatives not elsewhere classified
+
+    (with the exception of Concrete Pump Operator)'
+  qualifiers: []
+  exceptions:
+  - with the exception of Concrete Pump Operator)
+  conditional: true
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:8231
+  list: ineligible
+  soc3: '823'
+  soc4: '8231'
+  category: Other Drivers and Transport Operatives
+  title: Train and tram drivers
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:8232
+  list: ineligible
+  soc3: '823'
+  soc4: '8232'
+  category: Other Drivers and Transport Operatives
+  title: Marine and waterways transport operatives
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:8233
+  list: ineligible
+  soc3: '823'
+  soc4: '8233'
+  category: Other Drivers and Transport Operatives
+  title: Air transport operatives
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:8234
+  list: ineligible
+  soc3: '823'
+  soc4: '8234'
+  category: Other Drivers and Transport Operatives
+  title: Rail transport operatives
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:8239
+  list: ineligible
+  soc3: '823'
+  soc4: '8239'
+  category: Other Drivers and Transport Operatives
+  title: Other drivers and transport operatives not elsewhere classified
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:9111
+  list: ineligible
+  soc3: '911'
+  soc4: '9111'
+  category: Elementary Agricultural Occupations
+  title: 'Farm workers
+
+    (with the exception of dairy farm assistants)
+
+    (with the exception of pig farm assistants)'
+  qualifiers: []
+  exceptions:
+  - 'with the exception of dairy farm assistants)
+
+    (with the exception of pig farm assistants)'
+  conditional: true
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:9119
+  list: ineligible
+  soc3: '911'
+  soc4: '9119'
+  category: Elementary Agricultural Occupations
+  title: 'Other fishing and other general agriculture occupations not elsewhere classified
+
+    (with the exception of horticulture worker)'
+  qualifiers: []
+  exceptions:
+  - with the exception of horticulture worker)
+  conditional: true
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:9120
+  list: ineligible
+  soc3: '912'
+  soc4: '9120'
+  category: Elementary Construction Occupations
+  title: Elementary construction occupations
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:9132
+  list: ineligible
+  soc3: '913'
+  soc4: '9132'
+  category: Elementary Process Plant Occupations
+  title: Industrial cleaning process occupations
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:9134
+  list: ineligible
+  soc3: '913'
+  soc4: '9134'
+  category: Elementary Process Plant Occupations
+  title: Packers, bottlers, canners and fillers
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:9139
+  list: ineligible
+  soc3: '913'
+  soc4: '9139'
+  category: Elementary Process Plant Occupations
+  title: Other elementary process plant occupations not elsewhere classified
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:9211
+  list: ineligible
+  soc3: '921'
+  soc4: '9211'
+  category: Elementary Administration Occupations
+  title: Postal workers, mail sorters, messengers and couriers
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:9219
+  list: ineligible
+  soc3: '921'
+  soc4: '9219'
+  category: Elementary Administration Occupations
+  title: Other elementary administration occupations not elsewhere classified
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:9231
+  list: ineligible
+  soc3: '923'
+  soc4: '9231'
+  category: Elementary Cleaning Occupations
+  title: Window cleaners
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:9232
+  list: ineligible
+  soc3: '923'
+  soc4: '9232'
+  category: Elementary Cleaning Occupations
+  title: Street cleaners
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:9233
+  list: ineligible
+  soc3: '923'
+  soc4: '9233'
+  category: Elementary Cleaning Occupations
+  title: Cleaners and domestics
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:9234
+  list: ineligible
+  soc3: '923'
+  soc4: '9234'
+  category: Elementary Cleaning Occupations
+  title: Launderers, dry cleaners and pressers
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:9235
+  list: ineligible
+  soc3: '923'
+  soc4: '9235'
+  category: Elementary Cleaning Occupations
+  title: Refuse and salvage occupations
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:9236
+  list: ineligible
+  soc3: '923'
+  soc4: '9236'
+  category: Elementary Cleaning Occupations
+  title: Vehicle valeters and cleaners
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:9239
+  list: ineligible
+  soc3: '923'
+  soc4: '9239'
+  category: Elementary Cleaning Occupations
+  title: Other elementary cleaning occupations not elsewhere classified
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:9241
+  list: ineligible
+  soc3: '924'
+  soc4: '9241'
+  category: Elementary Security Occupations
+  title: Security guards and related occupations
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:9242
+  list: ineligible
+  soc3: '924'
+  soc4: '9242'
+  category: Elementary Security Occupations
+  title: Parking and civil enforcement occupations
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:9244
+  list: ineligible
+  soc3: '924'
+  soc4: '9244'
+  category: Elementary Security Occupations
+  title: School midday and crossing patrol occupations
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:9249
+  list: ineligible
+  soc3: '924'
+  soc4: '9249'
+  category: Elementary Security Occupations
+  title: Other elementary security occupations not elsewhere classified
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:9251
+  list: ineligible
+  soc3: '925'
+  soc4: '9251'
+  category: Elementary Sales Occupations
+  title: Shelf fillers
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:9259
+  list: ineligible
+  soc3: '925'
+  soc4: '9259'
+  category: Elementary Sales Occupations
+  title: Other elementary sales occupations not elsewhere classified
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:9260
+  list: ineligible
+  soc3: '926'
+  soc4: '9260'
+  category: Elementary Storage Occupations
+  title: Elementary storage occupations
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:9271
+  list: ineligible
+  soc3: '927'
+  soc4: '9271'
+  category: Other Elementary Services Occupations
+  title: Hospital porters
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:9272
+  list: ineligible
+  soc3: '927'
+  soc4: '9272'
+  category: Other Elementary Services Occupations
+  title: Kitchen and catering assistants
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:9273
+  list: ineligible
+  soc3: '927'
+  soc4: '9273'
+  category: Other Elementary Services Occupations
+  title: Waiters and waitresses
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:9274
+  list: ineligible
+  soc3: '927'
+  soc4: '9274'
+  category: Other Elementary Services Occupations
+  title: Bar staff
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:9275
+  list: ineligible
+  soc3: '927'
+  soc4: '9275'
+  category: Other Elementary Services Occupations
+  title: Leisure and theme park attendants
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:9279
+  list: ineligible
+  soc3: '927'
+  soc4: '9279'
+  category: Other Elementary Services Occupations
+  title: Other elementary services occupations not elsewhere classified
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc
+- id: ineligible:all
+  list: ineligible
+  soc3: all
+  soc4: all
+  category: Work in the private home
+  title: Domestic worker
+  qualifiers: []
+  exceptions: []
+  conditional: false
+  source_url: https://enterprise.gov.ie/en/publications/publication-files/ineligible-occupations-list.docx
+  source_sha256: 84b5ff0cff53233f0fc7a2dd3f445697a19986cd205820657c08ddb142397abc

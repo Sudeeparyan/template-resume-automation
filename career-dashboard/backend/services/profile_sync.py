@@ -69,7 +69,7 @@ def locate(row):
         if source.startswith("data/config/profile.yml > candidate > "):
             return "profile", ("candidate", source.rsplit(" > ", 1)[1])
         if source.startswith("data/config/profile.yml > "):
-            return "profile", (source.split(" > ", 1)[1],)
+            return "profile", tuple(source.split(" > ")[1:])
         field = data.get("field") or re.sub(r"[^a-z0-9]+", "_", row["title"].casefold()).strip("_")
         return "profile", ("candidate", field)
     if source.startswith("data/context/evidence.yml > ") and source.split(" > ", 1)[1] == row["id"]:
@@ -224,6 +224,8 @@ def yaml_put_entry(text, section, entry):
                 end -= 1
             lines[index:end] = new
             return "\n".join(lines)
+    if lines[parent[0]].strip() in {section + ": []", section + ": {}"}:
+        lines[parent[0]] = section + ":"
     lines[parent[1]:parent[1]] = new
     return "\n".join(lines)
 
@@ -235,17 +237,18 @@ def yaml_revision(text, revision):
     return new
 
 
-def refresh_contract():
-    """Validators keep the contract derived from the YAML files; rebuild it after a change."""
+def refresh_contract(root):
+    """Refresh validators from the profile that changed, including on a fresh clone."""
     from backend.resume_contract import load_contract
 
     load_contract.cache_clear()
+    root = Path(root)
     contract = None
     for name in ("validate_resume", "validate_batch", "validate_workspace"):
         module = sys.modules.get(name)
         if module is None or not hasattr(module, "CONTRACT"):
             continue
-        contract = contract or load_contract()
+        contract = contract or load_contract(str(root / PROFILE), str(root / EVIDENCE))
         module.CONTRACT = contract
         if hasattr(module, "UNSAFE_PATTERNS"):
             module.UNSAFE_PATTERNS = dict(contract.unsafe_patterns)
@@ -334,9 +337,9 @@ class ProfileSync:
             items[index] = entry
         self.texts[EVIDENCE] = yaml_put_entry(self.texts[EVIDENCE], group, entry)
 
-    def _stamp(self, entry, verb):
+    def _stamp(self, entry, verb, source=""):
         refs = [r for r in entry.get("source_refs") or [] if isinstance(r, str)]
-        note = f"Profile page (dashboard) > {verb} {self.today}"
+        note = (source + "#answer") if str(source).startswith("data/context/sources/") else f"Profile page (dashboard) > {verb} {self.today}"
         if note not in refs:
             refs.append(note)
         entry["source_refs"] = refs
@@ -372,7 +375,7 @@ class ProfileSync:
         group, _, current = self._find(key)
         if current is None:
             return
-        entry = self._stamp(copy.deepcopy(current), "removed")
+        entry = self._stamp(copy.deepcopy(current), "removed", row.get("source"))
         entry["status"] = "hold"
         entry["profile_removed"] = self.today
         self._put(group, entry)
@@ -401,6 +404,26 @@ class ProfileSync:
                 raise ValueError(f"{row['title']} has several parts. Open it with Edit and save the form to change it.")
             before = (previous or {}).get("value")
             value = _apply(current, _changes(before, value)) if isinstance(before, dict) else value
+        from backend.services.intake.authorization import validate_authorization, validate_education, validate_job_search
+
+        if path == ("work_authorization_by_market", "ie"):
+            value = validate_authorization(value)
+        elif path == ("education_for_permits",):
+            value = validate_education(value)
+        elif path == ("job_search",):
+            unchanged_default = (isinstance(current, dict) and current.get("salary_floor_source") == "permit_rules"
+                                 and value.get("salary_floor_eur") == current.get("salary_floor_eur"))
+            if unchanged_default:
+                value = {k: v for k, v in value.items() if k != "salary_floor_eur"}
+            value = validate_job_search(value)
+            if unchanged_default:
+                from backend.permits.assessment import personal_floor
+
+                value.update(salary_floor_eur=personal_floor(self.profile), salary_floor_source="permit_rules")
+            self._set_profile(("target_roles", "seniority"), value["seniority"])
+            self._set_profile(("target_roles", "max_years_required"), value["max_years_required"])
+            self._set_profile(("scoring", "block_seniority"), bool(value.get("graduate_search_confirmed")))
+        # Permit facts and search preferences are stored in profile.yml only; they are not evidence.
         self._set_profile(path, value)
         field = path[-1] if path[0] == "candidate" else None
         if field in TWINS:
@@ -425,7 +448,7 @@ class ProfileSync:
             return row["data"]
         if entry.get("status") == "missing" and (entry.get("value") or entry.get("approved_facts")):
             entry["status"] = "user_reported"  # supplied now, so no longer missing
-        entry = self._stamp(entry, "added" if before is None else "edited")
+        entry = self._stamp(entry, "added" if before is None else "edited", row.get("source"))
         self._check(group, entry, before, row)
         self._put(group, entry)
         self.changes.append((group, before, entry))
@@ -443,7 +466,8 @@ class ProfileSync:
         entry = {"id": registry_id, "status": "user_reported"}
         if kind != "project":
             entry["category"] = CATEGORY.get(kind, kind)
-        entry["approved_external_use"] = "always; added by the candidate on the Profile page"
+        where = "Profile chat" if str(row.get("source") or "").startswith("data/context/sources/profile-chat-") else "Profile page"
+        entry["approved_external_use"] = "always; added by the candidate in " + where
         entry["source_refs"] = []
         if kind == "project":
             content = data.get("resume_content") or {}
@@ -647,4 +671,4 @@ class ProfileSync:
 
     def done(self):
         if self.writes:
-            refresh_contract()
+            refresh_contract(self.root)

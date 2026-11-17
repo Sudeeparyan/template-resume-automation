@@ -28,7 +28,7 @@ TAG = re.compile(r"^(\s*)%\s*EVIDENCE:\s*(.*?)\s*$")
 ITEM = re.compile(r"^(\s*)\\item\s+(.*?)\s*$")
 MACRO = re.compile(r"\\newcommand\{\\([A-Za-z@]+)\}\s*")
 SECTION = re.compile(r"^\s*\\section\{([^}]*)\}")
-SCALARS = ("title", "employer", "dates", "location", "institution", "degree_as_supplied", "value")
+SCALARS = ("title", "employer", "dates", "location", "institution", "degree_as_supplied", "grade", "value")
 # Macros with their own rules: the header is rebuilt from the profile, project slots from the registry.
 OWN_RULES = ("ResumeContact", "SelectedProject", "SecondProject")
 LIST_MACROS = ("Skills", "CoreSkills", "Coursework")

@@ -23,7 +23,7 @@ import time
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -41,8 +41,13 @@ class Confirmation(BaseModel):
     confirm: str = Field(default="", max_length=120)
 
 
+class MachineKey(BaseModel):
+    value: str = Field(min_length=1, max_length=400)
+
+
 class ScheduleToggle(BaseModel):
     enabled: bool
+    ready_by: str | None = Field(default=None, pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
 
 
 class ProfileApps:
@@ -126,7 +131,7 @@ class Shell:
         return await self.api(scope, receive, send)
 
 
-def create_shell(profiles: ProfileStore | None = None, schedule: bool = False, frontend: Path | None = None):
+def create_shell(profiles: ProfileStore | None = None, schedule: bool = False, frontend: Path | None = None, demo: bool = False):
     profiles = profiles or default_store()
     profiles.purge_trash()
     apps = ProfileApps(profiles, schedule=schedule)
@@ -151,6 +156,7 @@ def create_shell(profiles: ProfileStore | None = None, schedule: bool = False, f
     api = FastAPI(title=APP_TITLE, version="2.0.0", lifespan=lifespan)
     api.state.profiles = profiles
     api.state.apps = apps
+    api.state.demo = demo
     intake_jobs: dict = {}  # replaced below by the intake's own job table
     from backend.dashboard.app import guard
 
@@ -166,14 +172,71 @@ def create_shell(profiles: ProfileStore | None = None, schedule: bool = False, f
         # pid, started_at and busy let the launcher replace a server running older
         # code, and never one that is in the middle of a search or an agent run.
         return {"app": APP_ID, "version": "2.0.0", "root": str(APP_ROOT), "pid": os.getpid(),
-                "started_at": started_at, "busy": apps.busy(), "profiles": True}
+                "started_at": started_at, "busy": apps.busy(), "profiles": True,
+                "mode": "demo" if demo else "live"}
+
+    # ---- AI on this computer, before any profile exists ---------------------------------
+    # Keys belong to the installation (career-dashboard/.env), not to a person: onboarding
+    # checks them before the first build instead of failing half-way through.
+    @api.get("/api/ai/status")
+    def ai_status():
+        from backend.ai import settings as ai_settings
+
+        return ai_settings.machine_status()
+
+    @api.put("/api/ai/keys/{provider}")
+    def save_machine_key(provider: str, data: MachineKey):
+        from backend.ai import settings as ai_settings
+
+        return {**ai_settings.save_machine_key(provider, data.value), "status": ai_settings.machine_status()}
+
+    if demo:
+        @api.get("/demo/postings/{slug}")
+        def practice_page(slug: str):
+            import html
+            import json
+
+            from backend.services.demo import practice_posting
+
+            try:
+                posting = practice_posting(slug)
+            except ValueError as error:
+                raise HTTPException(404, str(error)) from None
+            structured = {
+                "@context": "https://schema.org",
+                "@type": "JobPosting",
+                "title": posting["title"],
+                "description": posting["description"],
+                "url": posting["url"],
+                "hiringOrganization": {"@type": "Organization", "name": posting["company"]},
+                "jobLocation": {"@type": "Place", "address": {
+                    "@type": "PostalAddress",
+                    "addressLocality": posting["location"].split(",", 1)[0],
+                    "addressCountry": "IE",
+                }},
+                "identifier": {"@type": "PropertyValue", "value": "PRACTICE-" + slug.upper()},
+            }
+            return HTMLResponse(
+                "<!doctype html><html><head><meta charset='utf-8'><title>"
+                + html.escape(posting["title"])
+                + " · Practice</title><script type='application/ld+json'>"
+                + json.dumps(structured, ensure_ascii=False).replace("</", "<\\/")
+                + "</script></head><body><main>"
+                + "<p><strong>Practice workspace:</strong> fictional employer and posting. Nothing can be submitted.</p>"
+                + "<h1>" + html.escape(posting["title"]) + "</h1><h2>"
+                + html.escape(posting["company"]) + "</h2><p>"
+                + html.escape(posting["location"]) + "</p><pre style='white-space:pre-wrap;font:inherit'>"
+                + html.escape(posting["description"]) + "</pre>"
+                + "<p><a href='/'>Return to the practice dashboard</a></p></main></body></html>"
+            )
 
     # ---- profiles -------------------------------------------------------------
     def describe(profile: dict) -> dict:
         """A profile plus the market and resume contract shown by the client."""
-        from backend.countries import load_pack
+        from backend.countries import enabled_markets, load_pack
         from backend.resume_contract import contract_for
 
+        profile = {**profile, "offered_markets": enabled_markets()}
         try:
             pack = load_pack(profile.get("country") or "ie") if profile.get("country") or profile.get("legacy") else None
         except ValueError:
@@ -230,6 +293,7 @@ def create_shell(profiles: ProfileStore | None = None, schedule: bool = False, f
         profiles.check_confirmation(profile_id, data.confirm)
         stop_everything(profile_id)
         profile = profiles.reset(profile_id)
+        resync_morning()
         return {"profile": profile, **listing()}
 
     @api.delete("/api/profiles/{profile_id}")
@@ -237,32 +301,31 @@ def create_shell(profiles: ProfileStore | None = None, schedule: bool = False, f
         profiles.check_confirmation(profile_id, data.confirm)
         stop_everything(profile_id)
         profiles.delete(profile_id)
+        resync_morning()
         return {"deleted": profile_id, **listing()}
 
-    # ---- the daily search task per profile (backend/services/schedule_tasks) --
+    def resync_morning() -> None:
+        """The morning task follows the profiles that still have Morning jobs on."""
+        from backend.services import schedule_tasks
+
+        try:
+            schedule_tasks.sync(profiles)
+        except Exception:  # noqa: BLE001 - the profile change itself has already happened
+            pass
+
+    # ---- Morning jobs: the one scheduled task for the PC (backend/services/schedule_tasks) --
     @api.get("/api/profiles/{profile_id}/schedule")
     def get_schedule(profile_id: str):
         from backend.services import schedule_tasks
 
-        profile = profiles.get(profile_id)
-        saved = profile.get("schedule") or {}
-        return {**saved, **schedule_tasks.status(profile_id), "time": saved.get("time")}
+        return schedule_tasks.profile_status(profiles, profile_id)
 
     @api.put("/api/profiles/{profile_id}/schedule")
     def set_schedule(profile_id: str, data: ScheduleToggle):
         from backend.services import schedule_tasks
 
-        profile = profiles.get(profile_id)
-        if profile["state"] != "ready":
-            raise ProfileError("Build this profile's workspace first; its daily search starts after that.")
-        if data.enabled and not schedule_tasks.status(profile_id).get("exists"):
-            schedule_tasks.install_for(profiles, profile_id)
-        else:
-            result = schedule_tasks.set_enabled(profile_id, data.enabled)
-            saved = profiles.get(profile_id).get("schedule") or {}
-            profiles.update(profile_id, schedule={**saved, "enabled": data.enabled if result.get("changed") else saved.get("enabled"),
-                                                  "note": result.get("note", "")})
-        return get_schedule(profile_id)
+        # The same switch `career morning` turns from chat (backend/scripts/morning_cli.py).
+        return schedule_tasks.set_profile(profiles, profile_id, enabled=data.enabled, ready_by=data.ready_by)
 
     # ---- the intake for new profiles (backend/services/intake) ---------------
     from backend.services.intake.api import attach_intake

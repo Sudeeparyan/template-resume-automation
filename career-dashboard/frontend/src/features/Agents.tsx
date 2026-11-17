@@ -6,11 +6,13 @@ import {
   ChevronDown,
   ChevronRight,
   Circle,
+  Eye,
   FileCheck2,
   FileText,
   Globe,
   ListOrdered,
   LoaderCircle,
+  PanelRight,
   Play,
   Radar,
   RefreshCw,
@@ -24,6 +26,10 @@ import { api } from "../api";
 import { useMarket } from "../profiles";
 import { Badge, Loading } from "../components/UI";
 import type { Summary } from "../types";
+import { AGENT_LABEL, active, ago, clock, duration, providerText } from "./agentWords";
+import AgentTrace from "./AgentTrace";
+
+export { AGENT_LABEL, PROVIDER_LABEL } from "./agentWords";
 
 // --- what the backend sends ----------------------------------------------------
 
@@ -84,27 +90,6 @@ type Activity = {
 
 // --- words shown on the page -----------------------------------------------------
 
-export const PROVIDER_LABEL: Record<string, string> = {
-  auto: "Auto",
-  azure_openai: "Azure OpenAI",
-  claude_code: "Claude Code",
-  codex: "Codex",
-  kimi_cli: "Kimi Code",
-  openai: "OpenAI",
-  anthropic: "Claude API (Anthropic)",
-  openrouter: "OpenRouter",
-  gemini: "Gemini",
-  kimi: "Kimi",
-};
-export const AGENT_LABEL: Record<string, string> = {
-  discovery: "Job search",
-  research: "Company & hiring research",
-  resume_build: "Resume build & ATS check",
-  resume_match: "Independent resume review",
-  email: "Gmail sync",
-  job_quality: "Posting check",
-  study_plan: "Study plan",
-};
 const OUTPUT_LABEL: Record<string, string> = {
   research: "Company research",
   hiring: "Hiring-manager view",
@@ -180,40 +165,6 @@ const FLOW: Step[] = [
 ];
 
 // --- small helpers ---------------------------------------------------------------
-
-const active = (state?: string) => state === "queued" || state === "running";
-function duration(seconds?: number | null) {
-  if (seconds == null) return "";
-  if (seconds < 1) return "under 1s";
-  if (seconds < 60) return `${Math.round(seconds)}s`;
-  const m = Math.floor(seconds / 60);
-  const s = Math.round(seconds % 60);
-  if (m < 60) return `${m}m ${String(s).padStart(2, "0")}s`;
-  return `${Math.floor(m / 60)}h ${m % 60}m`;
-}
-function ago(iso: string) {
-  const s = (Date.now() - new Date(iso).getTime()) / 1000;
-  if (s < 60) return "just now";
-  if (s < 3600) return `${Math.floor(s / 60)} min ago`;
-  if (s < 86400) return `${Math.floor(s / 3600)} h ago`;
-  return new Date(iso).toLocaleDateString("en-US", {
-    day: "numeric",
-    month: "short",
-  });
-}
-const clock = (iso: string) =>
-  new Date(iso).toLocaleTimeString("en-US", {
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  });
-// "Auto → Codex · gpt-6-astra" when Auto picked the plan for this call.
-const providerText = (p?: string | null, m?: string | null, routed = false) =>
-  p
-    ? `${routed ? "Auto → " : ""}${PROVIDER_LABEL[p] || p}${
-        m && !["codex-runtime", "kimi-runtime", "auto"].includes(m) ? " · " + m : ""
-      }`
-    : "";
 
 function StateIcon({ state, size = 16 }: { state: StepState | string; size?: number }) {
   if (state === "active" || active(state))
@@ -378,6 +329,9 @@ export default function Agents({
   const [filter, setFilter] = useState<"all" | "running" | "failed">("all");
   const [starting, setStarting] = useState("");
   const [view, setView] = useState<"pipeline" | "advanced">("pipeline");
+  // The run shown in the side panel, and the live runs it was closed on (not reopened for them).
+  const [watch, setWatch] = useState<string | null>(null);
+  const [closed, setClosed] = useState<string[]>([]);
 
   const load = useCallback(async () => {
     try {
@@ -402,6 +356,20 @@ export default function Agents({
     }
     return (kind: string, jobId: string | null) => map.get(kind + ":" + (jobId || ""));
   }, [activity]);
+
+  // A run that starts working opens the side panel, the way a research assistant shows its steps.
+  useEffect(() => {
+    if (watch || !activity) return;
+    const open = (r: ActivityRun) => active(r.state) && !closed.includes(r.id);
+    const live = activity.runs.find((r) => r.state === "running" && open(r)) ?? activity.runs.find(open);
+    if (live) setWatch(live.id);
+  }, [activity, watch, closed]);
+  // Closing it holds for every run already working; only a run that starts later opens it again.
+  const closeWatch = useCallback(() => {
+    const live = (activity?.runs || []).filter((r) => active(r.state)).map((r) => r.id);
+    setClosed((ids) => [...ids, ...live, ...(watch ? [watch] : [])]);
+    setWatch(null);
+  }, [activity, watch]);
 
   const built = useMemo(
     () =>
@@ -469,12 +437,13 @@ export default function Agents({
   const stages = pipelineStages(data.jobs, reviews, built.size, discovery, market.postings, market.resumeShape);
 
   return (
-    <>
+    <div className={"agents-page" + (watch ? " with-trace" : "")}>
+      <div className="agents-main">
       <div className="page-title">
         <div>
           <div className="eyebrow">WHAT THE AGENTS ARE DOING</div>
           <h1>Agents</h1>
-          <p>Every job moves through the same steps. Watch each one live, see what it cost, and rerun anything that failed.</p>
+          <p>Every job moves through the same steps. Open any run to watch each search, site and decision live, see what it cost, and rerun anything that failed.</p>
         </div>
         <button className="secondary provider-pill" onClick={onSettings} title="Change in Settings">
           <span className="status-dot" />
@@ -532,9 +501,51 @@ export default function Agents({
                       Review now
                     </button>
                   )}
+                  {stage.label === "Discover" && discovery && (
+                    <button className="secondary flow-watch" onClick={() => setWatch(discovery.id)}>
+                      <Eye size={14} /> {active(discovery.state) ? "Watch live" : "See what it did"}
+                    </button>
+                  )}
                 </li>
               ))}
             </ol>
+          </section>
+          <section className="card spaced">
+            <div className="section-title">
+              <h2>What the agents did</h2>
+              <span className="small muted">Open a run to see each step, site and decision</span>
+            </div>
+            {activity.runs.length === 0 ? (
+              <p className="muted">No agent has run yet. A job search starts from Daily Search or the morning run.</p>
+            ) : (
+              <ul className="trace-recent">
+                {activity.runs.slice(0, 8).map((r) => (
+                  <li key={r.id}>
+                    <button
+                      className={"trace-recent-row" + (watch === r.id ? " selected" : "")}
+                      onClick={() => setWatch(r.id)}
+                    >
+                      <StateIcon state={fixed.has(r.id) ? "warn" : r.state} size={16} />
+                      <span className="trace-recent-name">
+                        <b>{AGENT_LABEL[r.kind] || r.kind.replaceAll("_", " ")}</b>
+                        <small>{r.company ? `${r.company} · ${r.title}` : "Whole workspace"}</small>
+                      </span>
+                      <span className={"trace-recent-stage" + (r.state === "failed" && !fixed.has(r.id) ? " tone-failed" : "")}>
+                        {active(r.state)
+                          ? r.stage || "Waiting to start"
+                          : r.state === "failed"
+                            ? r.error
+                            : r.stage === "Complete"
+                              ? "Finished"
+                              : r.stage}
+                      </span>
+                      <small className="trace-recent-when">{ago(r.created_at)}</small>
+                      <ChevronRight size={16} />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
           </section>
         </>
       ) : (
@@ -754,6 +765,7 @@ export default function Agents({
                     : undefined
                 }
                 retryDisabled={!!starting || cannotStart}
+                onWatch={() => setWatch(r.id)}
               />
             ))}
           </div>
@@ -761,7 +773,11 @@ export default function Agents({
       </section>
         </>
       )}
-    </>
+      </div>
+      {watch && (
+        <AgentTrace runId={watch} runs={activity.runs} onClose={closeWatch} onJob={onJob} onSelect={setWatch} />
+      )}
+    </div>
   );
 }
 
@@ -772,6 +788,7 @@ function RunRow({
   onToggle,
   onRetry,
   retryDisabled,
+  onWatch,
 }: {
   run: ActivityRun;
   fixed: boolean;
@@ -779,6 +796,7 @@ function RunRow({
   onToggle: () => void;
   onRetry?: () => void;
   retryDisabled: boolean;
+  onWatch: () => void;
 }) {
   const calls = run.events.filter((e) => e.kind === "ai_call");
   const fresh = calls.filter((e) => e.fresh).length;
@@ -875,13 +893,16 @@ function RunRow({
               <span>{run.error}</span>
             </div>
           )}
-          {onRetry && (
-            <div className="actions">
+          <div className="actions">
+            <button className="secondary" onClick={onWatch}>
+              <PanelRight size={15} /> {active(run.state) ? "Watch live" : "Every step, site and decision"}
+            </button>
+            {onRetry && (
               <button className="secondary" disabled={retryDisabled} onClick={onRetry}>
                 <RefreshCw size={15} /> Run again
               </button>
-            </div>
-          )}
+            )}
+          </div>
         </div>
       )}
     </article>

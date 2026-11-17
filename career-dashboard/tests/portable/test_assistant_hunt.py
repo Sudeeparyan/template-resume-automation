@@ -13,6 +13,7 @@ from backend.job_quality import JobQualityService, ProfileRules  # noqa: E402
 from backend.services.agents import AgentRunner  # noqa: E402
 from backend.services.assistant import Assistant  # noqa: E402
 from backend.services.assistant_tools import Toolbox  # noqa: E402
+from backend.services.pipeline import STEP_IDS  # noqa: E402
 from backend.services.resume_studio import ResumeStudio  # noqa: E402
 
 from test_hunt import ireland_profile  # noqa: E402 - the same disposable Ireland profile
@@ -75,7 +76,7 @@ def test_start_hunt_tool_passes_only_what_was_asked(tmp_path):
     _, tools = assistant_for(services, hunt)
     result = tools.call("start_hunt", {"target": "15", "min_fit": 75, "steps": "tailor,pdf"})
     assert hunt.started[-1] == {"target": 15, "min_fit": 75,
-                                "steps": {"research": False, "tailor": True, "study_plan": False, "pdf": True}}
+                                "steps": {step: step in ("tailor", "pdf") for step in STEP_IDS}}
     assert result["hunt_id"] == "hunt1"
     assert tools.call("stop_hunt")["stopped"] is True
 
@@ -114,3 +115,24 @@ def test_search_plan_edits_change_where_to_look_and_keep_the_file(tmp_path):
             assert "cannot be read directly" in str(error)
         else:
             raise AssertionError("an unreadable careers link was accepted")
+
+
+def test_todays_jobs_come_from_the_morning_list(tmp_path):
+    import json
+
+    services = ireland_profile(tmp_path)
+    assistant, tools = assistant_for(services, FakeHunt())
+    empty = assistant.send("today's jobs")
+    assert empty["state"] == "done" and "no morning list yet" in empty["response"]
+    services.w.daily_dir.mkdir(parents=True, exist_ok=True)
+    (services.w.daily_dir / "morning-jobs.json").write_text(json.dumps({
+        "date": "2026-09-27", "new": [{"company": "Acme", "title": "Data Analyst", "location": "Dublin", "fit": 82,
+                                       "url": "https://jobs.example/acme/1", "resume": "applications/acme/resume.pdf"}],
+        "to_apply_total": 4, "held": 2, "needs_you": ["Open Kimi Code and sign in."],
+        "fixed": ["03:10 The app had stopped answering, so it was restarted."]}), encoding="utf-8")
+    reply = assistant.send("What are today's jobs?")
+    text = reply["response"]
+    assert "**Morning jobs, 2026-09-27**: 1 new · 4 still to apply." in text
+    assert "**Acme — Data Analyst** · Dublin · fit 82 · [apply](https://jobs.example/acme/1)" in text
+    assert "Needs you: Open Kimi Code" in text and "2 more are waiting" in text and "Fixed by itself" in text
+    assert tools.call("morning_list")["summary"] == "2026-09-27: 1 new, 4 still to apply"

@@ -69,6 +69,8 @@ HUNT_START = re.compile(
     r"(?:start |run |begin )?(?:the |an? )?(?:overnight|night|all[- ]night)(?: job)? (?:hunt|search)(?: tonight| now)?\.?"
     r"|(?:hunt|search|look) (?:for jobs )?(?:overnight|all night|tonight)\.?", re.I)
 HUNT_STATUS = re.compile(r"(?:the )?(?:overnight |night )?hunt (?:status|progress)\??|how is the (?:overnight )?hunt going\??", re.I)
+MORNING = re.compile(r"(?:show |show me |give me |what are |open )?(?:my |the )?"
+                     r"(?:today(?:'|’)?s|this morning(?:'|’)?s|morning) (?:jobs?|job list|list)\??\.?", re.I)
 YES = re.compile(r"(yes|y|yes please|confirm|correct|do it|ok|okay|sure|go ahead|proceed)\.?!?", re.I)
 NO = re.compile(r"(no|n|nope|not yet|skip|cancel|don'?t)\.?", re.I)
 CONJUNCTION = re.compile(r"\b(and|then|also)\b", re.I)
@@ -87,7 +89,7 @@ HELP = (
     "- *also search for insights analyst roles* · *track Stripe's careers page* (changes where the searches look)\n\n"
     "Anything hard to undo — marking a job applied, changing your profile or goals, removing a job — "
     "waits for your *yes*. Nothing is ever submitted for you.\n"
-    "Shortcuts: **find jobs** · **overnight hunt** · **hunt status** · **status** · **open <company>** · "
+    "Shortcuts: **today's jobs** · **find jobs** · **overnight hunt** · **hunt status** · **status** · **open <company>** · "
     "**applied to <company> on YYYY-MM-DD** · **excluded**"
 )
 
@@ -103,6 +105,7 @@ CARD_ROW_FIELDS = ("job_id", "company", "title", "tier", "revision", "pdf", "cov
 # A conversation is named after its first message, cut to this many characters.
 TITLE_CHARS = 60
 STOPPED_REPLY = "Stopped. Anything a finished step already saved stays; nothing after it was changed."
+ALWAYS_CONFIRM_TOOLS = {"update_job", "remove_job", "resolve_mail"}
 
 
 class Stopped(Exception):
@@ -322,10 +325,10 @@ class Assistant:
         return self.get(id)
 
     def auto_apply(self, enabled: bool | None = None) -> bool:
-        """Per-conversation: may confirmation-gated tools run without the yes/no pause?
+        """Per-conversation permission for reversible local edits only.
 
-        Default is off. The flag lives with the conversation so an old thread
-        never inherits a blanket permission given in a new one.
+        Application status, job removal and mail decisions always pause. The flag
+        never carries into a new conversation.
         """
         with self.w.connect() as db:
             cid = self.conversation_id(db)
@@ -402,10 +405,23 @@ class Assistant:
             db.execute("INSERT INTO assistant_messages(id,message,response,state,steps,data,created_at,updated_at,conversation_id) VALUES(?,?,?,?,?,?,?,?,?)",
                        (key, message, "Working on it.", "processing", "[]", "{}", stamp, stamp, self.conversation_id(db)))
         if self.pool:
-            self.pool.submit(self._process, key)
+            from backend import telemetry
+
+            telemetry.submit(self.pool, self._traced, key)
         else:
-            self._process(key)
+            self._traced(key)
         return self.get(key)
+
+    def _traced(self, id: str) -> None:
+        from backend import telemetry
+
+        with telemetry.bind(profile_root=self.w.root, run={"id": f"assistant:{id}", "kind": "assistant"}):
+            with telemetry.span("assistant.turn", **{"career.assistant_message": id}) as current:
+                self._process(id)
+                row = self.get(id)
+                telemetry.set_attributes(current, **{"career.run_state": row["state"]})
+                if row["state"] == "failed":
+                    telemetry.mark_failed(current, row.get("response"))
 
     def _process(self, id: str) -> None:
         row = self.get(id)
@@ -515,9 +531,14 @@ class Assistant:
         if HUNT_STATUS.fullmatch(low):
             result = self.tools.hunt_status() if self.tools.hunt else {"summary": "The overnight hunt is not available here."}
             return "done", self._hunt_text(result), {"intent": "hunt_status", "suggestions": ["stop the hunt"]}
-        if re.fullmatch(r"(find|search|look for|discover|hunt)( me)?( some| new| more)? (jobs?|roles?|postings?|openings?)( for (me|my profile|today))?\.?", low) \
-                or re.fullmatch(r"(daily search|run (the )?search|search)\.?", low):
-            return self._discover(id)
+        if MORNING.fullmatch(low):
+            return "done", self._morning_text(self.tools.morning_list()), {"intent": "morning_list",
+                                                                           "suggestions": ["hunt status", "status"]}
+        wanted = re.fullmatch(r"(?:find|search|look for|discover|hunt|give|get)(?: me)?(?: (\d{1,2}))?(?: some| new| more)? "
+                              r"(?:jobs?|roles?|postings?|openings?)(?: with(?: tailored)? resumes?)?"
+                              r"(?: for (?:me|my profile|today))?\.?", low)
+        if wanted or re.fullmatch(r"(daily search|run (the )?search|search)\.?", low):
+            return self._discover(id, int(wanted[1]) if wanted and wanted[1] else None)
         if re.fullmatch(r"(status|summary|progress|pipeline|where (are|am) (we|i)|what(’|')?s (next|new|going on)|how am i doing)\??\.?", low):
             return "done", self._status(), {"intent": "status", "suggestions": ["find jobs", "which saved jobs still have no resume? build them"]}
         if re.fullmatch(r"(excluded( roles| postings)?|what was excluded)\??", low):
@@ -626,7 +647,22 @@ class Assistant:
 
     # ---- Paste a posting -> resume --------------------------------------------
     def _from_link(self, id, url):
+        from backend.services import lead_resolver
+
         self._step(id, "Fetching the posting page", agent="discovery")
+        # The employer's own posting first: an ATS feed, the page's structured posting, or the one
+        # employer posting an aggregator page links to (services/lead_resolver.py).
+        resolved = lead_resolver.resolve(url)
+        if resolved["status"] == "read":
+            posting = lead_resolver.to_posting(resolved)
+            self._finish_step(id, "done", f"{len(posting['description']):,} characters read from the posting's own source"
+                              + (" (reached from the pasted link)" if resolved.get("via") else ""))
+            fields = {key: posting[key] for key in ("company", "title", "location") if posting[key]}
+            return self._prepare_posting(id, posting["description"][:100_000], url=posting["url"], fields=fields)
+        if resolved.get("site"):
+            self._finish_step(id, "failed", resolved["reason"])
+            self.s.set_pref("assistant_pending", None)
+            return "needs_input", resolved["reason"], {"intent": "posting_link_unreadable", "url": url}
         page = self.quality.fetcher(url)
         text = (page or {}).get("text") or ""
         if len(text) < 300:
@@ -735,7 +771,9 @@ class Assistant:
         return "done", "\n".join(lines), data
 
     # ---- Shortcuts ---------------------------------------------------------------
-    def _discover(self, id):
+    def _discover(self, id, count=None):
+        if self.tools.pipeline is not None:
+            return self._search_pipeline(id, count)
         preset = (self.s.pref("discovery_preferences", {}) or {}).get("preset", "default")
         self._step(id, "Starting job discovery (" + preset + ")", agent="discovery")
         try:
@@ -747,6 +785,23 @@ class Assistant:
         return "done", ("Job discovery is running with the *" + preset + "* mix. Every lead passes the sponsorship gate and the never-re-apply check "
                         "before it is saved; watch the Agents rail or ask me *status* in a few minutes."), \
             {"intent": "discovery", "run_id": run["id"], "suggestions": ["status", "overnight hunt"]}
+
+    def _search_pipeline(self, id, count=None):
+        """"find jobs" means jobs taken end to end: the Daily Search pipeline, not a bare discovery pass."""
+        from backend.services.agents import MAX_DISCOVERY_JOBS
+
+        self._step(id, "Starting the Daily Search pipeline", agent="discovery")
+        try:
+            result = self.tools.run_search_pipeline(count=min(count, MAX_DISCOVERY_JOBS) if count else None)
+        except ValueError as error:
+            self._finish_step(id, "failed", str(error))
+            return "done", str(error), {"intent": "discovery_refused"}
+        self._finish_step(id, "done", result["summary"], run_id=result["pipeline_run_id"])
+        return "done", (f"Searching for **{result['jobs_target']}** new job(s), and searching again while it is short. "
+                        "Each job then goes end to end: posting check, company research with the hiring-manager view and "
+                        "your fit, tailored resume, PDF, an independent review and the ready-to-submit check. Follow it on "
+                        "**Daily Search**; each finished resume appears in **Resume Studio**. Nothing is ever submitted."), \
+            {"intent": "discovery", "pipeline_run_id": result["pipeline_run_id"], "suggestions": ["status", "overnight hunt"]}
 
     def _start_hunt(self, id):
         if self.tools.hunt is None:
@@ -785,6 +840,32 @@ class Assistant:
             lines.append(f"Report: `{hunt['report']}`")
         if hunt.get("error"):
             lines.append("Problem: " + hunt["error"])
+        return "\n".join(lines)
+
+    @staticmethod
+    def _morning_text(result: dict) -> str:
+        data = result.get("list")
+        if not data:
+            return ("There is no morning list yet. Switch on **Morning jobs** in Settings → This profile: the search runs "
+                    "overnight and the list is ready by the time you choose. Or say *overnight hunt* to search now.")
+        new = data.get("new") or []
+        lines = [f"**Morning jobs, {data.get('date')}**: {len(new)} new · {data.get('to_apply_total', 0)} still to apply."]
+        for text in data.get("needs_you") or []:
+            lines.append(f"Needs you: {text}")
+        for job in new[:10]:
+            fit = f"fit {job['fit']}" if job.get("fit") is not None else "fit not scored yet"
+            line = f"- **{job['company']} — {job['title']}** · {job.get('location') or ''} · {fit}"
+            if job.get("url"):
+                line += f" · [apply]({job['url']})"
+            if job.get("resume"):
+                line += f" · resume `{job['resume']}`"
+            lines.append(line)
+        if not new:
+            lines.append("Nothing new passed every check this time; the jobs still to apply for are on the Dashboard.")
+        if data.get("held"):
+            lines.append(f"{data['held']} more are waiting for the AI requirement check; the next run checks them first.")
+        for text in (data.get("fixed") or [])[:3]:
+            lines.append(f"Fixed by itself: {text}")
         return "\n".join(lines)
 
     def _status(self):
@@ -1115,7 +1196,8 @@ class Assistant:
                 self._finish_step(id, "failed", str(error)[:200])
                 transcript.append({"role": "tool", "tool": turn.tool, "error": str(error)[:400]})
                 continue
-            if tool.confirm and not self.auto_apply():
+            always_confirm = tool.name in ALWAYS_CONFIRM_TOOLS
+            if tool.confirm and (always_confirm or not self.auto_apply()):
                 diff = self.tools.diff(tool.name, arguments)
                 self._finish_step(id, "done", thought)
                 self.s.set_pref("assistant_pending", {"kind": "confirm_tool", "tool": tool.name, "arguments": arguments,
@@ -1126,9 +1208,8 @@ class Assistant:
                                                  "diff": diff, "trace": self._trace(transcript), "suggestions": ["yes", "no"]}
             self._relabel_step(id, tool.label, thought, agent=tool.agent)
             entry = self._run_tool(id, tool, arguments)
-            if tool.confirm:
-                # Auto-apply is on for this conversation: the gated tool ran without
-                # the pause. The trace and the event log still record exactly what ran.
+            if tool.confirm and not always_confirm:
+                # Automatic local edits are still listed and recorded; protected actions never reach this branch.
                 entry["auto_applied"] = True
                 entry["diff"] = self.tools.diff(tool.name, arguments)
                 with self.w.connect() as db:

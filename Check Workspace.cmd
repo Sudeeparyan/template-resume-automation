@@ -1,11 +1,13 @@
 @echo off
 setlocal
-cd /d "%~dp0"
-call "%~dp0Start Dashboard.cmd" --preflight-only || goto :error
-set "PY=career-dashboard\backend\.venv\Scripts\python.exe"
+rem Read %~dp0 once: typed as "Check Workspace.cmd" at a prompt, it changes after pushd.
+set "ROOT=%~dp0"
+cd /d "%ROOT%"
+call "%ROOT%Start Dashboard.cmd" --preflight-only || goto :error
+set "PY=%ROOT%career-dashboard\backend\.venv\Scripts\python.exe"
 "%PY%" -m pip install -r career-dashboard\backend\requirements-dev.txt || goto :error
 pushd career-dashboard
-"%~dp0%PY%" -m pytest -q || (popd & goto :error)
+"%PY%" -m pytest -q || (popd & goto :error)
 popd
 "%PY%" scripts\check_profiles.py || goto :error
 "%PY%" career-dashboard\backend\scripts\validate_workspace.py || goto :error

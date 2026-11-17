@@ -1,0 +1,87 @@
+# Evaluation cases for the app's honesty checks (evals/run.py). Synthetic data only.
+#
+# Each case is either an honest change the check must accept ("pass") or a planted fabrication it
+# must refuse ("fail"), with the kind of fabrication named, so the report can say which kinds slip.
+
+rewrite_guard:   # services/rewrite_guard.py: a reworded project bullet must state the same facts
+  original: Built 12 Power BI dashboards used by 40 store managers across Leinster
+  skills: [SQL, Power BI, Python, Excel, stakeholder reporting]
+  cases:
+    - {expect: pass, text: "Built 12 Power BI dashboards for stakeholder reporting, used by 40 store managers across Leinster"}
+    - {expect: pass, text: "Designed 12 Power BI dashboards that 40 store managers across Leinster used weekly"}
+    - {expect: pass, text: "Built 12 Power BI dashboards on SQL views for 40 store managers across Leinster", sources: ["SQL, Power BI, Python"]}
+    - {expect: pass, text: "Delivered 12 Power BI dashboards used by 40 store managers across Leinster"}
+    - {expect: fail, kind: number, text: "Built 15 Power BI dashboards used by 40 store managers across Leinster"}
+    - {expect: fail, kind: number, text: "Built 12 Power BI dashboards used by 400 store managers across Leinster"}
+    - {expect: fail, kind: number, text: "Built 12 Power BI dashboards used by 40 store managers, cutting reporting time by 30%"}
+    - {expect: fail, kind: tool, text: "Built 12 Tableau dashboards used by 40 store managers across Leinster"}
+    - {expect: fail, kind: tool, text: "Built 12 Power BI dashboards with Snowflake used by 40 store managers across Leinster"}
+    - {expect: fail, kind: posting_term, text: "Built 12 Power BI dashboards on dbt models used by 40 store managers across Leinster", posting_terms: [dbt]}
+    - {expect: fail, kind: employer, text: "Built 12 Power BI dashboards used by 40 store managers at Tesco Ireland"}
+    - {expect: fail, kind: date, text: "Built 12 Power BI dashboards used by 40 store managers across Leinster in March"}
+    - {expect: fail, kind: never_claim, text: "Built 12 Power BI and Excel dashboards used by 40 store managers across Leinster", never: [Excel]}
+    - {expect: fail, kind: filler, text: "Spearheaded 12 Power BI dashboards used by 40 store managers across Leinster"}
+    - {expect: fail, kind: new_claim, text: "Built 12 Power BI dashboards used by 40 store managers across Leinster, cutting churn through predictive segmentation and executive storytelling workshops"}
+
+letter_check:    # services/cover_letters.py check(): a letter may say only what the evidence and posting say
+  job: {company: Acme Analytics, title: Data Analyst, location: "Dublin, Ireland", description: "Build SQL reports and Power BI dashboards for the finance team."}
+  evidence:
+    - {id: EMP-001, kind: experience, name: Example Retail, text: "Data Analyst at Example Retail: Built 12 Power BI dashboards for 40 store managers"}
+    - {id: SKILL-001, kind: skill, name: "", text: "SQL, Power BI, Python"}
+  never: [Tableau]
+  missing: [Apache Kafka]
+  facts:
+    - {id: COMPANY-1, text: "Acme Analytics builds reporting software for hospitals.", quote: "builds reporting software for hospitals"}
+  base: |-
+    I am applying for the Data Analyst role at Acme Analytics. At Example Retail I built 12 Power BI dashboards for 40 managers, using SQL to prepare each one, and I kept them current every week for the team that relied on them.
+
+    The finance team's reporting is close to that work: the dashboards I built were read every week, and I wrote the SQL behind each of them so the numbers could be checked and explained to the people who used them. I would bring the same care to the reports your team reads, and I am glad to walk through how each figure was checked.
+
+    Thank you for considering my application; I would welcome a conversation about the role and the team.
+  ids: [EMP-001, SKILL-001]
+  cases:
+    - {expect: pass}
+    - {expect: pass, append: "Acme Analytics builds reporting software for hospitals, which is the kind of reporting I enjoy.", ids: [EMP-001, SKILL-001, COMPANY-1]}
+    - {expect: pass, replace: ["using SQL to prepare", "using SQL and Power BI to prepare"]}
+    - {expect: fail, kind: number, replace: ["12 Power BI", "20 Power BI"]}
+    - {expect: fail, kind: employer, replace: ["At Example Retail", "At Google"]}
+    - {expect: fail, kind: tool, replace: ["using SQL", "using Snowflake"]}
+    - {expect: fail, kind: never_claim, append: "I also use Tableau."}
+    - {expect: fail, kind: missing_requirement, append: "I know Apache Kafka well."}
+    - {expect: fail, kind: immigration, append: "I hold Stamp 1G permission and will need a work permit later."}
+    - {expect: fail, kind: immigration, append: "The role is on the Critical Skills Occupations List, so a CSEP is possible."}
+    - {expect: pass, append: "Clear SQL and communication are critical skills for this team, and both are in my work.", ids: [EMP-001, SKILL-001]}
+    - {expect: fail, kind: filler, append: "I am passionate about data."}
+    - {expect: fail, kind: app_words, append: "My registered skills include SQL, and my evidence shows strong reporting."}
+    - {expect: fail, kind: unregistered_id, ids: [EMP-001, EDU-MS-001]}
+    - {expect: fail, kind: unsupported, unsupported: ["led a team of five"]}
+
+claim_check:     # graphs/dossier.py check_claim(): a company claim stands only on its cited page, word for word
+  today: "2026-10-04"
+  page: "Acme Analytics builds reporting software for hospitals. Our Dublin office opened in 2019 and employs 240 people."
+  cases:
+    - {expect: pass, facet: overview, quote: "builds reporting software for hospitals"}
+    - {expect: pass, facet: irish_presence, quote: "Our Dublin office opened in 2019 and employs 240 people"}
+    - {expect: pass, facet: news, quote: "Our Dublin office opened in 2019", published_at: "2026-06-01"}
+    - {expect: fail, kind: paraphrase, facet: overview, quote: "makes reporting tools for hospitals"}
+    - {expect: fail, kind: changed_number, facet: irish_presence, quote: "Our Dublin office opened in 2019 and employs 400 people"}
+    - {expect: fail, kind: shortened, facet: overview, quote: "builds ... hospitals"}
+    - {expect: fail, kind: stale_news, facet: news, quote: "Our Dublin office opened in 2019", published_at: "2024-01-15"}
+    - {expect: fail, kind: undated_news, facet: news, quote: "Our Dublin office opened in 2019", published_at: ""}
+    - {expect: fail, kind: unreadable_page, facet: overview, quote: "builds reporting software for hospitals", page: null}
+
+occupation_check:   # permits/occupations.py classify(): the list entry a posting's title and quoted duties appear to match
+  today: "2026-10-04"
+  cases:
+    - {title: Software Engineer, description: "You will develop software in Python and review pull requests.", expect: critical, soc4: 2136}
+    - {title: Junior Web Developer, description: "You will build web applications with React.", expect: critical, soc4: 2137}
+    - {title: Graduate Civil Engineer, description: "Support civil engineering design on infrastructure projects.", expect: critical, soc4: 2121}
+    - {title: Mechanical Engineer, description: "Mechanical design of HVAC systems for data centres.", expect: critical, soc4: 2122}
+    - {title: Receptionist, description: "Greet visitors and answer incoming calls at the front desk.", expect: ineligible, soc4: 4216}
+    - {title: Office Manager, description: "Responsible for office administration and supplier invoices.", expect: ineligible, soc4: 4161}
+    # The title alone is not enough: no quoted duty, or a duty the posting negates, stays unknown.
+    - {title: Software Engineer, description: "Join our friendly team in Cork.", expect: unknown}
+    - {title: Software Engineer, description: "You will not write code; you will manage vendors.", expect: unknown}
+    # A conditional entry (a specialism or exception clause) is never decided from keywords.
+    - {title: Data Analyst, description: "Big data analytics for the finance team.", expect: unknown}
+    - {title: Barista, description: "Make coffee for our customers.", expect: unknown}

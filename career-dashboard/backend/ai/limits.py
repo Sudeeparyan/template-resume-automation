@@ -241,9 +241,17 @@ class HealthBook:
         """Rest a plan that reached its limit, and learn that limit from this window's usage."""
         now = self.clock()
         until = rest_until(message, paid=paid, now=now)
+        said = parse_reset(message, now)
 
         def change(entry):
+            nonlocal until
             used = self._window_tokens(entry, now)
+            # Nothing readable about the reset: a plan's window ends five hours after its first
+            # call, so when that is sooner than the default retry, try again right then. (Never
+            # later: someone may have used the plan outside the app before its first call here.)
+            start = _parse(entry.get("window_start"))
+            if not paid and (said is None or said <= now) and start and now < start + WINDOW:
+                until = min(until, start + WINDOW + timedelta(minutes=1))
             if not paid and used >= MIN_LEARNED:
                 entry.update({"capacity_learned": used, "capacity_learned_at": _iso(now)})
             # The plan's next window starts with its first call after the reset.

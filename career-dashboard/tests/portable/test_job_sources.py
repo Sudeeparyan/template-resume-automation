@@ -152,7 +152,7 @@ def test_smartrecruiters_postings_are_read_in_full():
     assert job_sources.smartrecruiters_parts(found[0]["url"]) == ("Acme", "7440001")
 
 
-def test_gradireland_reads_recent_matching_jobs_from_its_sitemap():
+def test_gradireland_checks_closing_dates_even_for_old_sitemap_entries():
     sitemap = ("<urlset>"
                "<url><loc>https://gradireland.com/jobs/data-analyst-graduate-101</loc><lastmod>2099-01-01T00:00:00Z</lastmod></url>"
                "<url><loc>https://gradireland.com/jobs/chef-102</loc><lastmod>2099-01-01T00:00:00Z</lastmod></url>"
@@ -162,15 +162,20 @@ def test_gradireland_reads_recent_matching_jobs_from_its_sitemap():
     pages = {"https://gradireland.com/robots.txt": "User-agent: *\nAllow: /\n",
              "https://gradireland.com/sitemap-0.xml": sitemap,
              "https://gradireland.com/jobs/data-analyst-graduate-101": job_page(title="Data Analyst Graduate"),
+             "https://gradireland.com/jobs/data-analyst-103": job_page(
+                 title="Data Analyst", extra={"validThrough": "2099-02-01T00:00:00Z"}),
              "https://gradireland.com/jobs/data-analyst-intern-104": job_page(
                  title="Data Analyst Intern", extra={"validThrough": "2001-02-01T00:00:00Z"})}
     reader = fetcher(pages)
     found, _ = job_sources.gradireland_jobs(reader, TITLE, IRELAND.location_ok)
-    assert [p["url"] for p in found] == ["https://gradireland.com/jobs/data-analyst-graduate-101"]
+    assert {p["url"] for p in found} == {"https://gradireland.com/jobs/data-analyst-graduate-101",
+                                         "https://gradireland.com/jobs/data-analyst-103"}
     assert found[0]["source"] == "gradireland" and found[0]["source_kind"] == "job_board"
     assert "gradireland" in found[0]["vouched"]
     opened = {url for _, url, _ in reader.opener.calls}
-    assert "https://gradireland.com/jobs/chef-102" not in opened and "https://gradireland.com/jobs/data-analyst-103" not in opened
+    assert "https://gradireland.com/jobs/chef-102" not in opened
+    assert "https://gradireland.com/jobs/data-analyst-103" in opened
+    assert next(p for p in found if p["url"].endswith("103"))["valid_through"] == "2099-02-01T00:00:00Z"
 
 
 def test_jobs_ie_search_results_are_read_from_each_posting_page():
@@ -187,30 +192,6 @@ def test_jobs_ie_search_results_are_read_from_each_posting_page():
     found, _ = job_sources.jobs_ie_jobs(fetcher(pages), ["Data Analyst"], TITLE, IRELAND.location_ok)
     assert [p["url"] for p in found] == ["https://www.jobs.ie/job/data-analyst/acme-job1"]
     assert found[0]["company"] == "Acme" and found[0]["requisition_id"] == "1"
-
-
-def test_askmanavi_roles_are_read_from_the_employers_own_feed(monkeypatch):
-    roles = [{"id": "gh-acme-555", "city": "Dublin", "title": "Data Analyst", "company": "Acme",
-              "applyUrl": "https://acme.example/careers?gh_jid=555", "location": "Dublin, Ireland",
-              "postedDate": "2099-01-01", "visaSponsorship": "Yes"},
-             {"id": "wd-acme-x", "city": "Dublin", "title": "Nurse", "company": "Acme",
-              "applyUrl": "https://acme.wd1.myworkdayjobs.com/External/job/Dublin/Nurse_R9", "location": "Dublin"}]
-    payload = json.dumps(roles, separators=(",", ":")).replace('"', '\\"')
-    html = '<script>self.__next_f.push([1,"' + payload + '"])</script>'
-    pages = {"https://askmanavi.com/robots.txt": "User-agent: *\nAllow: /\nDisallow: /api/\n",
-             "https://askmanavi.com/graduate-tracker": html}
-
-    def feed(url):
-        assert url == "https://boards-api.greenhouse.io/v1/boards/acme/jobs/555"
-        return {"content": "<p>SQL and Power BI for the insights team.</p>", "location": {"name": "Dublin"}}, None
-
-    monkeypatch.setattr(portals, "_get_json", feed)
-    found, _ = job_sources.askmanavi_jobs(fetcher(pages), TITLE, IRELAND.location_ok)
-    assert len(found) == 1
-    posting = found[0]
-    assert posting["url"] == "https://job-boards.greenhouse.io/acme/jobs/555"
-    assert posting["requisition_id"] == "555" and "Power BI" in posting["description"]
-    assert "visa sponsorship as Yes" in posting["verification"]
 
 
 def test_an_ai_lead_on_a_job_board_gets_the_boards_own_text(monkeypatch):

@@ -253,8 +253,7 @@ class Workspace(Tracking):
         "LEFT JOIN companies ON companies.id = jobs.company_id "
     )
 
-    @staticmethod
-    def _job_row(row):
+    def _job_row(self, row):
         """Decode the JSON sponsorship evidence so callers and the UI get a dict."""
         job = dict(row)
         raw = job.get("sponsor_evidence")
@@ -263,6 +262,12 @@ class Workspace(Tracking):
                 job["sponsor_evidence"] = json.loads(raw) if raw else {}
             except json.JSONDecodeError:
                 job["sponsor_evidence"] = {}
+        try:
+            job["posting_metadata"] = json.loads(job.get("posting_metadata") or "{}")
+        except (ValueError, TypeError):
+            job["posting_metadata"] = {}
+        from backend.services.opportunities import evaluate
+        job["opportunity"] = evaluate(job, self.profile())
         return job
 
     def jobs(self, include_deleted=False):
@@ -654,12 +659,14 @@ class Workspace(Tracking):
         """Title/location screen. Not an eligibility decision; the sponsorship gate owns that."""
         sys.path.insert(0, str(self.app_root))
         from backend.countries import market_for_location, pack_for
-        from backend.job_quality import SENIORITY_BLOCK, ProfileRules, years_required
+        from backend.job_quality import INTERNSHIP, SENIORITY_BLOCK, ProfileRules, years_required
         title = job["title"]
         issues = []
         rules = ProfileRules.of(self.root)
         if rules.block_seniority and SENIORITY_BLOCK.search(title):
             issues.append("Seniority in the title is outside this profile's configured target level.")
+        if rules.block_internships and INTERNSHIP.search(title) and not re.search(r"(?i)\bgraduate\b", title):
+            issues.append("An internship or student placement is outside this profile's target levels.")
         years = years_required(job.get("description", ""))
         cap = rules.max_years
         if years and cap and years > cap:
@@ -675,6 +682,9 @@ class Workspace(Tracking):
         }
 
     def prepare(self, job_id, project_id=None):
+        from backend.countries import require_enabled_markets
+
+        require_enabled_markets(self.root)
         with self.connect() as db:
             has_knowledge = bool(
                 db.execute(
@@ -691,6 +701,7 @@ class Workspace(Tracking):
                     "Reconcile edited profile entries with the resume evidence registry before preparing a draft."
                 )
         job = self.get_job(job_id)
+        require_enabled_markets(self.root, job.get("market") or None)
         if job.get("deleted_at"):
             raise ValueError("Restore this removed role before preparing documents")
         if job.get("record_source") == "gmail":
@@ -1027,7 +1038,12 @@ def main():
     notes = sub.add_parser("notes")
     notes.add_argument("--file", type=Path, required=True)
     add = sub.add_parser("add")
-    add.add_argument("--file", type=Path, required=True)
+    posting_source = add.add_mutually_exclusive_group(required=True)
+    posting_source.add_argument("--file", type=Path, help="the posting as JSON (company, title, location, url, description)")
+    posting_source.add_argument("--url", help="a posting link from anywhere: read from the employer's own source, then saved")
+    add.add_argument("--company", default="", help="with --url: the employer, when the source does not state it")
+    add.add_argument("--title", default="", help="with --url: the job title, when the source does not state it")
+    add.add_argument("--location", default="", help="with --url: the location, when the source does not state it")
     update = sub.add_parser("update")
     update.add_argument("job_id")
     update.add_argument("--status", choices=sorted(STATUSES), required=True)
@@ -1043,7 +1059,7 @@ def main():
     profiles = store()
     profile_id = args.profile or profiles.last_used()
     if not profile_id:
-        parser.error("No profile exists yet. Create one in the dashboard first.")
+        parser.error("No profile exists yet. Run  career setup --name \"Full Name\"  or create one in the dashboard.")
     w = Workspace(profiles.root_for(profile_id))
     if args.command == "status":
         result = {
@@ -1063,7 +1079,22 @@ def main():
     elif args.command == "add":
         # Same path as the dashboard: sponsorship gate, then never-re-apply, then save.
         from backend.services.workspace_v2 import CareerServices
-        result = CareerServices(w).add_posting(json.loads(args.file.read_text(encoding="utf-8")), source="cli")
+        if args.url:
+            # A link from anywhere is first resolved to the employer's own posting (services/lead_resolver.py).
+            from backend.services import lead_resolver
+            resolved = lead_resolver.resolve(args.url)
+            posting = lead_resolver.to_posting(resolved, company=args.company, title=args.title, location=args.location)
+            missing = [key for key in ("company", "title") if not posting[key]]
+            if resolved["status"] != "read":
+                result = {"saved": False, "status": resolved["status"], "url": resolved["url"], "reason": resolved["reason"]}
+            elif missing:
+                result = {"saved": False, "status": "needs_details", "url": posting["url"], "missing": missing,
+                          "reason": "The posting's source does not state the " + " or the ".join(missing)
+                                    + "; add --company/--title exactly as the posting names them."}
+            else:
+                result = CareerServices(w).add_posting(posting, source="cli")
+        else:
+            result = CareerServices(w).add_posting(json.loads(args.file.read_text(encoding="utf-8")), source="cli")
     elif args.command == "update":
         result = w.update_job(
             args.job_id, args.status, args.notes, args.application_date

@@ -4,13 +4,12 @@ from __future__ import annotations
 
 import json
 import os
-import threading
 import time
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
-from backend.ai import claude_code, codex, kimi_cli, router
+from backend.ai import antigravity, catalog, claude_code, codex, kimi_cli, router
 
 
 ACTIONS = {
@@ -83,6 +82,10 @@ class OpenAIProvider:
         if web:
             payload["tools"] = [{"type": "web_search"}]
         data = self.transport("https://api.openai.com/v1/responses", payload, {"Authorization": "Bearer " + key})
+        from backend import telemetry
+
+        usage = data.get("usage") or {}
+        telemetry.record_usage(usage.get("input_tokens"), usage.get("output_tokens"))
         text = data.get("output_text")
         if not text:
             for output in data.get("output", []):
@@ -98,7 +101,8 @@ class OpenAIProvider:
 
 class AnthropicProvider:
     id = "anthropic"
-    models = ("claude-sonnet-4-6", "claude-haiku-4-5")
+    models = (catalog.ANTHROPIC_MODELS["strong"], catalog.ANTHROPIC_MODELS["cheap"], catalog.ANTHROPIC_MODELS["best"],
+              *catalog.ANTHROPIC_EARLIER)
     capabilities = {"structured"}
 
     def __init__(self, root: Path, transport=_json_request):
@@ -114,10 +118,15 @@ class AnthropicProvider:
             raise ValueError("Claude is not configured on the server")
         if web:
             raise ValueError("Claude is not enabled for actions requiring built-in web access")
+        model = catalog.ANTHROPIC_ALIASES.get(model, model)
         if model not in self.models:
             raise ValueError("Unsupported Claude model")
         payload = {"model": model, "max_tokens": 4096, "messages": [{"role": "user", "content": prompt}], "output_config": {"format": {"type": "json_schema", "schema": schema}}}
         data = self.transport("https://api.anthropic.com/v1/messages", payload, {"x-api-key": key, "anthropic-version": "2023-06-01"})
+        from backend import telemetry
+
+        usage = data.get("usage") or {}
+        telemetry.record_usage(usage.get("input_tokens"), usage.get("output_tokens"))
         text = "".join(item.get("text", "") for item in data.get("content", []) if item.get("type") == "text")
         try:
             return json.loads(text)
@@ -204,6 +213,27 @@ class KimiCliProvider:
     def generate(self, prompt: str, schema: dict, *, model="kimi-runtime", web=True, **_options) -> dict:
         if model not in self.models:
             raise ValueError("Unsupported Kimi Code model")
+        return self.invoke(prompt, schema, model=model, web=web)
+
+
+class AntigravityProvider:
+    id = antigravity.ID
+    capabilities = {"structured"}
+
+    def __init__(self, invoke=antigravity.invoke):
+        self.invoke = invoke
+
+    @property
+    def configured(self) -> bool:
+        return antigravity.available()
+
+    @property
+    def models(self) -> tuple:
+        return antigravity.models()
+
+    def generate(self, prompt: str, schema: dict, *, model=antigravity.MODELS[0], web=False, **_options) -> dict:
+        if model not in self.models:
+            raise ValueError("Unsupported Antigravity model")
         return self.invoke(prompt, schema, model=model, web=web)
 
 
@@ -299,6 +329,10 @@ class AzureOpenAIProvider(HostedProvider):
                                 "schema": codex.strict_schema(schema), "strict": True}},
         }
         data = self.transport(azure["base_url"] + "responses", payload, {"api-key": key}, self.TIMEOUT)
+        from backend import telemetry
+
+        usage = data.get("usage") or {}
+        telemetry.record_usage(usage.get("input_tokens"), usage.get("output_tokens"))
         if data.get("status") == "incomplete":
             reason = (data.get("incomplete_details") or {}).get("reason") or "unknown"
             raise ValueError(f"Azure OpenAI stopped before finishing ({reason}). Retry, or pick fewer jobs.")
@@ -379,8 +413,12 @@ class RouterProvider:
     capabilities = {"structured", "web", "apps"}
 
     def __init__(self, gateway: "AIGateway"):
+        from backend.context_local import ContextLocal
+
         self.gateway = gateway
-        self.local = threading.local()
+        # Which endpoint answered, and whether this run may only use free plans: context-local,
+        # so a graph's parallel nodes keep the run's free-only rule.
+        self.local = ContextLocal("router-call")
 
     @property
     def configured(self) -> bool:
@@ -401,7 +439,8 @@ class RouterProvider:
 
         def attempt(provider_id, model):
             self.local.served = (provider_id, model)  # the last endpoint tried, until one answers
-            return self.gateway.providers[provider_id].generate(prompt, schema, model=model, **options)
+            return self.gateway.invoke_endpoint(self.gateway.providers[provider_id], model,
+                                                action, prompt, schema, **options)
 
         policy = router.policy_from(preferences)
         # A run started by an unattended search (services/hunt.py) never reaches a paid
@@ -423,18 +462,24 @@ class RouterProvider:
 class AIGateway:
     def __init__(self, service, codex_invoke):
         from backend.ai import catalog
+        from backend.ai.demo import DemoProvider
 
         self.s = service
-        self.providers = {provider.id: provider for provider in (OpenAIProvider(service.w.root), AnthropicProvider(service.w.root), CodexProvider(codex_invoke), ClaudeCodeProvider(), KimiCliProvider(), AzureOpenAIProvider(service.w.root))}
+        self.providers = {provider.id: provider for provider in (OpenAIProvider(service.w.root), AnthropicProvider(service.w.root), CodexProvider(codex_invoke), ClaudeCodeProvider(), KimiCliProvider(), AntigravityProvider(), AzureOpenAIProvider(service.w.root))}
         for provider_id in catalog.PROVIDERS:
             self.providers.setdefault(provider_id, HostedProvider(service.w.root, provider_id))
+        self.providers[DemoProvider.id] = DemoProvider(service.w.root)
         self.providers[router.ID] = RouterProvider(self)
 
     def _builtin_default(self) -> str:
-        # Auto when any plan on its route can run here; the older built-in otherwise.
+        # A marked practice workspace never falls through to a real provider.
+        demo = self.providers.get("demo")
+        if demo and demo.configured:
+            return "demo"
         if router.DEFAULT_WHEN_UNSET and self.providers[router.ID].configured:
             return router.ID
-        return "openai" if self.providers["openai"].configured else "codex"
+        openai = self.providers.get("openai")
+        return "openai" if openai and openai.configured else "codex"
 
     def preferences(self) -> dict:
         # The Settings tab keeps its tier choices under the same key, so read
@@ -495,6 +540,8 @@ class AIGateway:
                     provider, provider_id, model = other, candidate, other.models[0]
                     break
         model = model or choice.get("model") or provider.models[0]
+        if provider_id == "anthropic":
+            model = catalog.ANTHROPIC_ALIASES.get(model, model)
         if model not in provider.models:
             raise ValueError("This model is not available for the selected provider")
         needs = ACTIONS[action]
@@ -507,13 +554,17 @@ class AIGateway:
 
     def generate(self, action: str, prompt: str, schema: dict, *, provider=None, model=None, **options) -> dict:
         selected, model = self.resolve(action, provider, model)
+        auto = self.providers.get(router.ID)
+        free_only = bool(getattr(getattr(auto, "local", None), "free_only", False))
         if selected.id == router.ID:
             # Auto falls back through its whole route; the single backup below is not needed.
             return selected.route(action, prompt, schema, **options)
-        # A paid provider chosen by name is held to the paid limit by AgentCache, which
-        # reserves the call before it reaches here.
+        if free_only and router.is_paid(selected.id):
+            raise ValueError('This unattended run does not permit paid AI. Choose a free plan or explicitly allow paid AI for the hunt.')
+        # Budget reservations happen at the actual endpoint so Auto and named
+        # fallback calls share the same atomic limit.
         try:
-            return selected.generate(prompt, schema, model=model, **options)
+            return self.invoke_endpoint(selected, model, action, prompt, schema, **options)
         except ValueError as error:
             # Graceful fallback: the Settings page can name a backup provider.
             # One retry, recorded, and the UI surfaces that it happened.
@@ -525,12 +576,14 @@ class AIGateway:
                 backup, backup_model = self.resolve(action, fallback_id, fallback.get("model"))
             except ValueError:
                 raise error from None
+            if free_only and router.is_paid(backup.id):
+                raise error from None  # this run's permission also governs named backups
             from backend.ai import paid_gate
 
             if router.is_paid(backup.id) and paid_gate(self.s)(backup.id):
                 raise error  # today's paid limit is used up: no paid backup either
             try:
-                result = backup.generate(prompt, schema, model=backup_model, **options)
+                result = self.invoke_endpoint(backup, backup_model, action, prompt, schema, **options)
             except ValueError:
                 raise error from None
             with self.s.w.connect() as db:
@@ -539,4 +592,29 @@ class AIGateway:
                     from_provider=selected.id, to_provider=backup.id,
                     reason=str(error)[:300],
                 )
+            return result
+
+    def invoke_endpoint(self, provider, model, action, prompt, schema, **options):
+        from backend import telemetry
+        from backend.services.agent_cache import paid_invocation
+        from backend.services.task_execution import invocation_slot
+
+        tier = ACTION_TIER.get(action, "strong")
+        # A named fallback can itself be Auto; let it resolve an actual endpoint.
+        if provider.id == router.ID:
+            with telemetry.span("ai.route", **{"career.ai.action": action, "career.ai.tier": tier}):
+                return provider.route(action, prompt, schema, **options)
+        web = bool(options.get("web", (ACTIONS.get(action) or {}).get("web")))
+        with telemetry.span(f"chat {model}", **{
+                "gen_ai.operation.name": "chat", "gen_ai.provider.name": provider.id, "gen_ai.request.model": model,
+                "openinference.span.kind": "LLM", "llm.provider": provider.id, "llm.model_name": model,
+                "career.ai.action": action, "career.ai.tier": tier, "career.ai.paid": router.is_paid(provider.id),
+                "career.ai.web": web, "career.ai.prompt_chars": len(prompt or "")}) as current:
+            asked = time.monotonic()
+            with invocation_slot(provider.id):
+                # Time spent queued behind other AI calls, separate from the call itself.
+                telemetry.event("slot_acquired", wait_ms=round((time.monotonic() - asked) * 1000))
+                with paid_invocation(self.s, provider.id, model, action):
+                    result = provider.generate(prompt, schema, model=model, **options)
+            telemetry.set_attributes(current, **{"career.ai.response_chars": len(json.dumps(result, default=str))})
             return result

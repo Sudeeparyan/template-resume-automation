@@ -1,0 +1,4 @@
+interface:
+  display_name: "Find Jobs"
+  short_description: "Find real, checked jobs that fit me, each with a tailored resume"
+  default_prompt: "Use $find-jobs to give me 5 jobs with resumes."

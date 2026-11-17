@@ -1,4 +1,4 @@
-import { Component, useCallback, useEffect, useState } from "react";
+import { Component, useCallback, useEffect, useRef, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
 import {
   LayoutDashboard,
@@ -12,15 +12,19 @@ import {
   CheckCircle2,
   LoaderCircle,
   Menu,
+  Radar,
   X,
 } from "lucide-react";
-import { api, PROFILE_ID, shellApi } from "./api";
+import { api, shellApi } from "./api";
+import { LatestRequest } from "./latestRequest";
 import { ProfileContext, ProfileMenu, firstName, openProfile, timeLabel, useProfileListing } from "./profiles";
 import OnboardingWorkspace from "./features/OnboardingWorkspace";
+import PracticeGuide from "./features/PracticeGuide";
 import { AskContext, Field, Loading, Modal, NoticeContext } from "./components/UI";
 import JobDetail from "./components/JobDetail";
 import Dashboard from "./features/Dashboard";
 import DailySearch from "./features/DailySearch";
+import Tracker from "./features/Tracker";
 import ResumeStudio from "./features/ResumeStudio";
 import Assurance from "./features/Assurance";
 import Profile from "./features/Profile";
@@ -33,6 +37,7 @@ const tabs = [
   ["assistant", "Assistant", MessageSquareText, "Your search"],
   ["dashboard", "Dashboard", LayoutDashboard, "Your search"],
   ["daily", "Daily Search", Search, "Your search"],
+  ["tracker", "Tracker", Radar, "Your search"],
   ["resumes", "Resume Studio", FileText, "Your search"],
   ["assurance", "Assurance", ShieldCheck, "Your search"],
   ["profile", "Profile", UserRound, "You"],
@@ -48,17 +53,31 @@ function routeFromHash() {
 /** A render failure in one page must not unmount the whole app. */
 class ErrorBoundary extends Component<
   { children: ReactNode },
-  { message: string }
+  { message: string; recovering: boolean }
 > {
-  state = { message: "" };
+  state = { message: "", recovering: false };
+  lastRecovery = 0;
   static getDerivedStateFromError(error: unknown) {
     return { message: error instanceof Error ? error.message : String(error) };
   }
   componentDidCatch(error: unknown) {
     console.error("Page render failed:", error);
+    // Most failures pass (data arriving mid-update, the app restarting): try once more by
+    // itself, and only show the message when it fails again straight away.
+    if (Date.now() - this.lastRecovery > 15000) {
+      this.lastRecovery = Date.now();
+      this.setState({ recovering: true });
+      window.setTimeout(() => this.setState({ message: "", recovering: false }), 1500);
+    }
   }
   render() {
     if (!this.state.message) return this.props.children;
+    if (this.state.recovering)
+      return (
+        <div className="callout" role="status">
+          Reloading this page…
+        </div>
+      );
     return (
       <div className="callout warning" role="alert">
         Something on this page failed to display ({this.state.message}). Your
@@ -113,20 +132,20 @@ function FirstProfile() {
 
 export default function App() {
   // Which profile this tab belongs to (the /p/<id>/ address) and the others on this PC.
-  const { listing, current, failed, reload } = useProfileListing();
+  const { listing, current, destination, ready, unavailable, reload } = useProfileListing();
   const onboarding = current?.state === "onboarding";
   // Tabs open once a profile exists and is built.
-  const locked = onboarding || listing?.profiles.length === 0;
-  // Profiles are known (or the server predates them): the workspace can load.
-  const ready = Boolean(current && !onboarding) || failed;
+  const locked = !ready;
+  const readyRef = useRef(ready);
+  readyRef.current = ready;
+  const summaryReads = useRef(new LatestRequest()).current;
   useEffect(() => {
-    if (!listing) return;
-    // "/" or an unknown profile: go to the last-used one, keeping the tab named in the address.
-    if (!PROFILE_ID || !listing.profiles.some((p) => p.id === PROFILE_ID)) {
-      const next = listing.last_used || listing.profiles[0]?.id;
-      if (next) openProfile(next, location.hash.slice(1));
-    }
-  }, [listing]);
+    if (!destination) return;
+    // Only a successful profile listing can redirect a stale tab. With zero
+    // profiles, return to the shell so the new profile screen has the right URL.
+    if (destination === "/") location.replace("/");
+    else location.assign(destination + location.hash);
+  }, [destination]);
   useEffect(() => {
     if (current) document.title = `${firstName(current.name) || current.name} · Career Workspace`;
   }, [current]);
@@ -143,6 +162,13 @@ export default function App() {
       : null,
   );
   const [add, setAdd] = useState(false);
+  useEffect(() => {
+    if (!listing || current) return;
+    setData(undefined);
+    setError("");
+    setSelected(null);
+    setAdd(false);
+  }, [listing, current]);
   // The phone's More sheet (the tabs that are not in its bottom bar).
   const [moreOpen, setMoreOpen] = useState(false);
   const closeMore = useCallback(() => setMoreOpen(false), []);
@@ -176,14 +202,18 @@ export default function App() {
     [],
   );
   const refresh = useCallback(async () => {
+    if (!readyRef.current) return;
     try {
-      setData(await api("/v2/summary"));
-      setError("");
+      await summaryReads.run(() => api<Summary>("/v2/summary"), (value) => {
+        if (!readyRef.current) return;
+        setData(value);
+        setError("");
+      });
     } catch (e) {
       setError((e as Error).message);
       throw e;
     }
-  }, []);
+  }, [summaryReads]);
   useEffect(() => {
     if (!ready) return;
     refresh().catch(() => {});
@@ -196,9 +226,10 @@ export default function App() {
     window.addEventListener("hashchange", hash);
     return () => {
       clearInterval(timer);
+      summaryReads.invalidate();
       window.removeEventListener("hashchange", hash);
     };
-  }, [refresh, ready]);
+  }, [refresh, ready, summaryReads]);
   useEffect(() => {
     const update = () => {
       if (ready) void refresh().catch(() => {});
@@ -358,8 +389,14 @@ export default function App() {
               {listing ? <ProfileMenu compact /> : <span className="avatar">CW</span>}
             </span>
           </header>
+          {current?.synthetic_demo && <div className="practice-dock"><PracticeGuide data={data} onGo={navigate} /></div>}
           <div className={"page" + (route === "assistant" || onboarding || listing?.profiles.length === 0 ? " assistant-page" : "")}>
-            {listing?.profiles.length === 0 ? (
+            {unavailable ? (
+              <section className="card" role="alert">
+                <p>The profile list is unavailable. The app is retrying the connection.</p>
+                <button className="secondary" onClick={() => void reload()}>Retry connection</button>
+              </section>
+            ) : listing?.profiles.length === 0 ? (
               <FirstProfile />
             ) : onboarding && current ? (
               <OnboardingWorkspace profile={current} notify={notify} onBuilt={reload} setupForm={setupForm} chooseSetup={chooseSetup} />
@@ -379,7 +416,8 @@ export default function App() {
             {!data ? (
               <Loading label="Loading your workspace" />
             ) : (
-              <ErrorBoundary>
+              // Keyed by tab: a page that failed must not keep its message on the next tab.
+              <ErrorBoundary key={route}>
                 {route === "assistant" && (
                   <Assistant
                     data={data}
@@ -398,6 +436,7 @@ export default function App() {
                     onJob={openStudio}
                     onDaily={() => navigate("daily")}
                     onAdd={() => setAdd(true)}
+                    onGo={navigate}
                   />
                 )}
                 {route === "daily" && (
@@ -409,6 +448,7 @@ export default function App() {
                     onAdd={() => setAdd(true)}
                   />
                 )}
+                {route === "tracker" && <Tracker notify={notify} />}
                 {route === "resumes" && (
                   <ResumeStudio
                     data={data}
@@ -513,8 +553,50 @@ function AddJob({
   });
   const [today, setToday] = useState(true);
   const [busy, setBusy] = useState(false);
+  async function importPosting() {
+    if (busy || !form.url.trim()) return;
+    setBusy(true);
+    try {
+      const r = await api("/v2/jobs/import", "POST", { url: form.url.trim() });
+      if (["needs_employer_link", "needs_details"].includes(r.status)) {
+        setForm({ ...form, url: r.url || form.url });
+        notify((r.reason || "The posting needs a few details.") + " Complete the fields below, then save it.", true);
+        return;
+      }
+      if (r.excluded) {
+        await refresh();
+        onClose();
+        notify(`Not saved: the posting says “${r.sentence}”. ${r.reason_label}. It is listed under Excluded roles on the Dashboard, where you can restore it if that is wrong.`, true);
+        return;
+      }
+      if (r.blocked) {
+        notify("Not saved: " + r.note, true);
+        return;
+      }
+      if (today && !r.duplicate) await api("/search-runs/" + date + "/jobs/" + r.job.id, "POST");
+      await refresh();
+      onClose();
+      onSelect(r.job.id);
+      notify(r.duplicate ? "This posting is already saved. Opening its existing record." : "Posting read and saved. Review the fit, then prepare the application.");
+    } catch (e) {
+      notify((e as Error).message, true);
+    } finally {
+      setBusy(false);
+    }
+  }
   return (
     <Modal title="Save a job posting" onClose={onClose}>
+      <section className="callout spaced">
+        <b>Fastest: paste the employer's posting link</b>
+        <p className="small">The app reads the full posting, checks it, and saves it. If it cannot read the page, complete the form below.</p>
+        <div className="actions">
+          <input aria-label="Posting link to import" type="url" required maxLength={2500} placeholder="https://employer.example/jobs/123"
+            value={form.url} onChange={(event) => setForm({ ...form, url: event.target.value })} />
+          <button type="button" className="primary" disabled={busy || !form.url.trim()} onClick={() => void importPosting()}>
+            {busy ? "Reading…" : "Read & save posting"}
+          </button>
+        </div>
+      </section>
       <form
         onSubmit={async (e) => {
           e.preventDefault();

@@ -8,6 +8,7 @@ sys.path[:0] = [str(ROOT), str(ROOT / "backend/scripts")]
 from career import Workspace
 from backend.services.workspace_v2 import CareerServices
 from backend.services.agents import AgentRunner
+from backend.countries import enabled_markets
 
 
 def main():
@@ -16,11 +17,16 @@ def main():
         "command",
         choices=[
             "fit",
+            "tailor",
+            "docx",
+            "cover-letter",
             "agent-control",
             "score",
             "stale-drafts",
             "recompile",
             "summary",
+            "coverage",
+            "salary",
             "goals",
             "profile",
             "mail",
@@ -42,14 +48,18 @@ def main():
     parser.add_argument("--file", type=Path)
     parser.add_argument("--id")
     parser.add_argument("--job-id")
-    parser.add_argument("--kind", choices=["research", "resume_advisor", "email", "discovery", "resume_build", "resume_match", "instruction_interpret", "study_plan"])
+    parser.add_argument("--kind", choices=["research", "resume_advisor", "email", "discovery", "resume_build", "resume_match", "instruction_interpret", "study_plan", "salary_research"])
     parser.add_argument("--refresh", action="store_true",
                         help="fit: check the job's requirements again (AI on a free plan when one is free)")
+    parser.add_argument("--no-ai", action="store_true",
+                        help="cover-letter: build it from registered sentences without asking the AI")
     parser.add_argument("--preset", choices=["default", "balanced_five", "portals"], default="default",
                         help="discovery mix: portals reads tracked career pages with no AI call")
     parser.add_argument("--company")
     parser.add_argument("--title")
     parser.add_argument("--url", default="")
+    parser.add_argument("--location", default="", help="sponsor-check: posting location")
+    parser.add_argument("--market", choices=enabled_markets(), help="sponsor-check: one of the profile's enabled selected markets")
     parser.add_argument("--provider", help="ai-wake: which plan to try again now (kimi_cli, codex, claude_code, azure_openai)")
     parser.add_argument("--profile", help="profile ID (default: last opened profile)")
     args = parser.parse_args()
@@ -57,14 +67,61 @@ def main():
     profiles = store()
     profile_id = args.profile or profiles.last_used()
     if not profile_id:
-        parser.error("No profile exists yet. Create one in the dashboard first.")
+        parser.error("No profile exists yet. Run  career setup --name \"Full Name\"  or create one in the dashboard.")
     s = CareerServices(Workspace(profiles.root_for(profile_id)))
-    if args.command == "fit":
+    if args.command == "coverage":
+        from backend.services.source_coverage import Coverage
+        result = Coverage(s.w.root).summary()
+    elif args.command == "salary":
+        if not args.job_id:
+            parser.error("--job-id is required")
+        job = s.w.get_job(args.job_id)
+        result = {"job_id": job["id"], "company": job["company"], "title": job["title"],
+                  "opportunity": job.get("opportunity"),
+                  "note": "Salary evidence and permit checks are separate; researched pay is not an advertised offer."}
+    elif args.command == "fit":
         # What one job asks for and which registered evidence meets each item (services/fit.py).
         if not args.job_id:
             parser.error("--job-id is required")
         from backend.services import fit
         result = fit.for_job(s, args.job_id, refresh=args.refresh)
+    elif args.command == "docx":
+        # A Word copy of the job's current checked PDF revision (same content; services/docx_export.py).
+        if not args.job_id:
+            parser.error("--job-id is required")
+        from backend.services.resume_studio import ResumeStudio
+        path, name = ResumeStudio(s).download(args.job_id, "docx")
+        result = {"job_id": args.job_id, "docx": str(path), "file_name": name,
+                  "note": "Made from the same checked revision as the PDF; review it before sending."}
+    elif args.command == "cover-letter":
+        # Drafted by the AI from registered evidence and verified company facts, then checked; or built
+        # from registered sentences (services/cover_letters.py). Saved as .md and .docx; nothing is sent.
+        if not args.job_id:
+            parser.error("--job-id is required")
+        letter = s.generate_cover_letter(args.job_id, use_ai=not args.no_ai)
+        output = s.w.root / "data/output"
+        result = {key: letter[key] for key in ("job_id", "company", "title", "version", "method", "evidence_ids",
+                                                "company_facts", "note", "content")}
+        result.update(path=str(output / letter["path"]), docx=str(output / letter["docx_path"]) if letter["docx_path"] else None,
+                      review="Read it against the posting before sending; nothing is sent.")
+    elif args.command == "tailor":
+        # Resume Studio's own steps, as the dashboard runs them: the AI tailors the draft and fits
+        # the PDF to the profile's page contract; with no AI ready, the draft is ranked and fitted
+        # from registered evidence only. Nothing is submitted.
+        if not args.job_id:
+            parser.error("--job-id is required")
+        from backend.ai import any_provider_configured, team_for
+        from backend.services.assistant_tools import resume_card
+        from backend.services.resume_studio import ResumeStudio
+        studio = ResumeStudio(s)
+        draft = studio.open(args.job_id)
+        ai = any_provider_configured(s.w.root)
+        fitted = studio.tailor(args.job_id, team_for(s)) if ai else studio.fit(args.job_id, draft["revision"])
+        card = resume_card(s.w.get_job(args.job_id), studio.get(args.job_id), fitted)
+        pdf = s.w.root / "data/output" / card["pdf"] if card["pdf"] else None
+        result = {"job_id": args.job_id, "tailored_by_ai": ai, "pdf": str(pdf) if pdf else None, "pages": card["page"]["count"],
+                  "coverage": card["coverage"], "ats": card["ats"], "gaps": card["gaps"], "warnings": card["warnings"],
+                  "note": "Nothing is submitted: review the PDF and apply through the posting link."}
     elif args.command in {'agent-control', 'score', 'stale-drafts', 'recompile'}:
         from backend.services.resume_studio import ResumeStudio
         from backend.services.agent_cache import AgentCache
@@ -105,8 +162,8 @@ def main():
         # The gate on one posting: --company plus the JD in --file. Nothing is saved.
         if not (args.company and args.file):
             parser.error("--company and --file are required")
-        from backend.services import sponsorship
-        result = sponsorship.evaluate(args.company, args.file.read_text(encoding="utf-8"), args.url).as_dict()
+        result = s.gate(args.company, args.file.read_text(encoding="utf-8"), args.url,
+                        args.location, market=args.market or "").as_dict()
     elif args.command == "check-reapply":
         if not (args.company and args.title):
             parser.error("--company and --title are required")

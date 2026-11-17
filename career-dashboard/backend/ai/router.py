@@ -6,11 +6,11 @@ first one that is switched on, set up on this PC, able to do the job, not
 resting after a usage limit, and, when it is a paid API, still inside today's
 paid-call limit. If that endpoint fails, the next one takes the step:
 
-    Kimi Code (K3) -> Codex (GPT-6-Astra / Luna) -> Claude Code (Opus / Sonnet) -> Azure OpenAI (paid)
+    Kimi Code -> Codex -> Claude Code -> Antigravity -> Azure OpenAI (paid)
 
-Kimi, Codex and Claude run on paid-for plans with a rolling ~5-hour usage window,
+Kimi, Codex, Claude and Antigravity run on subscription plans with usage windows,
 so they cost nothing extra; Azure bills per call, so it always sorts last and is
-reached only when every free plan is resting or failing. A usage-limit error
+reached only when every subscription plan is resting or failing. A usage-limit error
 rests that plan until the reset time it printed (``limits.py``), so later steps
 skip it instead of hitting the limit again.
 
@@ -28,12 +28,12 @@ from datetime import datetime
 from backend.ai import limits
 
 ID = "auto"
-LABEL = "Auto · free plans first"
+LABEL = "Auto · subscription plans first"
 SHORT = "Auto"
 
-# The plans that cost nothing per call; everything else is billed.
-FREE = ("kimi_cli", "codex", "claude_code")
-DEFAULT_ORDER = ("kimi_cli", "codex", "claude_code", "azure_openai")
+# Subscription/membership endpoints have no per-call API charge; everything else is billed.
+FREE = ("kimi_cli", "codex", "claude_code", "antigravity", "demo")
+DEFAULT_ORDER = ("kimi_cli", "codex", "claude_code", "antigravity", "azure_openai")
 # Writing ("strong") gets each plan's best model; reading and sorting ("cheap")
 # a lighter one where the plan has it, so the usage window lasts longer. A model
 # the plan no longer offers falls back to the runtime's own default.
@@ -41,12 +41,14 @@ PREFERRED = {
     "kimi_cli": {"strong": "kimi-code/k3", "cheap": "kimi-code/k3"},
     "codex": {"strong": "gpt-6-astra", "cheap": "gpt-6-luna"},
     "claude_code": {"strong": "opus", "cheap": "sonnet"},
+    "antigravity": {"strong": "antigravity-runtime", "cheap": "antigravity-runtime"},
     "azure_openai": {"strong": None, "cheap": None},  # the first deployment in .env
 }
 CAPABILITIES = {
     "kimi_cli": {"structured", "web"},
     "codex": {"structured", "web", "apps"},
     "claude_code": {"structured", "web"},
+    "antigravity": {"structured"},
     "azure_openai": {"structured", "web"},
 }
 NEED_WORDS = {"web": "cannot search the web", "apps": "has no Gmail access"}
@@ -62,6 +64,8 @@ class RouteError(ValueError):
 
 
 def is_paid(provider_id: str) -> bool:
+    if provider_id == "demo":
+        return False
     return bool(provider_id) and provider_id not in FREE and provider_id != ID
 
 
@@ -115,7 +119,7 @@ def _capacity(value) -> int | None:
 def normalise(policy: dict | None) -> dict:
     """A complete policy: every endpoint once, known ones only, missing values filled in.
 
-    ``capacity`` holds the limits she typed per free plan (tokens per 5-hour window);
+    ``capacity`` holds the limits she typed per subscription plan (tokens per 5-hour window);
     a plan without one uses the learned limit, else the starting guess (limits.py).
     """
     policy = policy or {}
@@ -132,7 +136,7 @@ def normalise(policy: dict | None) -> dict:
 
 
 def validate(policy: dict) -> dict:
-    """The policy to save, or ValueError when it would leave no free plan switched on."""
+    """The policy to save, or ValueError when it would leave no subscription plan switched on."""
     unknown = [p for p in (policy.get("order") or []) if p not in DEFAULT_ORDER]
     if unknown:
         raise ValueError("Unknown AI on the route: " + ", ".join(unknown))
@@ -141,7 +145,7 @@ def validate(policy: dict) -> dict:
             raise ValueError(f"The limit for {label(provider)} should be a number of tokens between 10,000 and 1,000,000,000.")
     clean = normalise(policy)
     if not any(clean["enabled"][p] for p in FREE):
-        raise ValueError("Keep at least one free plan (Kimi, Codex or Claude) switched on.")
+        raise ValueError("Keep at least one subscription plan (Kimi, Codex, Claude or Antigravity) switched on.")
     return clean
 
 
@@ -150,7 +154,7 @@ def policy_from(preferences: dict | None) -> dict:
 
 
 def ordered(policy: dict) -> list:
-    """The route order with paid endpoints moved last: a free plan with room always goes first."""
+    """The route order with paid endpoints moved last: a subscription plan with room always goes first."""
     order = normalise(policy)["order"]
     return [p for p in order if not is_paid(p)] + [p for p in order if is_paid(p)]
 
@@ -263,7 +267,7 @@ def _summary(skipped: list, errors: list) -> str:
     for provider, message in errors:
         said[provider] = ("usage limit reached" if limits.is_limit(message) else "failed") + f": {message[:160]}"
     if not said:
-        return "No AI is set up on this PC for this step. Sign in to Kimi Code, Codex or Claude Code, or add an Azure key."
+        return "No AI is set up on this PC for this step. Sign in to Kimi Code, Codex, Claude Code or Antigravity, or explicitly enable a paid provider."
     return "No AI could take this step. " + " ".join(f"{label(p)}: {r}." for p, r in said.items())
 
 
@@ -282,7 +286,11 @@ def route(root, *, tier: str, attempt, needs: dict | None = None, policy: dict |
     policy = normalise(policy)
     ready_map = ready_map if ready_map is not None else ready_providers(root)
     book = book or limits.HealthBook(root)
+    from backend import telemetry
+
     candidates, skipped = _plan(root, policy, tier, needs or {}, ready_map, book)
+    telemetry.event("route.plan", tier=tier, candidates=[p for p, _ in candidates],
+                    skipped=[f"{p}: {why}" for p, why in skipped])
     errors = []
     first = None
     for provider, model in candidates:
@@ -290,6 +298,7 @@ def route(root, *, tier: str, attempt, needs: dict | None = None, policy: dict |
             blocked = paid_gate(provider)
             if blocked:
                 skipped.append((provider, blocked))
+                telemetry.event("route.skip", provider=provider, reason=telemetry.safe_error(blocked))
                 continue
         first = first or (provider, model)
         try:
@@ -300,11 +309,14 @@ def route(root, *, tier: str, attempt, needs: dict | None = None, policy: dict |
                 book.rest_for_limit(provider, message, paid=is_paid(provider))
             else:
                 book.record(provider, False, message)
+            telemetry.event("route.failed", provider=provider, model=model, limit=limits.is_limit(message),
+                            reason=telemetry.safe_error(error))
             errors.append((provider, message))
             if not policy["allow_fallbacks"]:
                 raise
             continue
         book.record(provider, True)
+        telemetry.event("route.served", provider=provider, model=model, after_failures=len(errors))
         if errors and on_switch:
             on_switch({"from_provider": first[0], "from_model": first[1], "to_provider": provider,
                        "to_model": model, "reason": errors[-1][1][:300]})

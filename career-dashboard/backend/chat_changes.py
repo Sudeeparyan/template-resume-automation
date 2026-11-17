@@ -294,8 +294,15 @@ class ChatChangeService:
             return change
         if change["source_revision"] != expected_revision or self.s.profile_revision() != expected_revision:
             raise ValueError("Profile changed after the preview. Reload and preview again.")
+        proposal = change["proposed_changes"]
+        source = f"data/context/sources/profile-chat-{change_id}.md"
+        from career import atomic_write
+
+        atomic_write(self.w.root / source, "# Confirmed profile answer\n\n## The user's own words\n\n"
+                     + str(proposal.get("message") or "") + "\n\n## Confirmed changes\n\n```json\n"
+                     + json.dumps(proposal.get("changes") or [], ensure_ascii=False, indent=2) + "\n```\n")
         ids = []
-        for item in change["proposed_changes"]["changes"]:
+        for item in proposal["changes"]:
             if item["operation"] in {"add", "proposal"}:
                 saved = self.s.save_knowledge({"kind": item["kind"], "title": item["title"], "summary": item["summary"], "data": {"origin": "profile_chat", "pending": True}})
                 ids.append(saved["id"])
@@ -308,7 +315,10 @@ class ChatChangeService:
                     raise ValueError("Profile entry not found")
                 saved = self.s.save_knowledge({**old, "summary": item["summary"]}, item["id"])
                 ids.append(saved["id"])
+            with self.w.connect() as db:
+                db.execute("UPDATE knowledge SET source=? WHERE id=?", (source, ids[-1]))
+        reconciled = self.s.reconcile_knowledge(ids) if ids else None
         revision = self.s.profile_revision()
         with self.w.connect() as db:
             db.execute("UPDATE chat_change_sets SET state='applied',applied_revision=?,evidence_ids=?,updated_at=? WHERE id=?", (revision, json.dumps(ids), self.s.now(), change_id))
-        return self._existing("profile", request_id)
+        return {**self._existing("profile", request_id), "reconciled": reconciled}

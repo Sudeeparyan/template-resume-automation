@@ -8,7 +8,7 @@ in their career. Nothing here reads candidate evidence; it only decides where to
 Two kinds of strategy:
 
 * ``feeds``: read without AI (services/job_sources.py): the tracked companies, the
-  country's employer directory and, for Ireland, gradireland, jobs.ie and askmanavi;
+  country's employer directory and, for Ireland, EURES / JobsIreland, gradireland and jobs.ie;
 * ``ai``: one focused web-search pass by the AI, with exact queries for one group of
   sites (employer careers and ATS pages; Irish job boards; LinkedIn and the public
   sector; graduate programmes). Aggregator hits are leads: discovery re-reads each
@@ -18,6 +18,8 @@ Two kinds of strategy:
 from __future__ import annotations
 
 import re
+from datetime import datetime
+from zoneinfo import ZoneInfo
 from pathlib import Path
 
 import yaml
@@ -26,9 +28,15 @@ from backend.role_titles import IGNORED, tokens
 
 # Places searched when the profile names none.
 DEFAULT_CITIES = {"ie": ["Dublin", "Cork", "Galway", "Limerick"], "us": ["New York", "Boston", "Chicago", "Austin"]}
+IRELAND_COUNTIES = ("Carlow", "Cavan", "Clare", "Cork", "Donegal", "Dublin", "Galway", "Kerry", "Kildare",
+                   "Kilkenny", "Laois", "Leitrim", "Limerick", "Longford", "Louth", "Mayo", "Meath", "Monaghan",
+                   "Offaly", "Roscommon", "Sligo", "Tipperary", "Waterford", "Westmeath", "Wexford", "Wicklow")
 AI_ROLES = 4          # target roles that get their own AI passes
 BOARD_KEYWORDS = 6    # search words sent to job boards
 PAGES_PER_PASS = 15   # posting pages one AI pass may open
+# The county AI passes when the person will work anywhere in Ireland (feeds cover every county).
+LARGEST_MARKETS = ("Dublin", "Cork", "Galway", "Limerick", "Kildare", "Waterford")
+FEED_SOURCES = ("tracked", "directory", "registry", "eures", "gradireland", "jobs_ie", "careerjet", "jooble")
 
 SITE_GROUPS = {
     "ie": [
@@ -61,9 +69,9 @@ SITE_GROUPS = {
     ],
 }
 GRADUATE_QUERIES = {
-    "ie": ['"graduate programme" 2027 Ireland "{role}"', '"{role}" graduate Ireland 2026 OR 2027 apply',
+    "ie": ['"graduate programme" {next_year} Ireland "{role}"', '"{role}" graduate Ireland {year} OR {next_year} apply',
            'site:gradireland.com "{role}"'],
-    "us": ['"new grad" "{role}" 2026 OR 2027', '"{role}" "entry level" United States apply'],
+    "us": ['"new grad" "{role}" {year} OR {next_year}', '"{role}" "entry level" United States apply'],
 }
 
 
@@ -104,14 +112,27 @@ def plan_for(root) -> dict:
               or DEFAULT_CITIES.get(market, []) for market in markets}
     plain = list(dict.fromkeys(p for p in (_plain(r) for r in roles) if p))
     early = early_career(profile)
-    keywords = plain[:BOARD_KEYWORDS - 2] + [_plain(r) for r in related[:2]]
-    if early and plain:
-        keywords.append("graduate " + plain[0])
+    # The target roles first, then the graduate search, then related titles: the cap keeps the best.
+    keywords = plain + (["graduate " + plain[0]] if early and plain else []) + [_plain(r) for r in related]
     return {
         "roles": roles, "plain_roles": plain, "related_titles": related, "markets": markets, "cities": cities,
         "early_career": early, "board_keywords": list(dict.fromkeys(k for k in keywords if k))[:BOARD_KEYWORDS],
+        "counties": {"ie": preferred_counties(preferred)} if "ie" in markets else {},
         "excluded_titles": list(getattr(matcher, "excluded", [])),
     }
+
+
+def preferred_counties(places: list[str]) -> list[str]:
+    """The counties the person's places name; with none ("anywhere in Ireland"), the largest markets.
+
+    County passes are AI web searches, the scarcest budget on a free plan. The feeds (EURES,
+    the employer directory, the boards) already cover every county, so "anywhere" searches the
+    six largest markets rather than rotating through all 26.
+    """
+    from backend.market.normalize import counties
+
+    named = list(dict.fromkeys(county for place in places for county in counties(place)))
+    return named or list(LARGEST_MARKETS)
 
 
 def strategies(root, *, sources: str = "all", plan: dict | None = None) -> list[dict]:
@@ -122,11 +143,18 @@ def strategies(root, *, sources: str = "all", plan: dict | None = None) -> list[
     from backend.services.job_sources import MARKET_SOURCES, SOURCE_LABELS
 
     plan = plan or plan_for(root)
+    from backend.services.source_coverage import Coverage
+    coverage = Coverage(root)
+    year = datetime.now(ZoneInfo("Europe/Dublin")).year
     out = []
     if sources in ("all", "feeds"):
-        for source in ("tracked", "directory", "gradireland", "jobs_ie", "askmanavi"):
+        from backend.market import policy
+
+        for source in FEED_SOURCES:
             if source in MARKET_SOURCES and MARKET_SOURCES[source] not in plan["markets"]:
                 continue
+            if not policy.ready(source, root)[0]:
+                continue  # an optional keyed source the person has not set up
             out.append({"id": f"feeds:{source}", "kind": "feeds", "label": SOURCE_LABELS[source], "sources": [source]})
     if sources in ("all", "ai") and plan["plain_roles"]:
         passes = []
@@ -141,18 +169,27 @@ def strategies(root, *, sources: str = "all", plan: dict | None = None) -> list[
                         "queries": [t.format(role=role, city=city) for t in templates],
                         "max_age_days": 30,
                     }))
+                if market == "ie":
+                    for county in (plan.get("counties") or {}).get("ie") or preferred_counties([]):
+                        passes.append(("county", {
+                            "id": f"ai:ie:{number}:county:{county.lower()}", "kind": "ai", "market": "ie",
+                            "county": county, "label": f"{role.title()} — County {county}",
+                            "queries": [f'"{role}" "{county}" Ireland careers apply',
+                                        f'"{role}" "{county}" (site:jobs.ie OR site:irishjobs.ie OR site:jobsireland.ie)'],
+                            "max_age_days": 30,
+                        }))
             if plan["early_career"]:
                 role = plan["plain_roles"][0]
                 passes.append(("graduate", {
                     "id": f"ai:{market}:graduate", "kind": "ai", "market": market,
                     "label": f"Graduate programmes ({market.upper()})",
-                    "queries": [t.format(role=role) for t in GRADUATE_QUERIES.get(market, [])],
+                    "queries": [t.format(role=role, year=year, next_year=year + 1) for t in GRADUATE_QUERIES.get(market, [])],
                     "max_age_days": 60,
                 }))
         # Employer pages before boards, boards before networks: the most direct evidence first.
         order = {"careers": 0, "boards": 1, "graduate": 2, "network": 3}
         out += [p for _, p in sorted(passes, key=lambda item: order.get(item[0], 9))]
-    return out
+    return coverage.order(out)
 
 
 def focus_instructions(focus: dict) -> str:

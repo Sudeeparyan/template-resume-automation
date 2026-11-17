@@ -12,6 +12,7 @@ const STEP_LABELS: Record<string, string> = {
   tailor: "Tailored resume",
   study_plan: "Study plan",
   pdf: "Resume PDF",
+  cover_letter: "Cover letter (on demand; off by default)",
 };
 const TARGET_CHIPS = [5, 10, 20, 30];
 const HOUR_CHIPS = [2, 4, 6, 8, 10, 12];
@@ -73,7 +74,8 @@ export function HuntSetup({
 }) {
   const set = (next: Partial<HuntChoice>) => onChoice({ ...choice, ...next });
   const target = (n: number) => set({ target: Math.max(1, Math.min(info.limits.max_target, n)) });
-  const plan = info.plan;
+  // When the plan cannot be built the server sends only { error, strategies }; the controls still show.
+  const plan = { ...info.plan, roles: info.plan.roles ?? [], related_titles: info.plan.related_titles ?? [] };
   const aiPasses = plan.strategies.filter((s) => s.kind === "ai").length;
   const feedPasses = plan.strategies.filter((s) => s.kind === "feeds").length;
   const remembered = Object.values(info.memory.outcomes).reduce((sum, n) => sum + n, 0);
@@ -89,7 +91,9 @@ export function HuntSetup({
       <p className="step-hint">
         Leave the app open and go to sleep. It reads job boards and employer career feeds first (no AI), then runs
         focused AI searches for each role, checks every job's requirements against your profile, and waits for your AI
-        plans to reset when they hit their limits. Nothing is ever submitted.
+        plans to reset when they hit their limits. Nothing is ever submitted. To have it run every night by itself,
+        with the list ready when you wake up, switch on <b>Morning jobs</b> in Settings → This profile; it uses the
+        choices below.
       </p>
       <ol className="pipe-steps">
         <li className="pipe-step">
@@ -157,6 +161,7 @@ export function HuntSetup({
                 {plan.related_titles.length ? ` + ${plural(plan.related_titles.length, "related title")}` : ""} ·{" "}
                 {plural(feedPasses, "feed")} and {plural(aiPasses, "AI pass", "AI passes")} per cycle
               </summary>
+              {plan.error && <p className="small">The search plan could not be read: {plan.error}</p>}
               {!!plan.related_titles.length && (
                 <p className="small">Also matches: {plan.related_titles.join(", ")}.</p>
               )}

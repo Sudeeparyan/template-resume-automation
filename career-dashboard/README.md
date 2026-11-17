@@ -7,6 +7,8 @@ country packs and shared application code stay outside those folders.
 Start from the repository root with `Start Dashboard.cmd` on Windows or
 `bash "Start Dashboard.command"` on macOS. The launcher installs dependencies, checks Tectonic, OCR,
 and AI access, builds the client, and serves the app on loopback. See the root [setup guide](../README.md).
+For the isolated two-student tour, use `Start Demo.cmd` / `Start Demo.command` instead; it needs no
+AI sign-in and uses the separate `data/demo/profiles` registry on port 8010.
 
 Job discovery has three layers: `services/job_sources.py` reads employer ATS feeds and Irish job
 boards without AI (robots.txt respected, requests paced); `services/agents.py` runs every lead through

@@ -21,11 +21,72 @@ BACKEND = APP / "backend"
 FRONTEND = APP / "frontend"
 VENV = BACKEND / ".venv"
 PYTHON = VENV / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
+TOOLS = BACKEND / ".tools"
+# Tectonic compiles the resume PDFs. When none is installed, the launcher fetches this release and
+# checks it against the SHA-256 digest GitHub publishes for each asset (tectonic@0.17.0, 2026-07-27).
+TECTONIC_VERSION = "0.17.0"
+TECTONIC_URL = "https://github.com/tectonic-typesetting/tectonic/releases/download/tectonic%40{version}/{name}"
+TECTONIC_ASSETS = {
+    ("windows", "x86_64"): ("tectonic-0.17.0-x86_64-pc-windows-msvc.zip",
+                            "f61ce51f0b0ade1015b7de7ef368541c5424e9756ecbd0d7af97d6d48030845f"),
+    ("darwin", "aarch64"): ("tectonic-0.17.0-aarch64-apple-darwin.tar.gz",
+                            "a3f1cac7c5678f01661a92212f58480ae3b0634115d880dbc59e2953ded45667"),
+    ("darwin", "x86_64"): ("tectonic-0.17.0-x86_64-apple-darwin.tar.gz",
+                           "7c90ef5b6ddb1eb1937e4337add5237b79338e4b9676459fa91187d24d6cdf80"),
+    ("linux", "x86_64"): ("tectonic-0.17.0-x86_64-unknown-linux-musl.tar.gz",
+                          "8533d07f9ccbd7a65824b9e0459041bca34af1eb33daba48f59215593753a3b7"),
+    ("linux", "aarch64"): ("tectonic-0.17.0-aarch64-unknown-linux-musl.tar.gz",
+                           "b10954a95404f3ab2328d2fa59a5ebab8e657f893fab096f98be8db7c0c979b8"),
+}
+
+
+# Asked only on the launcher's own window (never in --preflight-only checks or without a console).
+OFFER_INSTALLS = True
 
 
 def run(args: list[str], *, cwd: Path | None = None) -> None:
     print("+ " + " ".join(str(a) for a in args), flush=True)
     subprocess.run(args, cwd=cwd, check=True)
+
+
+def ask(question: str) -> bool:
+    """A yes/no question on the launcher's window; False when nobody is there to answer it."""
+    if not OFFER_INSTALLS or os.environ.get("CAREER_NO_INSTALL") or not sys.stdin or not sys.stdin.isatty():
+        return False
+    try:
+        answer = input(question + " [Y/n] ").strip().casefold()
+    except (EOFError, KeyboardInterrupt):
+        return False
+    return answer in {"", "y", "yes"}
+
+
+def node_installer() -> tuple[list[str], list[str]] | None:
+    """The package-manager command that installs Node.js LTS here, and the folders it puts node in."""
+    if os.name == "nt" and shutil.which("winget"):
+        program_files = os.environ.get("ProgramFiles") or r"C:\Program Files"
+        return (["winget", "install", "--id", "OpenJS.NodeJS.LTS", "-e", "--source", "winget",
+                 "--accept-package-agreements", "--accept-source-agreements"], [os.path.join(program_files, "nodejs")])
+    if sys.platform == "darwin" and shutil.which("brew"):
+        return ["brew", "install", "node"], ["/opt/homebrew/bin", "/usr/local/bin"]
+    return None
+
+
+def install_node() -> bool:
+    """Offer to install Node.js; True when node can be found afterwards in this window."""
+    found = node_installer()
+    if not found:
+        return False
+    command, folders = found
+    tool = "winget" if command[0] == "winget" else "Homebrew"
+    if not ask(f"Node.js is needed to build the dashboard and is not installed. Install Node.js LTS now with {tool}?"):
+        return False
+    try:
+        run(command)
+    except (OSError, subprocess.CalledProcessError):
+        return False
+    # The install updates PATH for new windows only; this one needs the folder added by hand.
+    os.environ["PATH"] = os.pathsep.join([*folders, os.environ.get("PATH", "")])
+    return bool(shutil.which("node"))
 
 
 def digest(*paths: Path) -> str:
@@ -45,6 +106,12 @@ def setup_python() -> None:
     if not version or not version.startswith("Python 3.12."):
         if VENV.resolve() != (BACKEND / ".venv").resolve() or not VENV.resolve().is_relative_to(BACKEND.resolve()):
             raise RuntimeError("Refusing to replace a Python environment outside the app backend.")
+        other = VENV / ("bin/python" if os.name == "nt" else "Scripts/python.exe")
+        if other.exists() and not PYTHON.exists():
+            # A folder shared with another system (an AI app's sandbox, a synced drive) holds that
+            # system's environment. Clearing it would break the app on the computer that installed it.
+            raise SystemExit("career-dashboard/backend/.venv was built for another operating system. Run the "
+                             "launcher on the computer that installed it, or install this copy in its own folder.")
         print("[1/3] Creating the private Python 3.12 environment...", flush=True)
         run([sys.executable, "-m", "venv", *(["--clear"] if VENV.exists() else []), str(VENV)])
     requirements = BACKEND / "requirements.txt"
@@ -57,10 +124,13 @@ def setup_python() -> None:
 
 
 def setup_frontend() -> None:
+    if not shutil.which("node"):
+        install_node()
     node = shutil.which("node")
     npm = shutil.which("npm.cmd" if os.name == "nt" else "npm")
     if not node or not npm:
-        raise SystemExit("Node.js and npm are required. Install Node.js 20 or newer, then start again.")
+        raise SystemExit("Node.js and npm are required. Install Node.js 20 or newer from https://nodejs.org, "
+                         "then start again.")
     result = subprocess.run([node, "--version"], capture_output=True, text=True, check=True)
     major = int(result.stdout.strip().lstrip("v").split(".")[0])
     if major < 20:
@@ -73,6 +143,66 @@ def setup_frontend() -> None:
         stamp.write_text(wanted + "\n", encoding="ascii")
 
 
+def tectonic_asset(system: str | None = None, machine: str | None = None) -> tuple[str, str] | None:
+    """The pinned release asset (name, sha256) for this computer, or None for an unsupported one."""
+    import platform
+
+    system = (system or platform.system()).casefold()
+    machine = (machine or platform.machine()).casefold()
+    arch = "x86_64" if machine in {"amd64", "x86_64", "x64"} else "aarch64" if machine in {"arm64", "aarch64"} else machine
+    if system == "windows":
+        arch = "x86_64"  # Windows on Arm runs the x64 build
+    return TECTONIC_ASSETS.get((system, arch))
+
+
+def install_tectonic(download=None) -> Path | None:
+    """Fetch the pinned Tectonic into backend/.tools when none is installed; returns its path.
+
+    Runs in the app's own Python, so HTTPS uses the operating system's trust store (backend/__init__.py).
+    The archive is checked against the pinned SHA-256 before anything is extracted, and only the
+    tectonic binary itself is taken out of it.
+    """
+    import io
+    import tarfile
+    import zipfile
+
+    sys.path.insert(0, str(APP))
+    from backend.pdf_compiler import tectonic_executable
+
+    if tectonic_executable():
+        return None
+    asset = tectonic_asset()
+    if not asset:
+        print("  Tectonic: no pinned build for this computer; install it from https://tectonic-typesetting.github.io",
+              flush=True)
+        return None
+    name, expected = asset
+    url = TECTONIC_URL.format(version=TECTONIC_VERSION, name=name)
+    print(f"  Downloading Tectonic {TECTONIC_VERSION} for resume PDFs...", flush=True)
+    if download is None:
+        from urllib.request import Request, urlopen
+
+        def download(address):
+            with urlopen(Request(address, headers={"User-Agent": "CareerWorkspace-launcher"}), timeout=180) as response:
+                return response.read(80_000_000)
+    data = download(url)
+    if hashlib.sha256(data).hexdigest() != expected:
+        raise ValueError("The Tectonic download did not match its published SHA-256; nothing was installed.")
+    binary = "tectonic.exe" if name.endswith(".zip") else "tectonic"
+    target = TOOLS / f"tectonic-{TECTONIC_VERSION}" / binary
+    target.parent.mkdir(parents=True, exist_ok=True)
+    if name.endswith(".zip"):
+        with zipfile.ZipFile(io.BytesIO(data)) as archive:
+            member = next(m for m in archive.namelist() if Path(m).name == binary)
+            target.write_bytes(archive.read(member))
+    else:
+        with tarfile.open(fileobj=io.BytesIO(data), mode="r:gz") as archive:
+            member = next(m for m in archive.getmembers() if m.isfile() and Path(m.name).name == binary)
+            target.write_bytes(archive.extractfile(member).read())
+        target.chmod(0o755)
+    return target
+
+
 def report_tools() -> None:
     sys.path.insert(0, str(APP))
     from backend.ai import ready_providers
@@ -80,7 +210,6 @@ def report_tools() -> None:
     from backend.pdf_compiler import tectonic_executable
 
     ready = ready_providers(APP_ROOT)
-    available = [name for name, ok in ready.items() if ok]
     print("\nLocal tool check:", flush=True)
     print("  Python: " + sys.version.split()[0], flush=True)
     print("  Node.js: " + subprocess.check_output(["node", "--version"], text=True).strip(), flush=True)
@@ -92,21 +221,57 @@ def report_tools() -> None:
                   "ready (Python OCR)" if python_ocr else
                   "missing; install the Python requirements or Poppler and Tesseract")
     print("  Scanned PDF OCR: " + ocr_status, flush=True)
-    print("  AI: " + (", ".join(available) if available else "no configured provider; add a key or sign in to a supported CLI"), flush=True)
+    report_ai(ready)
     print("  Setup: see README.md for installation links and provider setup.\n", flush=True)
+
+
+def report_ai(ready: dict) -> None:
+    """Which AI apps the dashboard found, and the one command that adds a recommended one."""
+    from backend.ai import antigravity, claude_code, codex, kimi_cli, provider_label
+
+    local = (claude_code, antigravity, codex, kimi_cli)
+    shell = "PowerShell" if os.name == "nt" else "Terminal"
+    print("  AI apps (no API key needed; the dashboard uses whichever one is signed in):", flush=True)
+    for module in local:
+        label = provider_label(module.ID)
+        if module.available():
+            print(f"    {label}: found", flush=True)
+        elif hasattr(module, "install_command"):
+            # Claude Code and Antigravity are the recommended ones, so their install line is always shown.
+            print(f"    {label}: not found. To add it, run in {shell}: {module.install_command()}", flush=True)
+            print(f"      then: {module.SIGN_IN}", flush=True)
+    skip = {module.ID for module in local} | {"auto", "demo"}
+    keyed = [provider_label(pid) for pid, ok in ready.items() if ok and pid not in skip]
+    if keyed:
+        print("  API keys: " + ", ".join(keyed), flush=True)
+    if not any(module.available() for module in local) and not keyed:
+        print("  No AI is ready yet. Add Claude Code or Antigravity with a command above and sign in once;"
+              " the dashboard's first page connects by itself.", flush=True)
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--preflight-only", action="store_true", help="Install and check dependencies, then exit")
     parser.add_argument("--_report-only", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--_tectonic", action="store_true", help=argparse.SUPPRESS)
     args, server_args = parser.parse_known_args()
+    global OFFER_INSTALLS
+    OFFER_INSTALLS = not args.preflight_only
     try:
         if args._report_only:
             report_tools()
             return 0
+        if args._tectonic:
+            installed = install_tectonic()
+            if installed:
+                print(f"  Tectonic installed in {installed.parent}", flush=True)
+            return 0
         setup_python()
         setup_frontend()
+        try:
+            run([str(PYTHON), str(Path(__file__).resolve()), "--_tectonic"])
+        except subprocess.CalledProcessError:
+            print("  Tectonic could not be installed automatically; resume PDFs need it (see README.md).", flush=True)
         run([str(PYTHON), str(Path(__file__).resolve()), "--_report-only"])
         if not args.preflight_only:
             run([str(PYTHON), str(BACKEND / "run.py"), *server_args], cwd=BACKEND)

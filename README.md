@@ -1,66 +1,162 @@
 # Career Workspace
 
-A private, local career workspace for Ireland and US job searches. Each person has a separate profile
-with their own documents, evidence, job history, chats, and resume outputs. The GitHub copy starts
-without a person or a job database. Nothing is submitted to an employer or sent as outreach without
-your confirmation.
+A private job-search workspace for international graduates looking for work in Ireland. It finds
+real, open jobs that fit you and can lead to an employment permit, and makes an honest, tailored CV
+for each one. You review and submit applications yourself;
+the assistant never applies or contacts employers. The GitHub copy starts empty: no person,
+no jobs, no keys. Begin with **[START-HERE.md](START-HERE.md)** for the chat-to-app workflow.
 
-## First run
+## Choose the simplest start
 
-1. Install [Python 3.12](https://www.python.org/downloads/) and
-   [Node.js 20 or newer](https://nodejs.org/en/download). On Windows, install Python with its `py`
-   launcher. On macOS, make sure `python3.12` is on `PATH`.
-2. Install [Tectonic](https://tectonic-typesetting.github.io/book/latest/installation/) for resume
-   PDFs. Scanned PDF OCR is included in the Python dependencies. If you already have
+- **Explore with no AI account:** double-click **Start Demo.cmd** on Windows or run
+  `bash "Start Demo.command"` on macOS/Linux. Two synthetic student profiles, fictional local
+  postings, and a guided checklist demonstrate profile review, tailoring, clean document export,
+  independent review, and application tracking. The practice provider calls no AI or live job board.
+- **Use your own documents:** start the dashboard, add your resume, and answer only the questions
+  your documents leave open. Antigravity, Claude Code, Codex, and Kimi Code can use an existing
+  plan with no API key. New profiles allow **zero paid API calls** until you explicitly opt in.
+- **Paste one job link:** the app reads the employer's posting when possible, asks for full text
+  when needed, and uses the same screening and duplicate checks as every other import.
+
+The student workflow now includes one-click preparation of a saved job, a tailored PDF and matching
+Word resume, an evidence-checked cover letter, an editable application-email draft, a final review
+checklist, user-confirmed application tracking, and 30/90-day/all-time funnel views. PDF and DOCX
+exports contain no added watermark, hidden text, revision residue, or generator metadata. ATS and
+readiness scores describe checks that ran; they do not guarantee an ATS decision or interview.
+
+There are two ways to use it, and they work together:
+
+| | Just an AI app | AI app + the dashboard |
+|---|---|---|
+| For | anyone, nothing to install | the strongest results, or developers |
+| You need | Claude (desktop app), ChatGPT (Codex app) or Kimi (Kimi Code) | the same, plus Python and Node.js on your computer (the launcher offers to install them and fetches Tectonic) |
+| Jobs come from | the AI's web search and job-board connectors | EURES / JobsIreland vacancies, Irish employers' own job feeds (a verified directory plus the boards of employers in DETE's permit statistics), Irish graduate boards, then focused AI searches, overnight |
+| Resumes | written and checked by the AI (PDF and Word) | the evidence registry, Resume Studio and a validated PDF at an exact page count, with a Word copy of the same checked revision and an evidence-checked cover letter (Markdown and Word) |
+| Start | fallback when the local app cannot run; separate files and tracker | [install the dashboard](#install-the-dashboard), then **[START-HERE.md](START-HERE.md)** |
+
+Either way you talk to your AI app the same way ("Set me up", "Give me 5 jobs with resumes",
+"Today's jobs"). The AI app reads [AGENTS.md](AGENTS.md) and the shared skills in
+[.agents/skills/](.agents/skills/). Its first command, `career doctor`, checks whether the app
+can run even before you have a profile. For the connected workflow, use the app-backed route;
+AI-only output is not automatically imported into the dashboard.
+
+## Quick start (Ireland)
+
+1. Keep this folder **outside OneDrive** and double-click **Start Dashboard.cmd** (macOS:
+   `bash "Start Dashboard.command"`). If Python 3.12 or Node.js is missing, the launcher offers to
+   install it (Windows: winget; macOS: Homebrew) and asks first.
+2. Connect an AI app you already pay for; no API key is needed. Install one in a terminal
+   (Windows: PowerShell; macOS: Terminal), then run it once and sign in:
+   - **Claude Code**: `irm https://claude.ai/install.ps1 | iex` on Windows,
+     `curl -fsSL https://claude.ai/install.sh | bash` on macOS/Linux; then run `claude`.
+   - **Antigravity**: `irm https://antigravity.google/cli/install.ps1 | iex` on Windows,
+     `curl -fsSL https://antigravity.google/cli/install.sh | bash` on macOS/Linux; then run `agy`
+     and sign in with Google. The Antigravity desktop app alone is not enough: the dashboard runs
+     this `agy` command-line tool. Antigravity covers the writing and reading steps; steps that
+     search the web (company research, AI job discovery) need Claude Code, Codex or Kimi Code.
+
+   The dashboard's first page finds the app by itself and shows these commands with a Copy
+   button. Codex and Kimi Code work too, or paste an API key under **Advanced** (saved in
+   `career-dashboard/.env`, tested on the spot).
+3. Add your CV, then in **Build settings** confirm your permission to work in Ireland (for
+   example Stamp 1G and its exact expiry day), your degree's award date and NFQ level, and
+   whether to search graduate and entry-level roles. Select **Build Agent for You**.
+4. In **Daily Search**, run a search or start the **Overnight hunt**. Each Irish job shows its
+   salary evidence, the permit checks and a **permit-path evidence score** (DETE permits issued to
+   the employer, the posting's own words, pay against your threshold, the occupation lists and a
+   JobsIreland listing). It is evidence, not immigration advice or an approval prediction.
+5. Open the **Tracker** for every Irish role the app has read, one row per role: what the posting
+   says about permits (quoted), DETE's permit numbers for the employer and advertised pay. Filter
+   by county, type, permit record, pay or closing date, export to CSV or Excel, save filters as
+   alerts, and save a role to your jobs. To add a job you found yourself, paste its link in the
+   Assistant (or `career add --url <link>`): the app reads it from the employer's own page.
+
+## Install the dashboard
+
+1. The launcher needs [Python 3.12](https://www.python.org/downloads/) and
+   [Node.js 20 or newer](https://nodejs.org/en/download). When either is missing it offers to
+   install it (Windows: winget, built into Windows 10 and 11; macOS: Homebrew, when installed) and
+   installs nothing without your yes. To install them yourself: it must be 3.12, not the newest
+   Python that the download page offers first, because the OCR packages need 3.12. On Windows,
+   install Python with its `py` launcher. On macOS, make sure `python3.12` is on `PATH`.
+2. Resume PDFs need [Tectonic](https://tectonic-typesetting.github.io/book/latest/installation/).
+   If none is installed, the launcher downloads a pinned release into `career-dashboard/backend/.tools`
+   and checks it against its published SHA-256 first. Scanned PDF OCR is included in the Python
+   dependencies. If you already have
    [Poppler](https://poppler.freedesktop.org/) (`pdftoppm`) and
    [Tesseract](https://tesseract-ocr.github.io/tessdoc/Installation.html), the app can use those too.
 3. On Windows, double-click **Start Dashboard.cmd**. On macOS, run
    `bash "Start Dashboard.command"` from this folder. The launcher creates a private Python
    environment, installs the pinned backend and frontend packages, reports which optional tools and
    AI providers are ready, builds the web client, then opens the app on `127.0.0.1:8000`.
-4. Before building the first profile, copy `career-dashboard/.env.example` to
-   `career-dashboard/.env` and fill in one provider key, or sign in to a supported Kimi Code,
-   Codex, or Claude Code CLI. Restart the launcher after adding a key or signing in, and check its
-   AI readiness report. The `.env` file and each profile folder remain only on your computer.
-5. Create a profile, choose Ireland, US, or both, and add a DOCX, PDF, TXT, MD, or typed note to its
-   Sources. Use **Build Agent for You** to extract an evidence-backed profile and base resume. Review
-   flagged facts and work authorization before using job actions. Rebuild when you add new sources;
-   prior job history stays with the profile. Settings opens after the first build.
+4. The app's AI steps use an AI app signed in on this computer (Antigravity, Claude Code, Codex or Kimi Code)
+   or an API key. When none is ready, the new-profile page shows **First, an AI to read your
+   documents** with the install command for each app: install one, sign in, and the page
+   connects by itself (or press *Check again*). Or paste a key, which is saved in
+   `career-dashboard/.env` and tested at once. API keys are under **Advanced** and are not required
+   for a supported subscription CLI. New profiles have **Paid AI calls a day = 0** unless you opt in.
+   (Copying `career-dashboard/.env.example` to `career-dashboard/.env` by hand also works.) The `.env` file and each profile folder stay on
+   your computer. Keep the whole folder outside OneDrive or another sync folder: syncing can lock
+   or damage the app's databases while it runs (`career doctor` warns about it).
+5. Create a profile once: in the dashboard (add a DOCX, PDF, TXT, MD or typed
+   note to its Sources, then **Build Agent for You**), or tell your AI app "Set me up", which runs
+   `career setup` on the files in `me/`. Review flagged facts and work authorization before using
+   job actions. Rebuild when you add new sources; job history stays with the profile. If a build
+   fails, retry with that profile ID rather than creating another person. A ready profile and
+   completed build, not an uploaded file alone, finish setup.
 
-The app serves only the local computer. To use a free port, pass `--port 8001` to the launcher. Pass
-`--no-browser` to keep it from opening a tab. Keep the launcher window open while using the app.
-Use `--preflight-only` to install dependencies and check tools without starting the server.
+For a read-only diagnosis at any time, run `.\career.cmd doctor` on Windows or `sh career doctor`
+elsewhere. It reports missing dependencies and tools without opening resumes, credentials or
+starting AI calls. Provider detection does not prove sign-in. Gmail and Drive are optional
+AI-host connectors, not prerequisites or automatic connections to the dashboard.
 
-## Profiles and privacy
+The app serves only this computer. Pass `--port 8001` to use another port, `--no-browser` to keep
+it from opening a tab, and `--preflight-only` to install and check tools without starting the
+server. Keep the launcher window open while using the app.
 
-Profiles live under `career-dashboard/profiles/<id>/`. Each contains its own source files, SQLite
-database, search history, and generated outputs. The app never commits these folders. API keys stay in
-ignored local `.env` files or your environment. The code can be cloned to another computer without
-including anyone's profile. Before publishing changes, run `python scripts/scan_release.py` and review
-its result.
+The nine tabs are Assistant, Dashboard, Daily Search, Tracker, Resume Studio, Assurance, Profile,
+Agents and Settings. Profile facts are grounded in your sources; uncertain details stay flagged. Job
+search and AI calls may use external services when you start those actions. Mail is optional and
+requires a configured connector.
 
-The eight tabs are Assistant, Dashboard, Daily Search, Resume Studio, Profile, Assurance, Agents, and
-Settings. Profile facts are grounded in your sources; uncertain details stay flagged. Job search and
-AI calls may use external services when you start those actions. Mail is optional and requires a
-configured connector.
+## Morning jobs
 
-## Finding jobs overnight
+Switch on **Settings → This profile → Morning jobs** and pick a ready-by time (09:00 by default).
+Windows then searches overnight and has a list ready by that time in
+`daily-job-search/MORNING-JOBS.md`: each new job with its fit score, the reasons it fits, the apply
+link and a tailored resume PDF, plus the saved jobs you still have to apply for and the
+applications you made (never suggested again). The list is written every morning even if
+something went wrong: the run restarts the app, waits for the internet or for a free AI plan to
+reset, and carries on. Only a problem you must fix yourself appears under **Needs you**.
 
-Daily Search → **Overnight hunt** (or tell the Assistant *overnight hunt*, or run
-`daily-job-search\night-hunt.cmd --target 10 --hours 8 --min-fit 75`) keeps searching until it has
-saved the number of jobs you asked for at your fit bar, or the time is up. It reads employer career
-feeds (a verified list of about 65 employers hiring in Ireland plus your tracked companies), gradireland,
-jobs.ie and the askmanavi graduate tracker directly, then runs focused AI web searches per role across
-company ATS pages, Irish boards, LinkedIn and publicjobs.ie. Every job passes the same location,
-work-permit, never-re-apply, legitimacy and requirement checks; when your free AI plans reach their
-usage limits it waits for them to reset and never uses a paid AI unless you allow it. It then prepares
-each job (research, tailored resume, study plan, PDF) and writes `HUNT-REPORT.md`. It remembers what it
-has already checked, so the next night looks at new postings. Keep the app open while it runs.
-LinkedIn, Indeed and IrishJobs.ie refuse automated reading, so they are reached only through the AI's
-web search.
+To find jobs now: `daily-job-search\morning-jobs.cmd --jobs 5` (macOS:
+`bash daily-job-search/morning-jobs.command --jobs 5`). To have your AI app bring you the list,
+see [START-HERE.md](START-HERE.md) and [daily-job-search/AUTOPILOT.md](daily-job-search/AUTOPILOT.md).
 
-## Checks
+The search behind it is the **Overnight hunt** (Daily Search, or tell the Assistant
+*overnight hunt*). It reads employer career feeds directly (a verified list of Irish employers, the
+boards of employers in DETE's permit statistics, and your tracked companies), EURES / JobsIreland
+(where employers advertise before applying for a General Employment Permit), gradireland and
+jobs.ie, optionally Careerjet and Jooble with your own free keys (their results are looked up on
+the employer's own board), then runs
+focused AI web searches for each role across company job sites, Irish job boards, LinkedIn and
+publicjobs.ie. Every job passes the location, work-permit, never-re-apply, legitimacy and
+requirement checks. When you remove a job, say why: the next searches skip that company or that
+job title. LinkedIn, Indeed and IrishJobs.ie refuse automated reading, so the AI reaches them only
+through its web search.
 
-Run **Check Workspace.cmd** on Windows or `bash "Check Workspace.command"` on macOS. These run the
-backend tests, frontend tests and production build, plus the workspace and local-profile validators.
-A fresh clone can first run `python scripts/scan_release.py` and the launcher with `--preflight-only`.
+## Privacy
+
+Profiles live under `career-dashboard/profiles/<id>/`, each with its own sources, SQLite database,
+search history and outputs. `me/` and `my-jobs/` hold what the AI-app path writes. Git never
+publishes any of these, API keys or `backup/`. Before publishing changes, run
+`python scripts/scan_release.py`. To reuse an already populated local copy, follow
+[Reset to an empty template](docs/RESET-TEMPLATE.md). Resetting private data does not inspect or
+erase backups, external chats or Git history; distribute the clean Git tree, not a used folder ZIP.
+
+## For developers
+
+Architecture, the `career` CLI, the API, tests and the release gate are in
+[docs/DEVELOPERS.md](docs/DEVELOPERS.md). Run **Check Workspace.cmd** on Windows or
+`bash "Check Workspace.command"` on macOS after changes: backend and frontend tests, the
+production build, workspace and profile validators, the privacy scan and a first-run smoke test.

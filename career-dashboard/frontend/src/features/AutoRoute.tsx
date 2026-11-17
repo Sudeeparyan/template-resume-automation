@@ -16,6 +16,7 @@ const MODEL_NAME: Record<string, string> = {
   "kimi-code/k3-256k": "K3-256k",
   "kimi-runtime": "Kimi's default",
   "codex-runtime": "Codex's default",
+  "antigravity-runtime": "Antigravity's default",
   "gpt-6-astra": "GPT-6-Astra",
   "gpt-6-sol": "GPT-6-Sol",
   "gpt-6-luna": "GPT-6-Luna",

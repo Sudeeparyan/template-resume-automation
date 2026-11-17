@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { AlertTriangle, Check, ChevronDown, Lock, Plus, Settings2, Trash2, RotateCcw } from "lucide-react";
 import { PROFILE_ID, shellApi } from "./api";
+import { LatestRequest } from "./latestRequest";
 import { Badge, Field, Modal, Switch } from "./components/UI";
 
 export type Market = {
@@ -16,33 +17,56 @@ export type Market = {
   /** The country's own tier wording (empty for the US: the page's wording applies). */
   tier_labels?: Record<string, string>;
 };
+/** Morning jobs (backend/services/schedule_tasks.py): this profile's switch and the PC's one task. */
 export type ProfileSchedule = {
-  time?: string;
   enabled?: boolean;
+  ready_by?: string;
+  night_start?: string;
+  list?: string;
   task?: string;
   note?: string;
   exists?: boolean;
   supported?: boolean;
   next_run?: string | null;
-  legacy?: boolean;
+  last_run?: string | null;
 };
 export type ProfileEntry = {
   id: string;
   name: string;
   country: string;
   target_markets?: ("ie" | "us")[];
+  /** The markets this copy offers (backend countries/markets.yml). */
+  offered_markets?: ("ie" | "us")[];
   work_authorization_by_market?: Partial<Record<"ie" | "us", {
     status: "authorized" | "needs_sponsorship" | "unknown";
     citizenship: "citizen" | "noncitizen" | "unknown";
     needs_sponsorship_later?: "yes" | "no" | "unknown";
+    permission_type?: string;
+    permission_wording?: string;
+    valid_until_raw?: string;
+    valid_until?: string;
+    valid_until_confirmed?: boolean;
   }>>;
+  education_for_permits?: EducationPermitFacts;
+  job_search?: JobSearchPreferences;
   state: "onboarding" | "ready";
   locked: boolean;
   legacy?: boolean;
+  synthetic_demo?: boolean;
   initials: string;
   created_at?: string;
   market: Market | null;
   schedule?: ProfileSchedule;
+};
+
+export type EducationPermitFacts = {
+  award_date?: string; award_date_raw?: string; award_date_confirmed?: boolean;
+  nfq_level?: number | null; irish_institution?: boolean | null; relevant_degree?: boolean | null;
+};
+export type JobSearchPreferences = {
+  salary_floor_eur?: number; salary_floor_source?: "person" | "permit_rules";
+  salary_policy?: "include_unstated" | "confirmed_or_estimated" | "confirmed_only";
+  seniority?: string[]; max_years_required?: number | null; graduate_search_confirmed?: boolean;
 };
 export type ProfileListing = { profiles: ProfileEntry[]; last_used: string };
 
@@ -77,13 +101,14 @@ export function useMarket(jobMarket?: string) {
   const current = useContext(ProfileContext).current;
   const market = current?.market;
   const dual = current?.target_markets?.length === 2 && !jobMarket;
-  const code = jobMarket === "ie" || jobMarket === "us" ? jobMarket : market?.code;
+  const code = jobMarket === "ie" || jobMarket === "us" ? jobMarket : market?.code || current?.country;
   const us = code === "us";
   const primary = !jobMarket || code === market?.code;
-  const pages = primary ? market?.pages || 2 : 1;
-  const paper = primary ? market?.paper || "A4" : us ? "US Letter" : "A4";
+  const pages = primary ? market?.pages || (us ? 1 : 2) : 1;
+  const paper = primary ? market?.paper || (us ? "US Letter" : "A4") : us ? "US Letter" : "A4";
   const pageLabel = pages === 1 ? "one page" : `${pages} pages`;
   return {
+    code,
     us,
     dual,
     paper,
@@ -93,8 +118,8 @@ export function useMarket(jobMarket?: string) {
     minBodyPt: primary ? market?.min_body_pt || 10 : 10,
     maxBodyPt: primary ? market?.max_body_pt || 12 : 11,
     time: timeLabel(market?.timezone),
-    postings: dual ? "Ireland and US postings" : us ? "US postings" : `${market?.adjective || market?.name} postings`,
-    tierLabels: us ? {} : market?.tier_labels || {},
+    postings: dual ? "Ireland and US postings" : us ? "US postings" : "Irish postings",
+    tierLabels: us || !primary ? {} : market?.tier_labels || {},
   };
 }
 
@@ -232,7 +257,54 @@ export function NewProfile({ onClose }: { onClose: () => void }) {
   );
 }
 
-/** Settings → This profile: the daily search task, and Reset / Delete with a warning. */
+export const READY_BY_CHOICES = ["06:00", "07:00", "08:00", "09:00", "10:00", "11:00"];
+
+/** Morning jobs: overnight search, then a checked list with tailored resumes by the ready-by time. */
+export function MorningJobsRow({
+  schedule,
+  onChange,
+}: {
+  schedule: ProfileSchedule;
+  onChange: (change: { enabled?: boolean; ready_by?: string }) => void;
+}) {
+  const on = Boolean(schedule.enabled);
+  const readyBy = schedule.ready_by || "09:00";
+  const choices = READY_BY_CHOICES.includes(readyBy) ? READY_BY_CHOICES : [...READY_BY_CHOICES, readyBy].sort();
+  const next = schedule.next_run ? schedule.next_run.replace("T", " ").slice(0, 16) : "";
+  const text =
+    schedule.supported === false
+      ? schedule.note || "Scheduled tasks are set up on Windows only."
+      : on && schedule.exists
+        ? `Searches overnight from ${schedule.night_start} and has a checked list with tailored resumes ready by ${readyBy}` +
+          (next ? ` (next start ${next})` : "") +
+          ". It fixes what it can by itself and never submits anything."
+        : on
+          ? `On, but the task is not set up yet: ${schedule.note || "Task Scheduler did not take it."}`
+          : `Off. Switch it on to find, check and prepare jobs overnight, with your list ready by ${readyBy} every day.`;
+  return (
+    <div className="profile-schedule">
+      <div>
+        <b>Morning jobs</b>
+        <small className="muted">{text}</small>
+        <label className="ready-by">
+          <span>Ready by</span>
+          <select value={readyBy} onChange={(e) => onChange({ ready_by: e.target.value })}>
+            {choices.map((time) => (
+              <option key={time} value={time}>
+                {time}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+      {schedule.supported !== false && (
+        <Switch label="Morning jobs" checked={on} onChange={(value) => onChange({ enabled: value })} />
+      )}
+    </div>
+  );
+}
+
+/** Settings → This profile: Morning jobs, and Reset / Delete with a warning. */
 export function ProfileSettings({ notify }: { notify: (text: string, error?: boolean) => void }) {
   const { current, reload } = useProfiles();
   const [schedule, setSchedule] = useState<ProfileSchedule | null>(null);
@@ -264,35 +336,25 @@ export function ProfileSettings({ notify }: { notify: (text: string, error?: boo
         Its documents, jobs, resumes, chats and settings are kept in its own folder and never mix with another profile.
       </p>
       {schedule && (
-        <div className="profile-schedule">
-          <div>
-            <b>Daily job search</b>
-            <small className="muted">
-              {schedule.legacy
-                ? `Runs every morning at ${schedule.time} (${schedule.task}).`
-                : schedule.supported === false
-                  ? "Scheduled searches are set up on Windows only."
-                  : schedule.exists
-                    ? `Runs every day at ${schedule.time}${schedule.next_run ? `; next run ${schedule.next_run.replace("T", " ")}` : ""}.`
-                    : `Not scheduled. Switch it on to search every morning at ${schedule.time || "07:20"}.`}
-              {schedule.note && !schedule.exists ? ` ${schedule.note}` : ""}
-            </small>
-          </div>
-          {!schedule.legacy && schedule.supported !== false && (
-            <Switch
-              label="Daily job search"
-              checked={Boolean(schedule.exists && schedule.enabled !== false)}
-              onChange={async (next) => {
-                try {
-                  setSchedule(await shellApi(`/profiles/${current.id}/schedule`, "PUT", { enabled: next }));
-                  notify(next ? "The daily search is on." : "The daily search is off.");
-                } catch (e) {
-                  notify((e as Error).message, true);
-                }
-              }}
-            />
-          )}
-        </div>
+        <MorningJobsRow
+          schedule={schedule}
+          onChange={async (change) => {
+            try {
+              const next = await shellApi<ProfileSchedule>(`/profiles/${current.id}/schedule`, "PUT", {
+                enabled: change.enabled ?? Boolean(schedule.enabled),
+                ready_by: change.ready_by,
+              });
+              setSchedule(next);
+              notify(
+                next.enabled
+                  ? `Morning jobs are on: your list will be ready by ${next.ready_by} every day.`
+                  : "Morning jobs are off.",
+              );
+            } catch (e) {
+              notify((e as Error).message, true);
+            }
+          }}
+        />
       )}
       <div className="danger-zone">
         <div className="danger-zone-head">
@@ -405,21 +467,48 @@ export function ConfirmErase({
   );
 }
 
-/** Load the profile list once; a page served without profiles (tests, old server) keeps working. */
+/** A successful list is authoritative; a transient request failure is not. */
+export function profileRoute(listing: ProfileListing | null, profileId: string | null, failed: boolean) {
+  const current = listing?.profiles.find((profile) => profile.id === profileId) || null;
+  const next = listing && !current
+    ? listing.profiles.find((profile) => profile.id === listing.last_used)?.id || listing.profiles[0]?.id
+    : null;
+  return {
+    current,
+    destination: listing && !current ? next ? `/p/${next}/` : profileId ? "/" : null : null,
+    ready: Boolean(current && current.state === "ready"),
+    unavailable: !listing && failed,
+  };
+}
+
+/** Keep open tabs in sync when profiles change through the CLI or another tab. */
 export function useProfileListing() {
   const [listing, setListing] = useState<ProfileListing | null>(null);
   const [failed, setFailed] = useState(false);
+  const reads = useRef(new LatestRequest()).current;
   const reload = useCallback(async () => {
     try {
-      setListing(await shellApi<ProfileListing>("/profiles"));
-      setFailed(false);
+      await reads.run(() => shellApi<ProfileListing>("/profiles"), (value) => {
+        setListing(value);
+        setFailed(false);
+      });
     } catch {
       setFailed(true);
     }
-  }, []);
+  }, [reads]);
   useEffect(() => {
-    void reload();
-  }, [reload]);
-  const current = listing?.profiles.find((p) => p.id === PROFILE_ID) || null;
-  return { listing, current, failed, reload };
+    let active = true;
+    let timer: number | undefined;
+    const poll = async () => {
+      await reload();
+      if (active) timer = window.setTimeout(poll, 8000);
+    };
+    void poll();
+    return () => {
+      active = false;
+      reads.invalidate();
+      if (timer !== undefined) window.clearTimeout(timer);
+    };
+  }, [reload, reads]);
+  return { listing, failed, reload, ...profileRoute(listing, PROFILE_ID, failed) };
 }

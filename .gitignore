@@ -1,17 +1,30 @@
-# Local people, imports, historical work, and developer scratch files.
-.local-reference/
-.agents/
-.venv/
+# Local backups, imports and developer scratch files never leave this computer.
 backup/
+.local-reference/
+.venv/
 pytest-of-*/
+.test-source-audit/
 PLAN.md
 WORKSPACE-STATE.md
-Resume.code-workspace
+*.code-workspace
 *.ipynb
+
+# Your resume, answers and job lists (see START-HERE.md). Only the two guides are shared.
+me/*
+!me/README.md
+!me/about-me.example.md
+my-jobs/*
+!my-jobs/README.md
+
+# Per-computer AI app settings (the shared skills in .agents/ and .claude/skills/ are published).
+.claude/settings.local.json
+.claude/scheduled-tasks/
 
 # Runtime state and secrets never belong in the shared template.
 **/.venv/
 **/.runtime/
+# Tools the launcher downloads (a pinned Tectonic); never committed.
+career-dashboard/backend/.tools/
 **/__pycache__/
 **/.pytest_cache/
 **/node_modules/
@@ -28,22 +41,25 @@ Resume.code-workspace
 **/*.aux
 **/*.synctex.gz
 **/*.tsbuildinfo
+**/.ai-plan-health.json
+**/.ai-plan-health.json.saving
 .DS_Store
 .Rhistory
 .RData
 
-# Profile folders include private source documents, jobs, chats, and outputs.
+# Profile folders hold private source documents, jobs, chats and outputs.
 career-dashboard/profiles/
 career-dashboard/output/
-career-dashboard/career-dashboard/
+career-dashboard/data/
+# `langgraph dev` (LangGraph Studio, demo profile only) keeps its run state here.
+career-dashboard/.langgraph_api/
+career-dashboard/tests/*
+!career-dashboard/tests/portable/
+!career-dashboard/tests/portable/**
 
-# Runtime data and scheduler history stay local.
+# The morning runner's lists, run history and logs belong to the people using this copy.
 daily-job-search/20*/
 daily-job-search/logs/
 daily-job-search/history.csv
 daily-job-search/DAILY_BRIEF.md
-daily-job-search/README.md
-daily-job-search/.gitignore
-
-**/.ai-plan-health.json
-**/.ai-plan-health.json.saving
+daily-job-search/MORNING-JOBS.md

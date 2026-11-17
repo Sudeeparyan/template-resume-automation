@@ -6,7 +6,7 @@ from datetime import datetime, timezone, date
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from backend.ai_marks import clean_text
+from backend.services.demo import demo_mode
 from backend.services.planning import plan
 from backend.services.postings import canonical_url, posting_key
 
@@ -22,7 +22,7 @@ KINDS = {
 AGENTS = [
     {'id': 'orchestrator', 'name': 'Main orchestrator', 'reads': 'Saved instructions, job IDs, draft versions and worker states', 'profile_access': True,
      'does': 'Serializes build/score and AI work, persists progress and failures, deduplicates active runs, recovers interrupted work and enforces the shared AI budget.',
-     'implementation': 'Deterministic dispatcher and monitor; no monitoring AI calls', 'guide': 'docs/AGENT-ARCHITECTURE.md'},
+     'implementation': 'Deterministic dispatcher and monitor; no monitoring AI calls', 'guide': 'backend/services/agents.py'},
     {'id': 'assistant', 'name': 'Assistant agent', 'reads': 'Your messages, the workspace snapshot and every tool result', 'profile_access': True,
      'does': 'One place to talk to the workspace. A pasted posting goes through the market eligibility and duplicate gates, is saved, drafted and fitted to the active resume contract with the PDF handed back. Everything else is a task: the agent plans, calls the workspace tools (jobs, resume, agents, profile, goals, mail, settings), pauses for your yes on anything hard to undo, and reports what changed.',
      'implementation': 'Deterministic paths for postings and shortcuts; an agent loop (one structured decision per turn) on Claude Code, Codex or a keyed provider, over services/assistant_tools.py', 'guide': 'backend/services/assistant.py'},
@@ -106,7 +106,7 @@ AGENTS = [
         "name": "Never-re-apply tracker",
         "reads": "Saved, removed, excluded and rejected jobs with their dates",
         "profile_access": False,
-        "does": "Deduplicates exact postings and applies the selected profile's reapplication rules. Application status changes require explicit evidence; silence does not change status.",
+        "does": "Deduplicates exact postings and applies the selected profile's reapplication rules. Searches never suggest a role again that you applied for (a repost included) or removed, and learn from why you removed one: a company you ruled out, or a job title that was the wrong kind of role. Application status changes require explicit evidence; silence does not change status.",
         "implementation": "Deterministic rules over the jobs table; zero AI calls",
         "guide": "backend/services/reapply.py",
     },
@@ -190,18 +190,22 @@ def agents_for(root) -> list[dict]:
             agent["does"] = agent["does"].replace("the selected markets", " and ".join(names))
         elif agent["id"] == "sponsorship" and len(markets) == 1 and pack.sponsor_index != "uscis":
             cannot = (pack.data.get("discovery") or {}).get("cannot_hire") or "citizenship or a clearance"
+            history = pack.sponsor_index == "dete"
             agent.update(
                 name="Work-permit gate",
-                reads="Each posting's own words, the employer name and domain",
+                reads="Each posting's own words, the employer name and domain"
+                      + (", and DETE's public statistics of permits issued to companies" if history else ""),
                 does=f"Excludes postings that refuse to support a work permit or require {cannot}, logging the exact "
-                     "sentence; ranks the rest A (says yes) or C (silent). Never excludes for silence.",
+                     "sentence; ranks the rest A (says yes), "
+                     + ("B (silent, but the employer had permits issued in the last 24 months) " if history else "")
+                     + "or C (silent). Never excludes for silence or a missing permit record.",
                 implementation="Deterministic patterns in data/config/sponsorship.yml; zero AI calls",
             )
         elif agent["id"] == "reapply" and not reapply.get("block_same_role", True):
             agent.update(
                 name="Duplicate and status guard",
                 reads="Saved, removed, excluded and rejected jobs with their recorded dates",
-                does="Deduplicates exact postings and preserves recorded application states. It never turns silence into a rejection or ghosted status.",
+                does="Deduplicates exact postings and preserves recorded application states. Searches never suggest a role again that you applied for or removed, and learn from why you removed one. It never turns silence into a rejection or ghosted status.",
                 implementation="Deterministic posting identities and explicit status evidence; zero AI calls",
             )
         elif agent["id"] == "resume":
@@ -283,17 +287,24 @@ class CareerServices:
                 "SELECT 1 FROM preferences WHERE key='profile_initialized'"
             ).fetchone():
                 self.seed_profile(db)
-            for field in ("target_roles", "location_preferences"):
+            titles = {"education_for_permits": "Degree facts for permits", "job_search": "Job search preferences",
+                      "ie_permit_facts": "Irish permission to work"}
+            for field in ("target_roles", "location_preferences", "education_for_permits", "job_search", "ie_permit_facts"):
                 config = self.w.profile().get(field, {})
+                if field == "ie_permit_facts":
+                    authorization = self.w.profile().get("work_authorization_by_market")
+                    config = authorization.get("ie") if isinstance(authorization, dict) else {}
+                if field in {"education_for_permits", "job_search", "ie_permit_facts"} and not isinstance(config, dict):
+                    config = {}
                 db.execute(
                     "INSERT OR IGNORE INTO knowledge(id,kind,title,summary,data,source,updated_at) VALUES(?,?,?,?,?,?,?)",
                     (
                         "personal:" + field,
                         "personal",
-                        field.replace("_", " ").capitalize(),
+                        titles.get(field) or field.replace("_", " ").capitalize(),
                         json.dumps(config, ensure_ascii=False, indent=2),
                         json.dumps({"field": field, "value": config}),
-                        "data/config/profile.yml > " + field,
+                        "data/config/profile.yml > " + ("work_authorization_by_market > ie" if field == "ie_permit_facts" else field),
                         self.now(),
                     ),
                 )
@@ -815,6 +826,8 @@ class CareerServices:
         ]
 
     def profile_dirty(self):
+        if demo_mode(self):
+            return False  # demo mode: pending profile edits never block new drafts
         return any(i["review_state"] == "user_updated" for i in self.knowledge(True))
 
     def goals(self, on=None):
@@ -864,14 +877,16 @@ class CareerServices:
         """
         from backend.countries import market_for_location
         from backend.services import reapply, sponsorship
+        from backend.services.demo import flexible_screening
         title = values.get("title", values.get("role", ""))
-        market = market_for_location(self.w.root, values.get("location", ""), values.get("market"), require_match=True)
+        demo = flexible_screening(self)
+        market = market_for_location(self.w.root, values.get("location", ""), values.get("market"), require_match=not demo)
         verdict = verdict or self.gate(
             values["company"], values.get("description", ""), values.get("url", ""), values.get("location", ""),
             extra_sentences=[values.get("restriction_quote", "")] if values.get("restriction_quote") else None,
             employer_type=values.get("employer_type", ""), market=market,
         )
-        if verdict.excluded:
+        if verdict.excluded and not demo:
             record = self.record_excluded(values, verdict, source)
             return {"excluded": True, "job": None, "duplicate": False, "reason": verdict.screen.reason,
                     "reason_label": verdict.screen.reason_label, "sentence": verdict.screen.sentence, "record": record}
@@ -954,6 +969,8 @@ class CareerServices:
                     url=clean,
                 )
             self.w.export_tracking()
+            from backend.services.opportunities import record
+            record(self, job["id"], values)
             return {"job": self.w.get_job(job["id"]), "duplicate": False, "upgraded": True}
         try:
             job = self.w.add_job(
@@ -970,6 +987,8 @@ class CareerServices:
             with self.w.connect() as db:
                 db.execute("UPDATE jobs SET company_id=? WHERE id=?", (cid, job["id"]))
             self.store_sponsorship(job["id"], values["_sponsor"])
+            from backend.services.opportunities import record
+            record(self, job["id"], values)
             if values.get("_reapply_note"):
                 self.w.update_job(job["id"], job["status"], notes=values["_reapply_note"])
             self.w.export_tracking()  # the front page must show the tier that was just stored
@@ -1100,13 +1119,12 @@ class CareerServices:
         return result
 
     def age_applications(self):
-        """Applied and silent for 21 days -> ghosted. Runs from the hourly scheduler."""
-        from backend.services import reapply
-        flipped = []
-        for row in reapply.due_for_ghosting(self.w.jobs(), self.w.profile()):
-            self.w.update_job(row["id"], "ghosted", notes=f"No reply {row['quiet_days']} days after applying; marked ghosted automatically. A confirmed email or a status change reopens it.")
-            flipped.append(row["id"])
-        return flipped
+        """Compatibility hook for the scheduler; silence never changes an outcome.
+
+        The Pipeline view uses ``reapply.quiet_days`` for waiting-time reminders.
+        Only the person's instruction or confirmed mail evidence changes status.
+        """
+        return []
 
     def mail(self):
         with self.w.connect() as db:
@@ -1489,153 +1507,15 @@ class CareerServices:
         root.mkdir(parents=True, exist_ok=True)
         return root
 
-    def generate_cover_letter(self, job_id):
-        from career import atomic_write
+    def generate_cover_letter(self, job_id, team=None, use_ai=True):
+        """Write, check and save a cover letter (services/cover_letters.py): drafted by the AI from
+        registered evidence when a plan is ready and checked before saving, otherwise built from
+        registered sentences. Nothing is sent."""
+        from backend.services import cover_letters
 
-        job = self.w.get_job(job_id)
-        if job.get("deleted_at"):
-            raise ValueError("Restore this removed role before generating documents")
-        if job.get("record_source") == "gmail":
-            raise ValueError(
-                "Add the original posting and full job description before generating a cover letter"
-            )
-        if self.profile_dirty():
-            raise ValueError(
-                "Open Profile and confirm the pending entries before generating a cover letter"
-            )
-        active_projects = {
-            item["id"]
-            for item in self.knowledge()
-            if item["kind"] == "project" and item["review_state"] == "registered"
-        }
-        ranked = [
-            project
-            for project in self.w.rank_projects(
-                job["title"] + " " + job["description"]
-            )
-            if project["id"] in active_projects
-        ]
-        if len(ranked) < 2:
-            raise ValueError("Two registered evidence examples are required")
-        first, second = ranked[:2]
-        focus = list(dict.fromkeys(first["matched_terms"] + second["matched_terms"]))[:4]
-        focus_text = (
-            " The role's focus on " + ", ".join(focus) + " aligns with evidence from my work and projects."
-            if focus
-            else ""
-        )
-        profile = self.w.profile()
-        candidate = profile["candidate"]
-        headline = (profile.get("narrative") or {}).get("headline", "").strip().rstrip(".")
-        # Contact block mirrors the active resume header; city is omitted here.
-        contact = [candidate["full_name"], candidate["email"], candidate["phone"]]
-        for key in ("portfolio_url", "github"):
-            if candidate.get(key):
-                contact.append(candidate[key])
-        opening = (
-            f"I am writing to apply for the {job['title']} role at {job['company']}. "
-            f"I am a {headline[0].lower() + headline[1:] if headline else 'Computer Engineering graduate'}, "
-            f"and I completed my MS in Computer Engineering at the University of Arkansas in May 2026.{focus_text}"
-        )
-        letter = "\n".join(
-            [
-                *contact,
-                "",
-                self.today(),
-                "",
-                "Hiring Team",
-                job["company"],
-                "",
-                f"Re: {job['title']}",
-                "",
-                "Dear Hiring Team,",
-                "",
-                opening,
-                "",
-                f"A relevant example is {first['title']}. {first['bullets'][0]} {first['bullets'][1] if len(first['bullets']) > 1 else ''}".strip(),
-                "",
-                f"I can also bring experience from {second['title']}. {second['bullets'][0]}".strip(),
-                "",
-                f"I would welcome the opportunity to discuss how this work could support the {job['title']} team at {job['company']}. Thank you for considering my application.",
-                "",
-                "Sincerely,",
-                candidate["full_name"],
-            ]
-        )
-        letter = clean_text(letter)  # posting text can carry hidden characters (AI marks)
-        with self.w.connect() as db:
-            db.execute("BEGIN IMMEDIATE")
-            version = (
-                db.execute(
-                    "SELECT COALESCE(MAX(version),0)+1 FROM cover_letters WHERE job_id=?",
-                    (job_id,),
-                ).fetchone()[0]
-            )
-            root = self._document_root(job)
-            path = root / f"cover-letter-v{version}.md"
-            atomic_write(path, letter + "\n")
-            atomic_write(
-                root / f"cover-letter-v{version}.json",
-                json.dumps(
-                    {
-                        "job_id": job_id,
-                        "company": job["company"],
-                        "title": job["title"],
-                        "candidate_revision": self.w.evidence()[
-                            "candidate_revision"
-                        ],
-                        "evidence_ids": [
-                            "IDENTITY-001",
-                            "CONTACT-EMAIL-001",
-                            "CONTACT-PHONE-001",
-                            "CONTACT-PORTFOLIO-001",
-                            "CONTACT-GITHUB-001",
-                            "EDU-MS-001",
-                            first["id"],
-                            second["id"],
-                        ],
-                        "review_required": True,
-                    },
-                    indent=2,
-                    ensure_ascii=False,
-                )
-                + "\n",
-            )
-            relative = str(path.relative_to(self.w.root / "data/output"))
-            stamp = self.now()
-            db.execute(
-                "INSERT INTO cover_letters VALUES(?,?,?,?,?,?)",
-                (
-                    job_id,
-                    version,
-                    letter,
-                    relative,
-                    stamp,
-                    self.w.evidence()["candidate_revision"],
-                ),
-            )
-            self.w.record_event(
-                db,
-                "cover_letter_generated",
-                job_id,
-                company=job["company"],
-                title=job["title"],
-                version=version,
-                path=relative,
-                review_required=True,
-            )
-        self.w.export_tracking()
-        self.export_state()
-        return {
-            "job_id": job_id,
-            "company": job["company"],
-            "title": job["title"],
-            "version": version,
-            "content": letter,
-            "path": relative,
-            "created_at": stamp,
-            "review_required": True,
-        }
+        if use_ai and team is None:
+            team = cover_letters.writer_team(self)
+        return cover_letters.generate(self, job_id, team=team)
 
     def documents(self):
         documents = []
@@ -1670,11 +1550,12 @@ class CareerServices:
                     )
             draft = studio.get(job["id"])
             if draft:
-                preview_file = self.w.root / draft["folder"] / "preview.json"
-                if preview_file.exists():
-                    preview = json.loads(preview_file.read_text(encoding="utf-8"))
-                    pdf = self.w.root / "data/output" / preview["path"] / "resume.pdf"
-                    if pdf.exists():
+                from backend.services.resume_studio import read_saved_preview
+
+                preview, pdf, _ = read_saved_preview(self.w.root, self.w.root / draft["folder"],
+                                                    draft["source"], draft["revision"])
+                if preview is not None:
+                    if pdf.is_file():
                         path = str(pdf.relative_to(self.w.root / "data/output"))
                         if not any(item["path"] == path for item in resumes):
                             resumes.insert(
@@ -1733,6 +1614,59 @@ class CareerServices:
             for r in rows
         ]
 
+    def funnel(self):
+        """Application activity over common windows, using saved jobs and recorded transitions."""
+        from datetime import date, timedelta
+
+        jobs = self.w.jobs()
+        activity = self.w.activity(limit=-1)
+        with self.w.connect() as db:
+            confirmed = {row[0] for row in db.execute(
+                'SELECT job_id FROM application_evidence UNION SELECT job_id FROM mail_evidence WHERE state="confirmed"'
+            )}
+
+        def on_or_after(value, cutoff):
+            return bool(value) and str(value)[:10] >= cutoff
+
+        def stage_events(job_id, statuses):
+            return [event for event in activity if event.get("job_id") == job_id
+                    and str(((event.get("details") or {}).get("after") or {}).get("status") or "") in statuses]
+
+        def current(job, statuses):
+            return job.get("status") in statuses
+
+        def result(days=None):
+            cutoff = (date.today() - timedelta(days=days)).isoformat() if days else ""
+
+            def included(job, field, statuses=()):
+                if not cutoff:
+                    return bool(job.get(field)) or current(job, statuses)
+                return on_or_after(job.get(field), cutoff) or (
+                    current(job, statuses) and on_or_after(job.get("updated_at"), cutoff)
+                ) or any(on_or_after(event.get("occurred_at"), cutoff) for event in stage_events(job["id"], statuses))
+
+            return {
+                "saved": sum(included(job, "created_at") for job in jobs),
+                "applied": sum(included(job, "application_date", ("applied", "interview", "offer"))
+                               or (not cutoff and job["id"] in confirmed) for job in jobs),
+                "interviews": sum(included(job, None, ("interview", "offer"))
+                                  or bool(stage_events(job["id"], ("interview",))) and
+                                  (not cutoff or any(on_or_after(event.get("occurred_at"), cutoff)
+                                                     for event in stage_events(job["id"], ("interview",)))) for job in jobs),
+                "offers": sum(included(job, None, ("offer",)) for job in jobs),
+            }
+
+        next_actions = []
+        for job in sorted(jobs, key=lambda item: -(item.get("fit_score") or 0)):
+            if job.get("status") == "interview":
+                text = "Review the study plan and prepare for the interview"
+            elif job.get("status") in {"saved", "prepared"}:
+                text = "Review the application package" if job.get("folder") else "Prepare the application"
+            else:
+                continue
+            next_actions.append({"job_id": job["id"], "company": job["company"], "title": job["title"], "text": text})
+        return {"periods": {"30": result(30), "90": result(90), "all": result()}, "next_actions": next_actions[:4]}
+
     def summary(self):
         jobs = self.w.jobs()
         with self.w.connect() as db:
@@ -1771,5 +1705,34 @@ class CareerServices:
                 "excluded": len(self.excluded()),
                 "ghosted": sum(j["status"] == "ghosted" for j in jobs),
             },
+            "funnel": self.funnel(),
             "activity": self.w.activity(15),
+            "notices": self.notices(),
+            "needs_you": self.needs_you(),
         }
+
+    def needs_you(self):
+        """What only the person can do now (services/needs_you.py); never stops the Dashboard loading."""
+        from backend.services import needs_you
+
+        try:
+            return needs_you.items(self)
+        except Exception:  # noqa: BLE001 - a convenience list; the rest of the summary still loads
+            return []
+
+    def notices(self):
+        """Workspace-wide notices the Dashboard shows above everything else."""
+        from backend.countries import target_markets_for
+        from backend.services.permit_assessment import freshness
+        import yaml
+
+        out = []
+        if "ie" in target_markets_for(self.w.root):
+            try:
+                rules = freshness()
+            except (OSError, UnicodeError, KeyError, TypeError, ValueError, yaml.YAMLError):
+                rules = {"state": "unreadable", "message": "The Irish employment-permit rules cannot be read. "
+                         "Restore and re-verify the rules against the official DETE pages before relying on thresholds."}
+            if rules["state"] != "current":
+                out.append({"id": "permit_rules", "level": "warning", "text": rules["message"]})
+        return out

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useContext, createContext } from "react";
+import { useEffect, useRef, useState, useContext, createContext } from "react";
 import type { ReactNode } from "react";
 import { X, LoaderCircle, ExternalLink, CheckCircle2, Sparkles } from "lucide-react";
 import { safeUrl } from "../api";
@@ -24,6 +24,7 @@ export function AskAssistant({
 }) {
   const ask = useContext(AskContext);
   const box = useRef<HTMLDetailsElement>(null);
+  const [openRight, setOpenRight] = useState(false);
   useEffect(() => {
     const close = (e: Event) => {
       const menu = box.current;
@@ -40,7 +41,15 @@ export function AskAssistant({
   }, []);
   if (!ask || !prompts.length) return null;
   return (
-    <details className="ask-menu" ref={box}>
+    <details
+      className={"ask-menu" + (openRight ? " open-right" : "")}
+      ref={box}
+      onToggle={(e) => {
+        // The menu opens leftwards from the button; too near the left edge, it opens rightwards.
+        const menu = e.currentTarget;
+        if (menu.open) setOpenRight(menu.getBoundingClientRect().right < Math.min(300, window.innerWidth - 32) + 16);
+      }}
+    >
       <summary className="secondary">
         <Sparkles size={16} aria-hidden="true" /> {label}
       </summary>
@@ -343,9 +352,18 @@ export function RichText({ text }: { text: string }) {
   return <div className="report-text">{blocks}</div>;
 }
 export function ReportView({ report }: { report: Report }) {
+  const issues = Array.isArray(report.issues) ? report.issues.filter((issue) => typeof issue === "string" && issue.trim()) : [];
+  const verdict = report.verdict === "pass" && issues.length ? "review" : report.verdict;
+  const reviewLabel = verdict === "pass" ? "Review passed" : verdict === "review" ? "Needs your review" : verdict === "blocked" ? "Review blocked" : null;
   return (
     <>
+      {reviewLabel && <Badge tone={verdict === "pass" ? "green" : verdict === "blocked" ? "red" : "amber"}>{reviewLabel}</Badge>}
       <p className="report-summary">{report.summary}</p>
+      {issues.length > 0 && (
+        <ul aria-label="Review issues">
+          {issues.map((issue, i) => <li key={i}>{issue}</li>)}
+        </ul>
+      )}
       <RichText text={report.report} />
       {report.limitations.length > 0 && (
         <div className="callout">

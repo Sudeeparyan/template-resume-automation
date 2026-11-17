@@ -7,6 +7,10 @@ from backend.countries import market_for_location, target_markets_for
 from backend.job_quality import JobQualityService, ProfileRules
 from backend.services.agents import mail_available
 from backend.services.reapply import due_for_ghosting, settings
+import pytest
+
+# Dual-market rules: the dormant US market is switched on for this module.
+pytestmark = pytest.mark.usefixtures("us_enabled")
 
 
 def test_new_profile_has_no_fixed_profession_or_experience_cap():

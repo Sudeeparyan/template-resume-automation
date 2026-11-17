@@ -26,7 +26,7 @@ def main() -> int:
     dist = APP / "frontend/dist"
     if not (dist / "index.html").is_file():
         raise RuntimeError("The frontend must be built before the first-run smoke test.")
-    private_scratch = ROOT / ".local-reference"
+    private_scratch = ROOT / ".runtime"  # ignored by Git, like every runtime folder
     private_scratch.mkdir(exist_ok=True)
     os.environ["CAREER_NO_SCHEDULED_TASKS"] = "1"
     with tempfile.TemporaryDirectory(prefix="first-run-", dir=private_scratch) as temporary:

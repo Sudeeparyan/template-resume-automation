@@ -20,7 +20,7 @@ const entry = (over: Partial<ProfileEntry> = {}): ProfileEntry => ({
   status: "confirmed",
   usage: "",
   sources: [],
-  fields: { title: "Data Engineering Intern", employer: "InsOps Inc.", dates: "Jul 2024 - Present", location: "", bullets: ["Built pipelines"] },
+  fields: { title: "Data Engineering Intern", employer: "Example Analytics Ltd", dates: "Jul 2024 - Present", location: "", bullets: ["Built pipelines"] },
   form: [
     { key: "title", label: "Role title", type: "text", required: true },
     { key: "employer", label: "Employer", type: "text" },
@@ -108,7 +108,7 @@ describe("Profile rendering", () => {
       <ProfileEditor entry={entry()} initialKind="experience" schema={{}} busy={false} onSave={() => {}} onClose={() => {}} />,
     );
     expect(html).toContain("Edit Data Engineering Intern");
-    expect(html).toContain('value="InsOps Inc."');
+    expect(html).toContain('value="Example Analytics Ltd"');
     expect(html).toContain("Built pipelines");
     expect(html).toContain("Add line");
     expect(html).not.toContain("changed outside this form");

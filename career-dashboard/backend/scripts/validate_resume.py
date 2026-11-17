@@ -225,7 +225,7 @@ def normalize_latex_text(value: str) -> str:
 CLAIM_LINE_PATTERN = re.compile(
     r"""(?x)
     ^(?:
-      \\newcommand\{\\(?:ResumeSummary|ResumeName|ResumeContact|CoreSkills|Skills[A-Za-z]+|Coursework|(?:SelectedProject|SecondProject)(?:ID|Title|Context|BulletOne|BulletTwo|BulletThree))\}
+      \\newcommand\{\\(?:ResumeSummary|ResumeName|ResumeContact|CoreSkills|Skills[A-Za-z]+|Coursework|Grade[A-Za-z]+|Certification[A-Za-z]+|(?:SelectedProject|SecondProject)(?:ID|Title|Context|BulletOne|BulletTwo|BulletThree))\}
       |\\roleheading\b
       |\\clientheading\b
       |\\item\b
@@ -236,17 +236,12 @@ CLAIM_LINE_PATTERN = re.compile(
     """
 )
 
-# 60/40 tailoring tags proposed content with its resume_items row id.
-PREDICTED_TAG = re.compile(r"^resume_items:([0-9A-Za-z]+)$")
+# Legacy tailoring tagged proposed content with its review-row id. Review rows
+# are not candidate evidence, regardless of their origin or keep/remove decision.
+PREDICTED_TAG = re.compile(r"^resume_items:([^\s]+)$")
 
-# The review confidence scale is deliberately coarse: registry-grounded wording is
-# full faith, a predicted (per-job proposed) item is a maybe, anything unresolved is none.
-CLAIM_CONFIDENCE = {"verified": 100, "predicted": 60, "missing": 0}
-
-# Proposed Projects/Skills content is stored behind review, so an unresolvable
-# evidence tag in those two sections is a warning; everywhere else it stays a failure.
-REVIEW_SECTIONS = {"Projects", "Technical Skills", "Skills"}
-
+# Keep the legacy report keys; unsupported suggestions have no evidence confidence.
+CLAIM_CONFIDENCE = {"verified": 100, "predicted": 0, "missing": 0}
 
 def _logical_section(macro_name: str | None, current: str | None, skill_section: str) -> str:
     """The section a claim line belongs to. Preamble macro definitions report the
@@ -259,17 +254,18 @@ def _logical_section(macro_name: str | None, current: str | None, skill_section:
         return "Projects"
     if macro_name == "CoreSkills" or macro_name.startswith("Skills"):
         return skill_section
-    if macro_name == "Coursework":
+    if macro_name == "Coursework" or macro_name.startswith("Grade"):
         return "Education"
+    if macro_name.startswith("Certification"):
+        return "Certifications"
     return "Header"
 
 
 def scan_claims(source: str, evidence: dict[str, Any], predicted: dict[str, str] | None = None) -> list[dict[str, Any]]:
     """One record per candidate-claim line: its EVIDENCE tags and where they resolve.
 
-    `predicted` maps resume_items row ids to their origin. A ``resume_items:<id>``
-    tag matching a predicted row is reported 'predicted'; matching anything else or
-    nothing is 'missing'. Registry-held ids count as missing: known but not usable.
+    `predicted` is retained for report-call compatibility. A ``resume_items:<id>``
+    tag is never registry evidence. Registry-held ids count as missing: known but not usable.
     A line is 'verified' only when every tag resolves in the registry. Each record
     also carries `problems`, the gate's failure texts, so both consumers word the
     same issue the same way.
@@ -281,7 +277,6 @@ def scan_claims(source: str, evidence: dict[str, Any], predicted: dict[str, str]
         for item in evidence.get(group, [])
         if isinstance(item, dict) and item.get("id")
     }
-    predicted = predicted or {}
     claims: list[dict[str, Any]] = []
     pending: list[str] | None = None
     section: str | None = None
@@ -304,30 +299,21 @@ def scan_claims(source: str, evidence: dict[str, Any], predicted: dict[str, str]
         line_section = _logical_section(macro.group(1) if macro else None, section, skill_section)
         evidence_ids = pending or []
         problems: list[str] = []
-        predicted_hit = False
         if not evidence_ids:
             problems.append(f"Candidate content on source line {line_number} lacks an EVIDENCE tag")
         for evidence_id in evidence_ids:
             marker = PREDICTED_TAG.match(evidence_id)
             if marker:
-                origin = predicted.get(marker.group(1))
-                if origin == "predicted":
-                    predicted_hit = True
-                elif origin is None:
-                    problems.append(f"Unknown source EVIDENCE ID on line {line_number}: {evidence_id}")
-                # A verified-origin review row resolves like a registry id.
+                problems.append(f"Review item is not registered candidate evidence on line {line_number}: {evidence_id}")
                 continue
             item = known.get(evidence_id)
             if item is None:
                 problems.append(f"Unknown source EVIDENCE ID on line {line_number}: {evidence_id}")
-            elif item.get("status") == "hold":
-                problems.append(f"Held source EVIDENCE ID on line {line_number}: {evidence_id}")
+            elif item.get("status") in {"hold", "missing"}:
+                problems.append(f"Unavailable source EVIDENCE ID on line {line_number}: {evidence_id}")
         if problems:
             status = "missing"
             note = "; ".join(problems)
-        elif predicted_hit:
-            status = "predicted"
-            note = "Proposed item from per-job tailoring; review before release"
         else:
             status = "verified"
             note = "All evidence ids resolve in the registry"
@@ -354,10 +340,9 @@ def evidence_ids_from_source(
 ) -> set[str]:
     """Require an evidence tag immediately before each candidate-content construct.
 
-    Returns the registry ids actually used. Inside Projects and Skills an
-    unresolvable tag (unknown, held, or an unreviewed resume_items row) or a
-    missing tag is a review warning; everywhere else it is a hard failure.
-    Callers that omit `warnings` keep the historical all-hard behavior.
+    Returns the registry ids actually used. Unknown, held, review-row and missing
+    tags are hard failures in every section. `warnings` remains a compatibility
+    argument; human review cannot replace candidate evidence.
     """
     known = {
         item.get("id"): item
@@ -370,10 +355,9 @@ def evidence_ids_from_source(
         ids_used.update(
             evidence_id
             for evidence_id in claim["evidence_ids"]
-            if evidence_id in known and known[evidence_id].get("status") != "hold"
+            if evidence_id in known and known[evidence_id].get("status") not in {"hold", "missing"}
         )
-        soft = claim["section"] in REVIEW_SECTIONS and warnings is not None
-        (warnings if soft else failures).extend(claim["problems"])
+        failures.extend(claim["problems"])
     return ids_used
 
 
@@ -855,6 +839,33 @@ def validate_evidence_map(
     return result
 
 
+def macro_tags(source: str, name: str) -> list[str]:
+    """The EVIDENCE tags on the comment line just above one macro's definition."""
+    lines = source.splitlines()
+    for index, line in enumerate(lines):
+        if re.match(r"^\s*\\newcommand\{\\" + re.escape(name) + r"\}", line):
+            for previous in reversed(lines[:index]):
+                tag = re.match(r"^\s*%\s*EVIDENCE:\s*(.*?)\s*$", previous)
+                if tag:
+                    return tag.group(1).split()
+                if previous.strip():
+                    break
+            return []
+    return []
+
+
+def rewrite_problems(registered: str, printed: str, cited_ids: list[str], evidence: dict[str, Any]) -> list[str]:
+    """Why a reworded project bullet does not state the same facts as its registered line ([] when it does)."""
+    from backend.services import rewrite_guard
+
+    usable = rewrite_guard.evidence_wording(evidence)
+    unusable = [evidence_id for evidence_id in cited_ids if evidence_id not in usable]
+    if unusable:
+        return ["it cites evidence that is not usable: " + ", ".join(unusable)]
+    return rewrite_guard.check(registered, printed, sources=[usable[i] for i in cited_ids],
+                               skills=rewrite_guard.registered_skills(evidence), never=rewrite_guard.never_claimed(evidence))
+
+
 def validate_selected_project(
     source: str,
     evidence: dict[str, Any],
@@ -915,7 +926,23 @@ def validate_selected_project(
     if actual_context != normalize_latex_text(expected_context):
         failures.append("Selected project context does not match its registered project ID")
     if actual_bullets != expected_bullets_normalized:
-        failures.append("Selected project bullets do not match the approved project registry")
+        # A bullet reworded for this job stands only when the rewording check passes again here,
+        # against the evidence its own EVIDENCE tag names (services/rewrite_guard.py).
+        reworded, problems = [], []
+        for number, (name, actual, expected) in enumerate(zip(bullet_names, actual_bullets, expected_bullets_normalized), 1):
+            if actual == expected:
+                continue
+            tags = macro_tags(source, name)
+            found = (["it is not tagged with its own project"] if not tags or tags[0] != selected_project_id
+                     else rewrite_problems(expected, actual, tags[1:], evidence))
+            if found:
+                problems.append(f"bullet {number}: " + "; ".join(found))
+            else:
+                reworded.append(number)
+        result["reworded_bullets"] = reworded
+        if problems:
+            failures.append("Selected project bullets do not match the approved project registry ("
+                            + " | ".join(problems)[:600] + ")")
 
     start_markers = source.count("% SELECTED_PROJECT_BLOCK_START")
     end_markers = source.count("% SELECTED_PROJECT_BLOCK_END")
@@ -1413,19 +1440,22 @@ def main() -> int:
                             f"Compiled PDF prints {anchor} without a registered title/date line ({accepted[0]})",
                         )
 
+                # A project heading starts its line; a stack may sit beside it, so match the line's
+                # start. A registered bullet that names its own project ("The X app was my final
+                # year project") is not a second heading.
+                def heading_count(title: str) -> int:
+                    return sum(compact(line).startswith(compact(title)) for line in normalized_pdf_text.splitlines())
+
                 if required_projects:
                     expected_project_title = (qa.get("selected_project") or {}).get("title")
                     add_failure(
                         failures,
-                        isinstance(expected_project_title, str)
-                        # A stack may sit on the title line, so match its start rather than the whole line.
-                        and (sum(compact(line).startswith(compact(expected_project_title)) for line in normalized_pdf_text.splitlines()) == 1
-                             if args.studio_layout else compact_pdf_text.count(compact(expected_project_title)) == 1),
+                        isinstance(expected_project_title, str) and heading_count(expected_project_title) == 1,
                         "Compiled PDF must show the registered selected-project title exactly once",
                     )
                 if required_projects >= 2:
                     second_title = (qa.get('second_project') or {}).get('title')
-                    add_failure(failures, isinstance(second_title, str) and compact_pdf_text.count(compact(second_title)) == 1,
+                    add_failure(failures, isinstance(second_title, str) and heading_count(second_title) == 1,
                                 'Compiled PDF must show the registered second-project title exactly once')
                 heading_positions = [normalized_pdf_text.find(heading) for heading in required_order]
                 qa["text_order_ok"] = all(

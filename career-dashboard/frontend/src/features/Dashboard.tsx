@@ -15,7 +15,11 @@ import { api, fileUrl, safeUrl } from "../api";
 import { AskAssistant, Badge, Empty, Modal, Field, Running } from "../components/UI";
 import { JobList } from "../components/JobList";
 import { PlanEditor, WeekCard } from "../components/WeekPlan";
-import type { Summary, Mail, Job, CoverLetter, ExcludedJob } from "../types";
+import { RemoveJobDialog } from "./RemoveJob";
+import { TrackerAlertsNotice } from "./Tracker";
+import ApplicationFunnel from "./ApplicationFunnel";
+import { CoverLetterView } from "../components/CoverLetterView";
+import type { Summary, Mail, Job, CoverLetter, ExcludedJob, NeedsYouItem } from "../types";
 type Props = {
   data: Summary;
   refresh: () => Promise<void>;
@@ -23,7 +27,30 @@ type Props = {
   onJob: (id: string) => void;
   onDaily: () => void;
   onAdd: () => void;
+  onGo?: (route: string) => void;
 };
+
+const NEEDS_YOU_PAGES: Record<NeedsYouItem["where"], string> = { profile: "Profile", settings: "Settings", daily: "Daily Search" };
+
+/** What only the person can do now, with the page that resolves each item. */
+export function NeedsYou({ items, onGo }: { items: NeedsYouItem[]; onGo?: (route: string) => void }) {
+  if (!items.length) return null;
+  return (
+    <section className="card needs-you" aria-label="Needs you">
+      <h3>Needs you</h3>
+      <ul>
+        {items.map((item) => (
+          <li key={item.id}>
+            {item.text}{" "}
+            {item.url && <a href={safeUrl(item.url)} target="_blank" rel="noreferrer">Official page ↗</a>}{" "}
+            {onGo && <button type="button" className="link-button" onClick={() => onGo(item.where)}>Open {NEEDS_YOU_PAGES[item.where]}</button>}
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
 export default function Dashboard({
   data,
   refresh,
@@ -31,6 +58,7 @@ export default function Dashboard({
   onJob,
   onDaily,
   onAdd,
+  onGo,
 }: Props) {
   const [mail, setMail] = useState<Mail | null>(null);
   const [section, setSection] = useState("applications");
@@ -38,6 +66,7 @@ export default function Dashboard({
   const [schedule, setSchedule] = useState<any>(null);
   const [coverLetter, setCoverLetter] = useState<CoverLetter | null>(null);
   const [editingPlan, setEditingPlan] = useState(false);
+  const [removing, setRemoving] = useState<Job | null>(null);
   const running = data.runs.find(
     (r) => r.kind === "email" && ["queued", "running"].includes(r.state),
   );
@@ -90,19 +119,15 @@ export default function Dashboard({
       setBusy(false);
     }
   }
-  async function removeJob(job: Job) {
-    if (
-      !window.confirm(
-        `Remove ${job.company} · ${job.title} from your active job list? Its history and files will be kept.`,
-      )
-    )
-      return;
+  function removeJob(job: Job) {
+    setRemoving(job);
+  }
+  async function confirmRemove(job: Job, reason: string) {
     try {
-      await api("/v2/jobs/" + job.id, "DELETE", {
-        reason: "Marked not suitable by user",
-      });
+      await api("/v2/jobs/" + job.id, "DELETE", { reason });
+      setRemoving(null);
       await refresh();
-      notify("Unsuitable role removed. You can restore it from Removed roles.");
+      notify("Removed, and the next searches will remember why. You can restore it from Removed roles.");
     } catch (e) {
       notify((e as Error).message, true);
     }
@@ -131,6 +156,13 @@ export default function Dashboard({
           </button>
         </div>
       </div>
+      {(data.notices || []).map((notice) => (
+        <div className={notice.level === "warning" ? "callout warning" : "callout"} role="status" key={notice.id}>
+          {notice.text}
+        </div>
+      ))}
+      <NeedsYou items={data.needs_you || []} onGo={onGo} />
+      <TrackerAlertsNotice />
       <div className="metrics">
         {[
           [BriefcaseBusiness, data.counts.applied, "Applications recorded"],
@@ -260,6 +292,7 @@ export default function Dashboard({
         )}
       </div>
       <WeekCard goals={data.goals} />
+      {data.funnel && <ApplicationFunnel funnel={data.funnel} onJob={onJob} />}
       {editingPlan && (
         <PlanEditor goals={data.goals} onClose={() => setEditingPlan(false)} onSaved={refresh} notify={notify} />
       )}
@@ -318,6 +351,13 @@ export default function Dashboard({
               onCoverLetter={generateCoverLetter}
               onRemove={removeJob}
             />
+            {removing && (
+              <RemoveJobDialog
+                job={removing}
+                onCancel={() => setRemoving(null)}
+                onConfirm={(reason) => confirmRemove(removing, reason)}
+              />
+            )}
             {!!data.removed_jobs.length && (
               <details className="removed-jobs">
                 <summary>Removed roles · {data.removed_jobs.length}</summary>
@@ -557,33 +597,7 @@ export default function Dashboard({
           </form>
         </Modal>
       )}
-      {coverLetter && (
-        <Modal
-          title={`${coverLetter.company} · Cover letter`}
-          onClose={() => setCoverLetter(null)}
-        >
-          <div className="callout warning">
-            Draft only. Read it against the job description before sending.
-          </div>
-          <div className="cover-letter-preview">{coverLetter.content}</div>
-          <div className="actions">
-            <button
-              className="secondary"
-              onClick={() => navigator.clipboard.writeText(coverLetter.content)}
-            >
-              Copy letter
-            </button>
-            <a
-              className="primary"
-              href={fileUrl(coverLetter.path)}
-              target="_blank"
-              rel="noreferrer"
-            >
-              Open saved file ↗
-            </a>
-          </div>
-        </Modal>
-      )}
+      {coverLetter && <CoverLetterView letter={coverLetter} onClose={() => setCoverLetter(null)} />}
     </>
   );
 }

@@ -7,23 +7,23 @@ values never appear in anything returned here.
 
 from __future__ import annotations
 
-from backend.ai import catalog, claude_code, codex, keys, kimi_cli, models, router
+import os
+
+from backend.ai import antigravity, catalog, claude_code, codex, keys, kimi_cli, models, router
 from backend.ai.agents.graph import AgentTeam, describe_provider_error
 from backend.ai.agents.specialists import REGISTRY
 
-# The free local runtime is not a LangChain provider; it is offered alongside them.
+# The local subscription runtime is not a LangChain provider.
 CODEX = {
     "id": "codex",
-    "label": "Codex (local, free)",
+    "label": "Codex (local, subscription)",
     "configured": True,
     "models": ["codex-runtime"],
     "defaults": {"strong": "codex-runtime", "cheap": "codex-runtime"},
-    "note": "Runs through the Codex app on this machine. No API key and no per-call cost.",
+    "note": "Runs through the Codex app on this machine. No API key and no per-call API charge.",
 }
 
-# The same idea on the Claude side: the signed-in Claude Code CLI, on the
-# subscription's usage limits. Presence is checked live because the CLI may be
-# installed or removed without a restart.
+# Presence is checked live because each CLI may be installed or removed without a restart.
 def _claude_code_entry() -> dict:
     return {
         "id": claude_code.ID,
@@ -35,8 +35,6 @@ def _claude_code_entry() -> dict:
     }
 
 
-# The same idea on the Kimi side: the signed-in Kimi Code CLI, on the
-# membership's usage limits.
 def _kimi_cli_entry() -> dict:
     return {
         "id": kimi_cli.ID,
@@ -48,8 +46,20 @@ def _kimi_cli_entry() -> dict:
     }
 
 
+def _antigravity_entry() -> dict:
+    return {
+        "id": antigravity.ID,
+        "label": antigravity.LABEL,
+        "configured": antigravity.available(),
+        "models": list(antigravity.models()),
+        "defaults": dict(antigravity.DEFAULTS),
+        "note": antigravity.NOTE,
+    }
+
+
 LOCAL_DEFAULTS = {"codex": CODEX["defaults"], claude_code.ID: claude_code.DEFAULTS,
-                  kimi_cli.ID: kimi_cli.DEFAULTS, router.ID: {"strong": router.ID, "cheap": router.ID}}
+                  kimi_cli.ID: kimi_cli.DEFAULTS, antigravity.ID: antigravity.DEFAULTS,
+                  router.ID: {"strong": router.ID, "cheap": router.ID}}
 
 
 def _auto_entry(services, gateway=None) -> dict:
@@ -123,6 +133,7 @@ def _routes(gateway) -> list:
 def overview(services, refresh: bool = False, gateway=None) -> dict:
     """Everything the settings screen needs in one call."""
     from backend.services.agents import mail_available
+    from backend.services.demo import demo_mode, synthetic_demo
 
     root = services.w.root
     providers = []
@@ -143,6 +154,12 @@ def overview(services, refresh: bool = False, gateway=None) -> dict:
     providers.append({**CODEX, "models": list(codex.models()), "kind": "local"})
     providers.append({**_claude_code_entry(), "kind": "local"})
     providers.append({**_kimi_cli_entry(), "kind": "local"})
+    providers.append({**_antigravity_entry(), "kind": "local"})
+    if synthetic_demo(root):
+        providers.append({"id": "demo", "label": "Guided practice (local)", "kind": "local",
+                          "configured": True, "models": ["guided-practice"],
+                          "defaults": {"strong": "guided-practice", "cheap": "guided-practice"},
+                          "note": "Simulated locally for a marked synthetic demo; no live AI or web search."})
     if gateway is not None:
         for entry in providers:
             engine = gateway.providers.get(entry["id"])
@@ -163,6 +180,9 @@ def overview(services, refresh: bool = False, gateway=None) -> dict:
             for name, agent in sorted(REGISTRY.items())
         ],
         "preferences": _preferences(services),
+        "demo_mode": demo_mode(services),
+        "synthetic_demo": synthetic_demo(root),
+        "screening_mode": services.pref("screening_mode", "careful"),
     }
 
 
@@ -243,6 +263,21 @@ def test_provider(services, provider_id: str, model: str) -> dict:
             return {"ok": False, "provider": provider_id, "model": model, "detail": str(error)}
         return {"ok": True, "provider": provider_id, "model": model,
                 "detail": f"Answered: {str(answer.get('word', ''))[:40]}"}
+    if provider_id == antigravity.ID:
+        if not antigravity.available():
+            return {"ok": False, "provider": provider_id, "model": model,
+                    "detail": "Antigravity CLI (`agy`) is not installed or is not on PATH. Install it and sign in with your Google account."}
+        if not antigravity.signed_in():
+            return {"ok": False, "provider": provider_id, "model": model,
+                    "detail": "Antigravity is installed but not signed in. Run `agy` once and sign in, then retry."}
+        ping = {"type": "object", "properties": {"word": {"type": "string"}},
+                "required": ["word"], "additionalProperties": False}
+        try:
+            answer = antigravity.invoke("Reply with the single word: ready", ping, model=model)
+        except ValueError as error:
+            return {"ok": False, "provider": provider_id, "model": model, "detail": str(error)}
+        return {"ok": True, "provider": provider_id, "model": model,
+                "detail": f"Answered: {str(answer.get('word', ''))[:40]}"}
     if provider_id not in catalog.PROVIDERS:
         raise ValueError(f"Unknown AI provider: {provider_id}")
     from pydantic import BaseModel
@@ -265,12 +300,11 @@ def test_provider(services, provider_id: str, model: str) -> dict:
 
 
 def team(services, on_usage=None) -> AgentTeam:
-    from backend.ai import usage_recorder
+    from backend.ai import team_for
 
-    from backend.ai.persona import persona_for
-
-    return AgentTeam.from_preferences(services.w.root, _preferences(services), on_usage or usage_recorder(services),
-                                      persona=persona_for(services.w.root))
+    # Keep this older entry point on the same saved route and paid gate as the
+    # chat, dashboard, and scheduled search specialists.
+    return team_for(services, on_usage)
 
 
 def choose_main(services, gateway, provider_id: str, model: str) -> dict:
@@ -344,6 +378,62 @@ def save_fallback(services, gateway, provider_id: str, model: str) -> dict:
         services.w.record_event(db, "ai_fallback_chosen", provider=provider_id or "none", model=model)
     services.sync_projections()
     return overview(services, gateway=gateway)
+
+
+# Where a person gets each key (shown before the first profile exists).
+KEY_PAGES = {"openrouter": "https://openrouter.ai/keys", "openai": "https://platform.openai.com/api-keys",
+             "anthropic": "https://console.anthropic.com/settings/keys", "gemini": "https://aistudio.google.com/apikey",
+             "kimi": "https://platform.moonshot.ai/console/api-keys"}
+
+
+def _setup_hint(module, installed: bool) -> dict:
+    """How to install and sign in to one AI app on this computer: the exact command when there is one."""
+    install = getattr(module, "install_command", None)
+    if install:
+        command = install()
+    else:
+        command = kimi_cli.INSTALL_COMMAND if module is kimi_cli and os.name == "nt" else ""
+    app_only = not installed and bool(getattr(module, "desktop_only", lambda: False)())
+    return {"install": command, "sign_in": getattr(module, "SIGN_IN", ""), "app_only": app_only}
+
+
+def machine_status() -> dict:
+    """The AI this computer can use before any profile exists. Never a key's value."""
+    from backend.ai import claude_code, codex, kimi_cli, limits, provider_label, ready_providers
+    from backend.paths import APP_ROOT
+
+    ready = ready_providers(APP_ROOT)
+    health = limits.HealthBook(APP_ROOT).status()
+    clis = []
+    for module in (claude_code, antigravity, codex, kimi_cli):
+        installed = module.available()
+        signed_in = bool(getattr(module, "signed_in", lambda: installed)()) if installed else False
+        clis.append({"id": module.ID, "label": provider_label(module.ID), "kind": "cli",
+                     "ready": bool(ready.get(module.ID)), "installed": installed, "signed_in": signed_in,
+                     "tested": bool((health.get(module.ID) or {}).get("last_ok")),
+                     **_setup_hint(module, installed)})
+    hosted = [{"id": pid, "label": spec["label"], "kind": "api_key", "ready": bool(ready.get(pid)),
+               "key_name": spec["key"], "saved_in": keys.source(APP_ROOT, spec["key"]) or "",
+               "get_key": KEY_PAGES.get(pid, "")}
+              for pid, spec in catalog.PROVIDERS.items() if pid in KEY_PAGES]
+    any_ready = any(row["ready"] and row["signed_in"] for row in clis) or any(row["ready"] for row in hosted)
+    return {"any_ready": any_ready, "clis": clis, "keys": hosted,
+            "note": "Use an AI app you already have. No API key is needed; paid API fallback is off by default for new profiles."}
+
+
+def save_machine_key(provider_id: str, value: str) -> dict:
+    """Store a key for the whole installation (career-dashboard/.env) and prove it with a model-list call."""
+    from backend.paths import APP_ROOT
+
+    if provider_id not in catalog.PROVIDERS or provider_id not in KEY_PAGES:
+        raise ValueError("This provider does not use an API key")
+    spec = catalog.PROVIDERS[provider_id]
+    keys.save(APP_ROOT, spec["key"], value)
+    listed = catalog.models(APP_ROOT, provider_id, refresh=True)
+    ok = not listed["error"] and bool(listed["models"])
+    return {"provider": provider_id, "ok": ok,
+            "detail": (f"Key saved and working: {len(listed['models'])} models available."
+                       if ok else f"Key saved, but the check failed: {listed['error'] or 'no models were listed'}.")}
 
 
 def save_key(services, provider_id: str, value: str) -> dict:

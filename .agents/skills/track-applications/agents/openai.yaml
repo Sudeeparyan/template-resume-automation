@@ -1,0 +1,4 @@
+interface:
+  display_name: "Track Applications"
+  short_description: "Record what I applied to so no job is suggested twice"
+  default_prompt: "Use $track-applications to record that I applied to this job today."

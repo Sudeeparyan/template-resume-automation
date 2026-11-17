@@ -34,6 +34,12 @@ REPO_ROOT = APP_ROOT.parent
 PROFILES = APP_ROOT / "profiles"
 # Country packs: location terms, work-authorization gate, paper and spelling per country.
 COUNTRIES = BACKEND / "countries"
+# Public job-market data shared by every profile on this computer: postings read from
+# public sources, never a person's fit, status or documents (backend/market/).
+MARKET = DATA / "market"
+MARKET_DB = MARKET / "market.db"
+# Conditional-request cache (ETag / Last-Modified) for polite re-reads of public sources.
+HTTP_CACHE_DB = DATA / "http_cache.db"
 
 # The first-run market is Ireland. A profile's own `candidate.timezone` wins.
 TIMEZONE = "Europe/Dublin"

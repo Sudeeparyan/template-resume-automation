@@ -1,0 +1,4 @@
+interface:
+  display_name: "Career Setup"
+  short_description: "Read my resume, ask what is missing and build my profile"
+  default_prompt: "Use $career-setup to set me up from the resume in my me folder."

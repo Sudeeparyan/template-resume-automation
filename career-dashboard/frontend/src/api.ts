@@ -8,7 +8,37 @@ const PROFILE_MATCH =
 export const PROFILE_ID: string | null = PROFILE_MATCH ? PROFILE_MATCH[1] : null;
 export const API_BASE = PROFILE_ID ? `/p/${PROFILE_ID}/api` : "/api";
 
+/** Waits (ms) before each retry of a read that failed for a passing reason. */
+export const RETRY_WAITS = [800, 2500, 6000];
+const PASSING_STATUS = new Set([502, 503, 504]);
+
+class RequestError extends Error {
+  constructor(message: string, readonly passing: boolean) {
+    super(message);
+  }
+}
+
 async function request<T>(
+  url: string,
+  method: string,
+  body: unknown,
+  options: { timeout?: number; raw?: Blob },
+): Promise<T> {
+  // A read is safe to repeat: while the app restarts (the morning run may restart it) or the
+  // connection drops for a moment, it waits and tries again instead of showing an error at
+  // once. Polls (with a timeout) retry on their own schedule; writes are never repeated.
+  const tries = method === "GET" && !options.timeout ? RETRY_WAITS.length + 1 : 1;
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await once<T>(url, method, body, options);
+    } catch (e) {
+      if (attempt >= tries || !(e instanceof RequestError && e.passing)) throw e;
+      await new Promise((resolve) => setTimeout(resolve, RETRY_WAITS[attempt - 1]));
+    }
+  }
+}
+
+async function once<T>(
   url: string,
   method: string,
   body: unknown,
@@ -17,7 +47,7 @@ async function request<T>(
   // A poll that never answers (a dropped connection, a sleeping laptop) must fail,
   // not hang the loop that would retry it.
   const control = options.timeout ? new AbortController() : undefined;
-  const timer = control ? window.setTimeout(() => control.abort(), options.timeout) : 0;
+  const timer = control ? setTimeout(() => control.abort(), options.timeout) : undefined;
   let r: Response;
   try {
     r = await fetch(url, {
@@ -31,16 +61,29 @@ async function request<T>(
       signal: control?.signal,
     });
   } catch (e) {
-    throw new Error(control?.signal.aborted ? "The app did not answer in time. Retrying…" : "Cannot reach the app: " + (e as Error).message);
+    throw new RequestError(
+      control?.signal.aborted
+        ? "The app did not answer in time. Retrying…"
+        : "The app is not answering right now (it may be restarting). Try again in a moment.",
+      true,
+    );
   } finally {
-    window.clearTimeout(timer);
+    if (timer !== undefined) clearTimeout(timer);
   }
-  const data = await r.json();
+  let data: any;
+  try {
+    data = await r.json();
+  } catch {
+    // Not the app's JSON: a restart in progress or something in between answered.
+    throw new RequestError(
+      `The app is not ready yet (it answered ${r.status}). Try again in a moment.`,
+      !r.ok || PASSING_STATUS.has(r.status),
+    );
+  }
   if (!r.ok)
-    throw new Error(
-      typeof data.detail === "string"
-        ? data.detail
-        : JSON.stringify(data.detail || data),
+    throw new RequestError(
+      typeof data?.detail === "string" ? data.detail : JSON.stringify(data?.detail || data),
+      PASSING_STATUS.has(r.status),
     );
   return data;
 }

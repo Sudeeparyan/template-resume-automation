@@ -1,0 +1,18 @@
+source: Careers boards of employers in DETE's employment permit records
+built_at: '2026-10-04T12:20:20+00:00'
+dete_csv_sha256: 0872bbe066c63d03e8c1b97a591ebeb1b6a1a9052dcbdac7c1d6a43fd696df19
+permit_window: 2024-10-01..2026-09-30
+candidates: 6
+rows: 6
+boards_by_ats:
+  workday: 2
+  greenhouse: 2
+  smartrecruiters: 1
+  teamtailor: 1
+acceptance: 'At least one current posting in Ireland, and the board names the same
+  employer: its own name equals the legal name (exact), a curated alias (alias), is
+  at least 85% similar (similar), or is the brand the legal name extends with descriptor
+  words (brand: reviewed by hand before committing); a board that states no name needs
+  an Irish posting whose own text names the employer (text). AI suggestions are checked
+  the same way and never accepted unchecked.'
+csv_sha256: 901c10bae729e90f3ba2f454c905fb6ef0ece0a2d6b83995d6a17b617a6eff92

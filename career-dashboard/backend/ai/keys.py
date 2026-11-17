@@ -23,6 +23,10 @@ NAMES = (
 )
 # Not secrets, but read the same way: where the Azure resource is and which deployments to use.
 SETTINGS = ("AZURE_OPENAI_ENDPOINT", "AZURE_OPENAI_DEPLOYMENT")
+# Optional job-source keys (market/policy.py), read and saved the same way. CAREERJET_USER_IP is the
+# public address the person registered with Careerjet, which its API requires on every call.
+SOURCE_NAMES = ("CAREERJET_API_KEY", "CAREERJET_USER_IP", "JOOBLE_API_KEY")
+IP_ADDRESS = re.compile(r"^(?:(?:25[0-5]|2[0-4]\d|1?\d?\d)\.){3}(?:25[0-5]|2[0-4]\d|1?\d?\d)$|^[0-9A-Fa-f:]{2,39}$")
 # Azure AI Foundry / Azure OpenAI keys: 84 characters with the JQQJ99 signature at a
 # fixed place. One pasted as OPENAI_API_KEY would only fail against api.openai.com,
 # so it is filed as the Azure key wherever it is found.
@@ -81,7 +85,7 @@ def _parse(text: str) -> dict:
 
 def load(root: Path) -> dict:
     """Every key this machine exposes, nearest source winning."""
-    found: dict = {name: os.environ[name] for name in NAMES + SETTINGS if os.environ.get(name)}
+    found: dict = {name: os.environ[name] for name in NAMES + SETTINGS + SOURCE_NAMES if os.environ.get(name)}
     if AZURE_KEY.fullmatch(found.get("OPENAI_API_KEY", "")):
         found.setdefault("AZURE_OPENAI_API_KEY", found.pop("OPENAI_API_KEY"))
     for path in _files(root):
@@ -150,17 +154,20 @@ def _rewrite(path: Path, name: str, value: str | None) -> None:
 
 def save(root: Path, name: str, value: str) -> None:
     """Store one key in career-dashboard/.env, replacing any earlier one there."""
-    if name not in NAMES:
+    if name not in NAMES + SOURCE_NAMES:
         raise ValueError("Unknown API key name")
     value = (value or "").strip().strip('"').strip("'")
-    if not VALID_TOKEN.match(value):
+    if name == "CAREERJET_USER_IP":
+        if not IP_ADDRESS.match(value):
+            raise ValueError("That is not an IP address. Enter the public address you registered with Careerjet.")
+    elif not VALID_TOKEN.match(value):
         raise ValueError("That does not look like an API key. Paste the whole key, with no spaces.")
     _rewrite(managed_file(root), name, value)
 
 
 def remove(root: Path, name: str) -> str | None:
     """Delete the key saved by the app. Returns where another copy still comes from, if any."""
-    if name not in NAMES:
+    if name not in NAMES + SOURCE_NAMES:
         raise ValueError("Unknown API key name")
     path = managed_file(root)
     if path.exists():

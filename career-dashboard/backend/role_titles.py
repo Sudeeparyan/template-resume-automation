@@ -37,6 +37,11 @@ HEAD_EQUIVALENTS = {
     "science": ("scientist",),
     "analyst": ("analytics", "analysis"),
     "analytics": ("analyst",),
+    # A target written as the work ("Content Moderation") names the person who does it, and back.
+    "moderation": ("moderator",),
+    "moderator": ("moderation",),
+    "investigation": ("investigator",),
+    "investigator": ("investigation",),
 }
 # Level and filler words: never required, never a qualifier.
 IGNORED = {
@@ -90,6 +95,15 @@ RELATED = {
     "qa engineer": ["test engineer", "software tester", "quality assurance engineer", "automation tester", "sdet"],
     "cybersecurity analyst": ["security analyst", "soc analyst", "information security analyst", "cyber security analyst"],
     "security analyst": ["cybersecurity analyst", "soc analyst", "information security analyst"],
+    # Trust & Safety: reviewing reported content and accounts, investigating abuse and enforcing policy.
+    "trust and safety": ["trust and safety analyst", "trust and safety specialist", "content moderator",
+                         "content reviewer", "abuse investigator", "policy enforcement specialist",
+                         "integrity analyst", "safety enforcement specialist", "online safety specialist"],
+    "content moderation": ["content moderator", "content reviewer", "trust and safety specialist",
+                           "trust and safety analyst", "policy enforcement specialist"],
+    "platform integrity": ["integrity analyst", "integrity specialist", "trust and safety analyst", "abuse investigator"],
+    "online safety": ["online safety specialist", "trust and safety specialist", "safety enforcement specialist"],
+    "policy operations": ["policy enforcement specialist", "trust and safety policy analyst", "content policy analyst"],
     "product manager": ["product owner", "associate product manager", "technical product manager"],
     "project manager": ["project coordinator", "delivery manager", "programme manager"],
     "ux designer": ["product designer", "ui designer", "user experience designer", "interaction designer"],

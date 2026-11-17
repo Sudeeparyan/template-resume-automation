@@ -8,7 +8,15 @@ from pathlib import Path
 
 
 def tectonic_executable() -> str | None:
-    """Return the installed compiler without caching a stale Windows PATH."""
+    """Return the installed compiler without caching a stale Windows PATH.
+
+    The launcher's pinned download (backend/.tools/tectonic-<version>/) comes first.
+    """
+    tools = Path(__file__).resolve().parent / ".tools"
+    for folder in sorted(tools.glob("tectonic-*"), reverse=True):
+        binary = folder / ("tectonic.exe" if os.name == "nt" else "tectonic")
+        if binary.is_file():
+            return str(binary)
     found = shutil.which("tectonic")
     if found or os.name != "nt":
         return found

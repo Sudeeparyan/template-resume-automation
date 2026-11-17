@@ -1,0 +1,4 @@
+interface:
+  display_name: "Morning Jobs"
+  short_description: "Bring my morning list of new jobs, or set it up to arrive every day"
+  default_prompt: "Use $morning-jobs to bring me today's jobs."

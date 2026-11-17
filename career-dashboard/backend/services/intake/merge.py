@@ -43,7 +43,7 @@ def _same(a: str, b: str) -> bool:
         return False
     if a == b or a in b or b in a or SequenceMatcher(None, a, b).ratio() >= 0.86:
         return True
-    # "Dublin cycling project" is "Dublin Hourly Cycling Demand Forecasting": every
+    # "retail sales dashboard" is "Weekly Retail Sales Forecasting Dashboard": every
     # distinctive word of the shorter name appears in the longer one (two at least).
     small, large = sorted((_words(a), _words(b)), key=len)
     return len(small) >= 2 and small <= large

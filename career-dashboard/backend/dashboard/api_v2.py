@@ -1,5 +1,7 @@
 """Versioned API for the four-tab React application."""
 
+import json
+import re
 import threading
 from typing import Any, Optional
 from contextlib import asynccontextmanager
@@ -63,6 +65,12 @@ class PostingInput(BaseModel):
     url: str = Field(min_length=8, max_length=2500)
     description: str = Field(min_length=80, max_length=100000)
     requisition_id: str = ""
+    raw_salary: Optional[dict[str, Any]] = None
+    valid_through: Optional[str] = Field(default=None, max_length=100)
+
+
+class PostingLinkInput(BaseModel):
+    url: str = Field(min_length=8, max_length=2500)
 
 
 class MailResolution(BaseModel):
@@ -118,7 +126,9 @@ class TierChoice(BaseModel):
 
 
 class AISettingsInput(BaseModel):
-    tiers: dict[str, TierChoice]
+    tiers: dict[str, TierChoice] = Field(default_factory=dict)
+    demo_mode: Optional[bool] = None
+    screening_mode: Optional[str] = None
 
 
 class ChatPreviewInput(BaseModel):
@@ -156,6 +166,19 @@ class AIFallbackInput(BaseModel):
     model: str = Field(default="", max_length=200)
 class AIKeyInput(BaseModel):
     value: str = Field(min_length=1, max_length=500)
+
+
+class TrackerSaveInput(BaseModel):
+    key: str = Field(min_length=1, max_length=2000)
+
+
+class RerunInput(BaseModel):
+    checkpoint_id: str = Field(min_length=1, max_length=100)
+
+
+class TrackerAlertInput(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+    filters: dict[str, str] = Field(default_factory=dict)
 
 
 class AITestInput(BaseModel):
@@ -229,6 +252,12 @@ def attach(app, workspace, schedule: bool = False):
     @router.get("/summary")
     def summary():
         return service.summary()
+
+    @router.get("/search/coverage")
+    def search_coverage():
+        from backend.services.source_coverage import Coverage
+
+        return Coverage(workspace.root).summary()
 
     @router.get("/goals")
     def goals():
@@ -362,6 +391,29 @@ def attach(app, workspace, schedule: bool = False):
         relevance = {k: v for k, v in relevance.items() if k != "fit"}
         return {**result, "relevance": relevance}
 
+    @router.post("/jobs/import")
+    def import_posting(data: PostingLinkInput):
+        """Read a posting link, then save it through the same checks as the full form."""
+        from backend.countries import pack_for
+        from backend.services import lead_resolver
+
+        resolved = lead_resolver.resolve(data.url)
+        if resolved.get("status") != "read":
+            return resolved
+        posting = lead_resolver.to_posting(
+            resolved, location=pack_for(workspace.root).text("default_location")
+        )
+        missing = [key for key in ("company", "title", "location", "description") if not str(posting.get(key) or "").strip()]
+        if missing:
+            return {**resolved, "status": "needs_details", "missing": missing}
+        result = add_posting(PostingInput.model_validate(posting))
+        return {"status": "saved", "method": resolved.get("method"), **result}
+
+    @router.post("/jobs/{job_id}/prepare-application", status_code=202)
+    def prepare_application(job_id: str, data: PipelineInput):
+        """Prepare a saved job without running discovery or changing the daily target."""
+        return pipeline.prepare_existing(job_id, data.model_dump())
+
     @router.get("/jobs/{job_id}/fit")
     def job_fit(job_id: str):
         """What the job asks for and which registered evidence meets each item (services/fit.py)."""
@@ -430,7 +482,18 @@ def attach(app, workspace, schedule: bool = False):
 
     @router.post("/jobs/{job_id}/cover-letter")
     def generate_cover_letter(job_id: str):
+        # Drafted by the AI from registered evidence and checked (services/cover_letters.py), or
+        # built from registered sentences when no AI is set up. Nothing is sent.
         return service.generate_cover_letter(job_id)
+
+    @router.get("/jobs/{job_id}/cover-letter/download")
+    def download_cover_letter(job_id: str, format: str = "docx"):
+        from backend.services import cover_letters
+
+        path, filename = cover_letters.download(service, job_id, format)
+        media = {"md": "text/markdown; charset=utf-8",
+                 "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document"}[format]
+        return FileResponse(path, filename=filename, media_type=media)
 
     @router.get("/mail")
     def mail():
@@ -449,7 +512,7 @@ def attach(app, workspace, schedule: bool = False):
         return service.resolve_mail(id, **data.model_dump())
 
     @router.get("/email-schedule")
-    def schedule():
+    def email_schedule():  # not "schedule": that name is attach()'s real-server flag
         return service.pref("email_schedule", {"enabled": False, "hours": 6})
 
     @router.put("/email-schedule")
@@ -584,13 +647,133 @@ def attach(app, workspace, schedule: bool = False):
 
         return ai_settings.remove_key(service, provider)
 
+    # ---- Tracker: Irish postings the app has read (market/tracker.py) ---------------------------
+    def tracker_filters(request: Request) -> dict:
+        from backend import features
+        from backend.market import tracker
+
+        if not features.enabled("tracker", service):
+            raise ValueError("The Tracker is switched off on this computer (CAREER_FEATURES or the profile's features).")
+        return {key: value for key, value in request.query_params.items() if key in tracker.FILTERS}
+
+    @router.get("/tracker")
+    def tracker_rows(request: Request, limit: int = 50, offset: int = 0):
+        from backend.market import tracker
+        from backend.market.store import MarketStore
+
+        from backend.services import salary
+
+        mine, excluded = tracker.overlays(service)
+        result = tracker.query(MarketStore(), tracker_filters(request), overlays=mine, excluded=excluded,
+                               limit=max(1, min(limit, 200)), offset=max(0, offset))
+        # The person's own pay floor (their setting, or the lowest permit threshold their facts meet).
+        return {**result, "floor_eur": salary.floor_for(service.w.profile())}
+
+    @router.get("/tracker/export")
+    def tracker_export(request: Request, format: str = "csv"):
+        from fastapi.responses import Response
+        from backend.market import tracker
+        from backend.market.store import MarketStore
+
+        if format not in ("csv", "xlsx"):
+            raise ValueError("Choose csv or xlsx")
+        mine, excluded = tracker.overlays(service)
+        rows = tracker.query(MarketStore(), tracker_filters(request), overlays=mine, excluded=excluded,
+                             limit=tracker.MAX_ROWS)["rows"]
+        stamp = service.today()
+        if format == "xlsx":
+            return Response(tracker.export_xlsx(rows),
+                            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                            headers={"Content-Disposition": f'attachment; filename="tracker-{stamp}.xlsx"'})
+        return Response(tracker.export_csv(rows), media_type="text/csv; charset=utf-8",
+                        headers={"Content-Disposition": f'attachment; filename="tracker-{stamp}.csv"'})
+
+    @router.post("/tracker/save")
+    def tracker_save(data: TrackerSaveInput):
+        from backend.market import tracker
+        from backend.market.store import MarketStore
+
+        return tracker.save(service, MarketStore(), data.key)
+
+    @router.get("/tracker/alerts")
+    def tracker_alerts():
+        from backend.market import tracker
+        from backend.market.store import MarketStore
+
+        return {"alerts": tracker.alerts(service, MarketStore())}
+
+    @router.post("/tracker/alerts")
+    def tracker_alert_save(data: TrackerAlertInput):
+        from backend.market import tracker
+
+        return tracker.save_alert(service, data.name, data.filters)
+
+    @router.delete("/tracker/alerts/{alert_id}")
+    def tracker_alert_delete(alert_id: str):
+        from backend.market import tracker
+
+        return tracker.delete_alert(service, alert_id)
+
+    @router.post("/tracker/alerts/{alert_id}/seen")
+    def tracker_alert_seen(alert_id: str):
+        from backend.market import tracker
+
+        return tracker.mark_seen(service, alert_id)
+
+    # ---- optional job sources and their keys (market/policy.py) ---------------------------------
+    @router.get("/sources")
+    def job_sources_status():
+        from backend.market import policy
+        from backend.market.store import MarketStore
+
+        return {"sources": policy.status(service.w.root, MarketStore())}
+
+    @router.put("/sources/keys/{name}")
+    def save_source_key(name: str, data: AIKeyInput):
+        from backend.ai import keys
+        from backend.market import policy
+        from backend.market.store import MarketStore
+
+        if name not in keys.SOURCE_NAMES:
+            raise ValueError("Unknown job-source key")
+        keys.save(service.w.root, name, data.value)
+        return {"ok": True, "detail": f"{name} is saved on this computer (career-dashboard/.env).",
+                "sources": policy.status(service.w.root, MarketStore())}
+
+    @router.delete("/sources/keys/{name}")
+    def remove_source_key(name: str):
+        from backend.ai import keys
+        from backend.market import policy
+        from backend.market.store import MarketStore
+
+        if name not in keys.SOURCE_NAMES:
+            raise ValueError("Unknown job-source key")
+        still = keys.remove(service.w.root, name)
+        return {"ok": True, "detail": f"{name} removed" + (f"; another copy is still in the {still}." if still else "."),
+                "sources": policy.status(service.w.root, MarketStore())}
+
     @router.put("/ai/settings")
     def save_ai_settings(data: AISettingsInput):
         from backend.ai import settings as ai_settings
+        from backend.services.demo import demo_mode
 
-        return ai_settings.save(service, {
-            "tiers": {tier: choice.model_dump() for tier, choice in data.tiers.items()}
-        })
+        if data.demo_mode is not None:
+            service.set_pref("demo_mode", "1" if data.demo_mode else "0")
+            with service.w.connect() as db:
+                service.w.record_event(db, "demo_mode_updated", enabled=bool(data.demo_mode))
+            service.export_state()
+        if data.screening_mode is not None:
+            if data.screening_mode not in {"careful", "review"}:
+                raise ValueError("Choose careful screening or show borderline matches")
+            service.set_pref("screening_mode", data.screening_mode)
+            with service.w.connect() as db:
+                service.w.record_event(db, "screening_mode_updated", mode=data.screening_mode)
+            service.export_state()
+        if data.tiers:
+            return ai_settings.save(service, {
+                "tiers": {tier: choice.model_dump() for tier, choice in data.tiers.items()}
+            })
+        return {"demo_mode": demo_mode(service), "screening_mode": service.pref("screening_mode", "careful")}
 
     @router.post("/ai/settings/test")
     def test_ai_settings(data: AITestInput):
@@ -631,10 +814,18 @@ def attach(app, workspace, schedule: bool = False):
     def studio_assessment(job_id: str):
         return studio.assessment(job_id)
 
+    @router.get('/studio/{job_id}/readiness')
+    def studio_readiness(job_id: str):
+        # The same ready-to-submit check the Daily Search pipeline ends with (services/readiness.py).
+        from backend.services import readiness
+        return readiness.check(service, studio, job_id)
+
     @router.get('/studio/{job_id}/download')
     def studio_download(job_id: str, format: str):
         path, filename = studio.download(job_id, format)
-        return FileResponse(path, filename=filename, media_type='application/pdf' if format == 'pdf' else 'application/x-tex')
+        media = {'pdf': 'application/pdf', 'tex': 'application/x-tex',
+                 'docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'}[format]
+        return FileResponse(path, filename=filename, media_type=media)
 
     @router.post('/studio/{job_id}/chat/preview')
     def resume_chat_preview(job_id: str, data: ChatPreviewInput):
@@ -669,6 +860,62 @@ def attach(app, workspace, schedule: bool = False):
         from backend.services.observability import activity
 
         return activity(service, runner, max(1, min(limit, 200)))
+
+    @router.get('/agents/runs/{run_id}/trace')
+    def agent_trace(run_id: str):
+        from backend.services.observability import trace
+
+        found = trace(service, run_id)
+        if found is None:
+            raise ValueError('That agent run was not found.')
+        return found
+
+    @router.get('/agents/runs/{run_id}/spans')
+    def agent_spans(run_id: str):
+        """The run's timeline: every agent step, AI call and web request recorded for it (local only)."""
+        from backend.telemetry.sqlite_store import run_spans
+        from backend import telemetry
+
+        telemetry.flush()
+        return {"run_id": run_id, "spans": run_spans(workspace.root, run_id)}
+
+    @router.get('/agents/runs/{run_id}/graph')
+    def agent_graph(run_id: str, content: bool = False):
+        """A graph run checkpoint by checkpoint (backend/graphs/history.py): the node that ran, what it
+        changed and where a stopped run resumes. Values are redacted unless ``content`` (local only)."""
+        from backend.graphs import history
+
+        return history.summary(workspace.root, run_id, content=content)
+
+    @router.post('/agents/runs/{run_id}/rerun', status_code=202)
+    def agent_rerun(run_id: str, data: RerunInput):
+        """A research graph run again from one of its checkpoints, as a new run (graphs/executor.py):
+        the steps before it keep their results, the rest run again; the earlier run is unchanged."""
+        with workspace.connect() as db:
+            row = db.execute("SELECT kind, job_id FROM agent_runs WHERE id=?", (run_id,)).fetchone()
+        if not row:
+            raise ValueError("That run was not found in this profile")
+        return runner.enqueue(row["kind"], row["job_id"], rerun_from={"run_id": run_id, "checkpoint_id": data.checkpoint_id})
+
+    @router.get('/traces/runs')
+    def traced_runs(limit: int = 20):
+        from backend.telemetry.sqlite_store import recent_runs
+        from backend import telemetry
+
+        telemetry.flush()
+        return {"runs": recent_runs(workspace.root, max(1, min(limit, 100)))}
+
+    @router.get('/traces/ai-result/{cache_key}')
+    def traced_ai_result(cache_key: str):
+        """The stored answer behind one AI span, for the person's own debugging on this computer."""
+        if not re.fullmatch(r'[0-9a-f]{64}', cache_key):
+            raise ValueError('That is not an AI cache key.')
+        with workspace.connect() as db:
+            row = db.execute('SELECT result, created_at, hits FROM ai_cache WHERE key=?', (cache_key,)).fetchone()
+        if row is None:
+            raise ValueError('That answer is no longer stored (failed calls and uncached steps are not kept).')
+        return {"cache_key": cache_key, "created_at": row["created_at"], "hits": row["hits"],
+                "result": json.loads(row["result"])}
 
     @router.get('/agent-control')
     def agent_control():
@@ -793,6 +1040,12 @@ def attach(app, workspace, schedule: bool = False):
         # so it starts only for a real server run, never for a constructed app.
         if schedule:
             runner.start_schedule()
+            # A hunt the app was running when it stopped carries on by itself while its time lasts.
+            try:
+                hunt.resume_interrupted()
+            except Exception as exc:  # noqa: BLE001 - it can still be started by hand
+                with workspace.connect() as db:
+                    workspace.record_event(db, "hunt_resume_failed", error=str(exc)[:300])
 
             def refresh_fit():
                 # Saved jobs show the verified requirement check's score, not an older formula's.

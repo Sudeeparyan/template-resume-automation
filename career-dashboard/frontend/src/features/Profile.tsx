@@ -36,7 +36,7 @@ import {
   statusBadge,
 } from "./profileView";
 
-const PERSONAL_ORDER = ["Contact & identity", "Work authorization", "Career snapshot", "How resumes show these", "Other details"];
+const PERSONAL_ORDER = ["Contact & identity", "Work authorization", "Permit facts", "Career snapshot", "How resumes show these", "Other details"];
 // Within Basics, rows follow a resume header rather than the alphabet.
 const FIELD_ORDER = [
   "full_name", "preferred_name", "email", "phone", "github", "linkedin", "portfolio_url", "location",
@@ -671,7 +671,7 @@ export default function Profile({
             rows={3}
             value={chat}
             onChange={(e) => setChat(e.target.value)}
-            placeholder="Examples: add skill: Apache Airflow | Orchestrated the InsOps pipelines; I finished the AWS Cloud Practitioner course in September"
+            placeholder="Examples: add skill: Apache Airflow | Automated the weekly sales report; I finished the AWS Cloud Practitioner course in September"
           />
         </Field>
         <div className="actions">

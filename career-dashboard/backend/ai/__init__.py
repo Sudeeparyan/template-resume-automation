@@ -2,16 +2,16 @@
 
 from pathlib import Path
 
-from .providers import AIGateway, AnthropicProvider, ClaudeCodeProvider, CodexProvider, KimiCliProvider, OpenAIProvider
+from .providers import AIGateway, AnthropicProvider, AntigravityProvider, ClaudeCodeProvider, CodexProvider, KimiCliProvider, OpenAIProvider
 
 __all__ = [
-    "AIGateway", "AnthropicProvider", "ClaudeCodeProvider", "CodexProvider", "KimiCliProvider", "OpenAIProvider",
+    "AIGateway", "AnthropicProvider", "AntigravityProvider", "ClaudeCodeProvider", "CodexProvider", "KimiCliProvider", "OpenAIProvider",
     "team_for", "any_provider_configured", "ready_providers", "resolve_tiers", "main_choice", "engine",
 ]
 
 # Where a tier goes when its chosen provider cannot run here: the signed-in local
 # runtimes first (no key, no per-call cost), then whichever hosted key exists.
-FALLBACK_ORDER = ("claude_code", "codex", "kimi_cli", "openrouter", "anthropic", "openai", "azure_openai", "gemini", "kimi")
+FALLBACK_ORDER = ("claude_code", "codex", "kimi_cli", "antigravity", "openrouter", "anthropic", "openai", "azure_openai", "gemini", "kimi")
 
 
 def ready_providers(root) -> dict:
@@ -19,12 +19,15 @@ def ready_providers(root) -> dict:
 
     ``auto`` (the router) is ready when any endpoint on its route is.
     """
-    from backend.ai import claude_code, codex, kimi_cli, models, router
+    from backend.ai import antigravity, claude_code, codex, kimi_cli, models, router
+    from backend.ai.demo import DemoProvider
 
     ready = dict(models.available(Path(root)))
     ready[claude_code.ID] = claude_code.available()
     ready[codex.ID] = codex.available()
     ready[kimi_cli.ID] = kimi_cli.available()
+    ready[antigravity.ID] = antigravity.available()
+    ready[DemoProvider.id] = DemoProvider(Path(root)).configured
     ready[router.ID] = router.ready_from(ready)
     return ready
 
@@ -39,6 +42,10 @@ def provider_label(provider_id: str) -> str:
 
     if provider_id == router.ID:
         return router.SHORT
+    if provider_id == "demo":
+        return "Guided practice"
+    if provider_id == "antigravity":
+        return "Antigravity"
     if provider_id == claude_code.ID:
         return "Claude Code"
     if provider_id == codex.ID:
@@ -53,6 +60,10 @@ def _default_model(provider_id: str, tier: str) -> str:
 
     if provider_id == router.ID:
         return router.ID  # the router picks each endpoint's model per tier itself
+    if provider_id == "demo":
+        return "guided-practice"
+    if provider_id == "antigravity":
+        return "antigravity-runtime"
     if provider_id == claude_code.ID:
         return claude_code.DEFAULTS[tier]
     if provider_id == codex.ID:
@@ -125,8 +136,14 @@ def usage_recorder(services):
     def record(usage: dict) -> None:
         try:
             import uuid
+            from backend.services.agent_cache import current_call_id
 
             with services.w.connect() as db:
+                reservation = current_call_id(services, usage.get("provider"))
+                if reservation:
+                    db.execute("UPDATE ai_calls SET input_tokens=?,output_tokens=? WHERE id=?",
+                               (usage.get("input_tokens"), usage.get("output_tokens"), reservation))
+                    return
                 db.execute(
                     """INSERT INTO ai_calls(id,cache_key,day,state,created_at,error,provider,model,action,cache_version,input_tokens,output_tokens)
                     VALUES(?,?,?,?,?,NULL,?,?,?,?,?,?)""",
@@ -184,10 +201,12 @@ def switch_recorder(services, action: str = "specialist"):
 def route_options(services, action: str = "specialist") -> dict:
     """The router settings a caller hands to AgentTeam: the saved route, the paid gate, the switch log."""
     from backend.ai import router
+    from backend.services.agent_cache import paid_invocation
 
     preferences = services.pref("ai_preferences", {}) or {}
     return {"policy": router.policy_from(preferences), "paid_gate": paid_gate(services),
-            "on_switch": switch_recorder(services, action)}
+            "on_switch": switch_recorder(services, action),
+            "reserve_call": lambda provider, model, operation: paid_invocation(services, provider, model, operation)}
 
 
 def team_for(services, on_usage=None):
@@ -197,7 +216,12 @@ def team_for(services, on_usage=None):
     """
     from backend.ai import router
     from backend.ai.agents.graph import AgentTeam
+    from backend.services.demo import synthetic_demo
 
+    if synthetic_demo(services.w.root):
+        from backend.ai.demo import DemoTeam
+
+        return DemoTeam(services)
     preferences = services.pref("ai_preferences", {}) or {}
     ready = ready_providers(services.w.root)
     tiers, _moved = resolve_tiers(services.w.root, preferences, ready)
@@ -231,6 +255,8 @@ def engine(services) -> dict:
     provider, model = tiers["strong"]
     moved_from = moved.get("strong")
     options = []
+    if ready.get("demo"):
+        options.append({"provider": "demo", "model": "guided-practice", "label": "Guided practice"})
     if ready.get(router.ID):
         options.append({"provider": router.ID, "model": router.ID, "label": router.LABEL})
     for provider_id in FALLBACK_ORDER:
@@ -242,6 +268,10 @@ def engine(services) -> dict:
             listed = list(codex.models())
         elif provider_id == kimi_cli.ID:
             listed = list(kimi_cli.models())
+        elif provider_id == "antigravity":
+            from backend.ai import antigravity
+
+            listed = list(antigravity.models())
         else:
             cached = (catalog._read_cache(root).get(provider_id) or {}).get("models") or []
             defaults = catalog.defaults(provider_id, root)

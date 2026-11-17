@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { CheckCircle2, CircleAlert, FileText, ListChecks, LoaderCircle, Paperclip, Send, Sparkles } from "lucide-react";
 import { shellApi, uploadFile } from "../api";
+import { LatestRequest } from "../latestRequest";
+import OnboardingLoad from "./OnboardingLoad";
 import { RichText } from "../components/UI";
 import QuestionCard, { type Question } from "../components/QuestionCard";
 import { firstName, type ProfileEntry } from "../profiles";
@@ -51,6 +53,8 @@ export default function OnboardingChat({
   onUseForm: () => void;
 }) {
   const [view, setView] = useState<SetupView | null>(null);
+  const [loadError, setLoadError] = useState("");
+  const reads = useRef(new LatestRequest()).current;
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [dragging, setDragging] = useState(false);
@@ -60,15 +64,18 @@ export default function OnboardingChat({
   const who = firstName(profile.name) || profile.name;
 
   const load = useCallback(async () => {
+    setLoadError("");
     try {
-      setView(await shellApi<SetupView>(base));
+      await reads.run(() => shellApi<SetupView>(base), setView);
     } catch (e) {
+      setLoadError((e as Error).message);
       notify((e as Error).message, true);
     }
-  }, [base, notify]);
+  }, [base, notify, reads]);
   useEffect(() => {
     load();
-  }, [load]);
+    return () => reads.invalidate();
+  }, [load, reads]);
 
   const state = view?.intake.state;
   const last = view?.messages[view.messages.length - 1];
@@ -91,9 +98,12 @@ export default function OnboardingChat({
   }, [count, view?.thinking, view?.pending?.id]);
 
   async function call(path: string, body?: unknown) {
+    reads.invalidate();
     setBusy(true);
     try {
-      setView(await shellApi<SetupView>(path, "POST", body));
+      const next = await shellApi<SetupView>(path, "POST", body);
+      reads.invalidate();
+      setView(next);
       return true;
     } catch (e) {
       notify((e as Error).message, true);
@@ -108,9 +118,14 @@ export default function OnboardingChat({
     if (await call(base, { text: message })) setText("");
   }
   async function attach(files: FileList | File[]) {
+    reads.invalidate();
     setBusy(true);
     try {
-      for (const file of Array.from(files)) setView(await uploadFile<SetupView>("/api" + base + "/files", file, file.name));
+      for (const file of Array.from(files)) {
+        const next = await uploadFile<SetupView>("/api" + base + "/files", file, file.name);
+        reads.invalidate();
+        setView(next);
+      }
     } catch (e) {
       notify((e as Error).message, true);
     } finally {
@@ -120,12 +135,7 @@ export default function OnboardingChat({
   const answer = (id: string) => (choices: string[], other: string, skip = false) =>
     void call(base + "/answer", { question_id: id, choices, other, skip });
 
-  if (!view)
-    return (
-      <div className="onboarding">
-        <LoaderCircle className="spin" /> Loading…
-      </div>
-    );
+  if (!view) return <OnboardingLoad error={loadError} onRetry={() => void load()} />;
   const pending = view.pending;
   const lastProgress = [...view.messages].reverse().find((m) => m.kind === "progress")?.id;
   const working = state === "reading" || state === "building";

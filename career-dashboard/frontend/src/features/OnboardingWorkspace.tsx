@@ -2,6 +2,7 @@ import { useState } from "react";
 import { CheckCircle2, FileText, FolderOpen, MessageSquareText, Sparkles } from "lucide-react";
 import type { ProfileEntry } from "../profiles";
 import { firstName } from "../profiles";
+import AISetup from "./AISetup";
 import Onboarding from "./Onboarding";
 import OnboardingChat from "./OnboardingChat";
 import SourceLibrary from "./SourceLibrary";
@@ -29,11 +30,8 @@ export default function OnboardingWorkspace({
       <div className="setup-center">
         <span className="setup-kicker"><Sparkles size={16} /> NEW CAREER PROJECT</span>
         <h1>Build {name}&apos;s career workspace</h1>
-        <p>Add a resume, project notes, or personal information in the source library. Choose Ireland, the United States, or both, then select <b>Build Agent for You</b>. The progress card shows each stage and its estimated time.</p>
-        <div className="callout setup-ai-help" role="note">
-          <b>Set up AI before the first build</b>
-          <p>Sign in to a supported Kimi Code, Codex, or Claude Code CLI, or copy <code>career-dashboard/.env.example</code> to <code>career-dashboard/.env</code> and add your provider API key. The launcher reports which providers are ready. If you add a key while the app is open, restart the launcher and try Build again. Settings opens after the profile is built.</p>
-        </div>
+        <p>Add a resume, project notes, or personal information in the source library, confirm your permission to work in Build settings, then select <b>Build Agent for You</b>. The progress card shows each stage and its estimated time.</p>
+        <AISetup who={name} />
         <div className="setup-steps">
           <div><FolderOpen size={19} /><b>1. Add sources</b><span>Upload Word or PDF files and write notes. Keep past versions in one place.</span></div>
           <div><Sparkles size={19} /><b>2. Build your agents</b><span>The app reads active sources and builds a profile for your chosen markets.</span></div>

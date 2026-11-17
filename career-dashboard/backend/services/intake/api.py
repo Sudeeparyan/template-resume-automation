@@ -26,9 +26,11 @@ import sqlite3
 import subprocess
 import sys
 import threading
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
+from zoneinfo import ZoneInfo
 
 from fastapi import Request
 from pydantic import BaseModel, Field
@@ -55,6 +57,8 @@ class DraftChanges(BaseModel):
     roles: Optional[list[str]] = None
     authorization: dict[str, Any] = Field(default_factory=dict)
     work_authorization_by_market: dict[str, dict[str, Any]] | None = None
+    education_for_permits: dict[str, Any] | None = None
+    job_search: dict[str, Any] | None = None
 
 
 class ChatMessage(BaseModel):
@@ -80,6 +84,8 @@ class SourceChanges(BaseModel):
 class BuildOptions(BaseModel):
     target_markets: list[str] | None = None
     work_authorization_by_market: dict[str, dict[str, Any]] = Field(default_factory=dict)
+    education_for_permits: dict[str, Any] | None = None
+    job_search: dict[str, Any] | None = None
 
 
 def _legacy_preferences(profiles) -> dict:
@@ -102,29 +108,93 @@ def _legacy_preferences(profiles) -> dict:
 def team_factory(profiles):
     """An AgentTeam on the machine's AI (the same main choice the backup profile uses).
 
-    Nothing about the intake is recorded in any other profile's database: usage goes
-    to the intake's own state file through `on_usage`.
+    Before the profile has a database, its own intake state holds paid-call
+    reservations and route switches. No other profile's calls are charged.
     """
 
     def make(on_usage):
-        from backend.ai import _default_model, ready_providers, resolve_tiers
+        from backend.ai import _default_model, ready_providers, resolve_tiers, router
         from backend.ai.agents.graph import AgentTeam
+        from backend.services.agent_cache import DEFAULT_LIMIT
+
+        # IntakeJob supplies its bound usage callback from both document reading
+        # and setup chat. It owns the lock and state until the workspace is built.
+        job = getattr(on_usage, "__self__", None)
+        if not isinstance(job, IntakeJob):
+            raise ValueError("Profile setup cannot account for AI calls without an intake job.")
 
         ready = ready_providers(APP_ROOT)
         if not any(ready.values()):
-            raise ValueError("No AI is set up on this PC to read the documents. Before the first build, "
-                             "copy career-dashboard/.env.example to career-dashboard/.env and add a provider API key, "
-                             "or sign in to a supported Kimi Code, Codex or Claude Code CLI. Restart the launcher "
-                             "and try again. Settings opens after the profile is built.")
-        preferences = _legacy_preferences(profiles).get("ai_preferences") or {}
+            raise ValueError("No AI is set up on this computer to read the documents. Use the \"First, an AI\" "
+                             "step on this page: sign in to Claude Code, Codex or Kimi Code, or paste an API key, "
+                             "then try again.")
+        saved = _legacy_preferences(profiles)
+        preferences = saved.get("ai_preferences") or {}
         tiers, _moved = resolve_tiers(APP_ROOT, preferences, ready)
         backup = preferences.get("fallback") or {}
         fallback = None
         if backup.get("provider") and ready.get(backup["provider"]):
             fallback = (backup["provider"], backup.get("model") or _default_model(backup["provider"], "strong"))
-        return AgentTeam(APP_ROOT, tiers, on_usage, fallback=fallback)
+
+        limit = int((saved.get("ai_policy") or {}).get("daily_call_limit", DEFAULT_LIMIT))
+
+        def paid_gate(provider):
+            # Reserve before the call, including failed attempts. Document sections
+            # run concurrently, so the profile's intake lock prevents overspending.
+            with job.lock:
+                state = job._read("state.json", {})
+                day = datetime.now().astimezone().date().isoformat()
+                budget = state.get("paid_ai") or {}
+                used = int(budget.get("calls") or 0) if budget.get("day") == day else 0
+                if limit <= 0:
+                    return "paid AI is switched off (the paid limit is 0)"
+                if used >= limit:
+                    return f"today's paid limit ({limit} calls) is used up"
+                reservations = list(budget.get("reservations") or []) if budget.get("day") == day else []
+                reservations.append({"id": uuid.uuid4().hex, "provider": provider,
+                                     "at": datetime.now(timezone.utc).isoformat(timespec="seconds")})
+                state["paid_ai"] = {"day": day, "calls": used + 1, "limit": limit,
+                                    "reservations": reservations}
+                job._write("state.json", state)
+            return None
+
+        def on_switch(event):
+            with job.lock:
+                state = job._read("state.json", {})
+                switches = state.setdefault("provider_fallbacks", [])
+                switches.append({"at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                                 "from_provider": event["from_provider"],
+                                 "to_provider": event["to_provider"],
+                                 "reason": str(event.get("reason") or "")[:300]})
+                state["provider_fallbacks"] = switches[-50:]
+                job._write("state.json", state)
+
+        return AgentTeam(APP_ROOT, tiers, on_usage, fallback=fallback,
+                         route={"policy": router.policy_from(preferences), "paid_gate": paid_gate,
+                                "on_switch": on_switch, "ready": ready})
 
     return make
+
+
+def _carry_intake_paid_calls(job: IntakeJob, service, db) -> None:
+    """Keep today's intake reservations inside the built profile's paid-call cap."""
+    reservations = (job.state().get("paid_ai") or {}).get("reservations") or []
+    today = service.today()
+    zone = ZoneInfo(service.w.timezone)
+    for entry in reservations:
+        try:
+            at = datetime.fromisoformat(entry["at"])
+            day = at.astimezone(zone).date().isoformat()
+            if day != today or not entry.get("id") or not entry.get("provider"):
+                continue
+        except (KeyError, TypeError, ValueError):
+            continue
+        db.execute(
+            """INSERT OR IGNORE INTO ai_calls
+            (id, cache_key, day, state, created_at, provider, model, action, cache_version)
+            VALUES (?, 'intake-paid', ?, 'reserved', ?, ?, 'auto', 'profile_intake', 'intake-v1')""",
+            (entry["id"], day, entry["at"], entry["provider"]),
+        )
 
 
 def review(job: IntakeJob) -> dict:
@@ -142,6 +212,9 @@ def review(job: IntakeJob) -> dict:
             "country_pack": draft.get("country_pack") or "ie",
             "target_markets": draft.get("target_markets") or [draft.get("country_pack") or "ie"],
             "work_authorization_by_market": draft.get("work_authorization_by_market") or {},
+            "education_for_permits": draft.get("education_for_permits") or {},
+            "job_search": draft.get("job_search") or {},
+            "authorization_proposal": draft.get("authorization_proposal") or {},
             "counts": {
                 "education": len(draft.get("education") or []),
                 "experience": len(draft.get("experience") or []),
@@ -249,7 +322,18 @@ def attach_intake(api, profiles, apps) -> dict:
 
     @api.post("/api/profiles/{profile_id}/build-runs")
     def build_runs_start(profile_id: str, data: BuildOptions):
-        return runs_for(profile_id).start(data.model_dump())
+        return runs_for(profile_id).start(data.model_dump(exclude_none=True))
+
+    @api.get("/api/profiles/{profile_id}/build-settings")
+    def build_settings(profile_id: str):
+        import yaml
+
+        job = job_for(profile_id, onboarding_only=False)
+        path = job.root / "data/config/profile.yml"
+        current = yaml.safe_load(path.read_text(encoding="utf-8")) if path.is_file() else profiles.get(profile_id)
+        current = current or {}
+        return {key: current.get(key) or {} for key in
+                ("work_authorization_by_market", "education_for_permits", "job_search")}
 
     @api.get("/api/profiles/{profile_id}/build-runs/{run_id}")
     def build_runs_get(profile_id: str, run_id: str):
@@ -346,10 +430,13 @@ def attach_intake(api, profiles, apps) -> dict:
         profiles.update(profile_id, state="ready", name=built_name, initials=initials(built_name),
                         target_markets=draft.get("target_markets") or [summary["pack"]],
                         work_authorization_by_market=draft.get("work_authorization_by_market") or {},
+                        education_for_permits=draft.get("education_for_permits") or {},
+                        job_search=draft.get("job_search") or {},
                         built_at=summary["built_at"])
         app = apps.app(profile_id)  # first open seeds the profile database from the new files
         service = app.state.career
         with service.w.connect() as db:
+            _carry_intake_paid_calls(job, service, db)
             service.w.record_event(db, "profile_built_from_documents", files=[f["name"] for f in job.files()],
                                    coverage=(draft.get("coverage") or {}).get("accounted"))
         service.w.export_tracking()
@@ -388,7 +475,7 @@ def attach_intake(api, profiles, apps) -> dict:
         try:
             result = check()
             # Long documents can run past one page: render it again with fewer bullets until it fits.
-            for trim in (1, 2, 3):
+            for trim in (1, 2, 3, 4):
                 if not (result["compiled"] and (result["page_count"] or 1) > 1):
                     break
                 import yaml

@@ -58,6 +58,20 @@ def clean(text) -> str:
     return re.sub(r"\s+", " ", str(text or "")).strip()
 
 
+def skill_entry(text: str) -> bool:
+    """A skills-list entry, not a sentence: up to 40 characters, or a named tool with its
+    parts in brackets ("Python (pandas, NumPy, scikit-learn, Matplotlib)") up to 80."""
+    return len(text) <= 40 or (len(text) <= 80 and bool(re.fullmatch(r"[^()]{1,40}\([^()]+\)", text)))
+
+
+def already_listed(tool: str, listed: set) -> bool:
+    """'Python (pandas)' or 'AWS EC2' adds nothing once 'Python (pandas, NumPy)' or
+    'AWS (EC2, S3)' is listed: every word of it is there already."""
+    text = " ".join(listed)
+    words = re.findall(r"[a-z0-9][a-z0-9+#.\-]*", tool.casefold())
+    return bool(words) and all(re.search(r"(?<![a-z0-9+#])" + re.escape(w) + r"(?![a-z0-9+#])", text) for w in words)
+
+
 def ident(text, width: int = 14) -> str:
     """'JRB Infotech' -> 'JRB-INFOTECH' for registry ids."""
     words = re.findall(r"[A-Za-z0-9]+", str(text or "").upper())
@@ -126,9 +140,9 @@ def authorization_mode(auth: dict) -> str:
 def market_authorization(draft: dict, market: str) -> dict:
     """Eligibility state supplied by the person; raw permit wording is retained separately."""
     values = (draft.get("work_authorization_by_market") or {}).get(market) or {}
-    return {"status": values.get("status") if values.get("status") in {"authorized", "needs_sponsorship"} else "unknown",
-            "citizenship": values.get("citizenship") if values.get("citizenship") in {"citizen", "noncitizen"} else "unknown",
-            "needs_sponsorship_later": values.get("needs_sponsorship_later") if values.get("needs_sponsorship_later") in {"yes", "no"} else "unknown"}
+    from backend.services.intake.authorization import validate_authorization
+
+    return validate_authorization(values, market)
 
 
 def draft_authorization_mode(draft: dict, market: str) -> str:
@@ -150,7 +164,9 @@ def preferred_locations(targets: dict, markets: list[str]) -> list[str]:
     """
     cities = [clean(city) for city in targets.get("cities") or [] if clean(city)]
     chosen = set(markets)
-    return [city for city in cities if not (known := {m for m in ("ie", "us") if load_pack(m).location_ok(city)}) or known & chosen]
+    from backend.countries import known_markets
+
+    return [city for city in cities if not (known := {m for m in known_markets() if load_pack(m).location_ok(city)}) or known & chosen]
 
 
 # ---- the registry ----------------------------------------------------------------------
@@ -227,7 +243,7 @@ def build_registry(draft: dict, revision: str, sources: dict, banned: list[str])
             claim(cid, "contact", use, base, value=clean(contact[key]))
     place = ", ".join(p for p in (clean(contact.get("city")), clean(contact.get("country"))) if p)
     if place:
-        claim("LOCATION-001", "location", "Omit the city from resumes unless a posting asks; use for search and time zone.", base, value=place)
+        claim("LOCATION-001", "location", "City and country on the CV's contact line; also used for search and time zone.", base, value=place)
     if clean(auth.get("status")) or clean(auth.get("conditions")):
         status = clean(auth.get("status"))
         country = clean(auth.get("work_country"))
@@ -241,6 +257,8 @@ def build_registry(draft: dict, revision: str, sources: dict, banned: list[str])
               refs_for(auth, sources), value=value)
     if contact.get("languages"):
         claim("LANG-001", "languages", "Omit unless a posting asks for a language.", base, value=", ".join(contact["languages"]))
+    # Confirmed permit facts and search preferences live in profile.yml (build_profile), not
+    # here: they are never resume evidence, and every claim in this registry cites a source.
 
     # Education, newest first.
     education = sorted(draft.get("education") or [], key=lambda e: _sort_key(date_range(e.get("start"), e.get("end"))), reverse=True)
@@ -250,8 +268,13 @@ def build_registry(draft: dict, revision: str, sources: dict, banned: list[str])
                                           date_range(edu.get("start"), edu.get("end")),
                                           ", ".join(clean(c) for c in edu.get("coursework") or []),
                                           " ".join(clean(f) for f in edu.get("facts") or [])) if p)
+            degree = clean(edu.get("degree"))
+            if clean(edu.get("field")) and clean(edu["field"]).casefold() not in degree.casefold():
+                degree = f"{degree} in {clean(edu['field'])}".strip()
+            # The degree on its own too, so the requirement check reads it without the modules.
             claim(f"EDU-HISTORY-{n:03d}", "education_history", "Profile context; not printed on resumes.",
-                  refs_for(edu, sources), title=clean(edu.get("degree")) or "Education", value=text)
+                  refs_for(edu, sources), title=clean(edu.get("degree")) or "Education", value=text,
+                  degree_as_supplied=degree, dates=date_range(edu.get("start"), edu.get("end")))
             continue
         cid = f"EDU-{ident(edu.get('degree'), 10)}-{n:03d}"
         degree = clean(edu.get("degree"))
@@ -289,7 +312,7 @@ def build_registry(draft: dict, revision: str, sources: dict, banned: list[str])
     used_tools = {clean(t).casefold() for item in (draft.get("experience") or []) + (draft.get("projects") or [])
                   for t in item.get("tools") or []}
     for group in rank_skill_groups(draft.get("skills") or [], used_tools):
-        skills = [clean(s) for s in group.get("skills") or [] if clean(s) and len(clean(s)) <= 40]
+        skills = [clean(s) for s in group.get("skills") or [] if clean(s) and skill_entry(clean(s))]
         if not skills:
             continue
         cid = f"SKILL-{ident(group.get('name'), 12)}-001"
@@ -305,7 +328,7 @@ def build_registry(draft: dict, revision: str, sources: dict, banned: list[str])
     tools = []
     for item in (draft.get("experience") or []) + (draft.get("projects") or []):
         for tool in item.get("tools") or []:
-            if clean(tool) and clean(tool).casefold() not in listed and len(clean(tool)) <= 40:
+            if clean(tool) and not already_listed(clean(tool), listed) and skill_entry(clean(tool)):
                 listed.add(clean(tool).casefold())
                 tools.append(clean(tool))
     if tools:
@@ -412,6 +435,11 @@ def build_tracks(roles: list[str], projects: list[dict], lead_section: str = "")
 
 
 def build_profile(draft: dict, registry: dict, pack: Pack, revision: str) -> dict:
+    from backend.countries import enabled_markets
+
+    offered = enabled_markets()
+    if pack.code not in offered:
+        raise ValueError(f"{pack.name} is switched off in this copy. See docs/DEVELOPERS.md, \"Re-enabling a market\".")
     contact, auth, targets = draft["contact"], draft["authorization"], draft["targets"]
     full_name = clean(contact.get("full_name"))
     preferred = clean(contact.get("preferred_name")) or (full_name.split()[0] if full_name else "")
@@ -422,7 +450,8 @@ def build_profile(draft: dict, registry: dict, pack: Pack, revision: str) -> dic
     sections = (["Education"] if "education" in categories else []) + \
         (["Skills"] if "skill" in categories else []) + \
         (["Professional Experience"] if has_roles else []) + \
-        (["Projects"] if ready_projects else [])
+        (["Projects"] if ready_projects else []) + \
+        (["Certifications"] if "certification" in categories else [])
     lead_section = "Professional Experience" if has_roles else (sections[0] if sections else "")
     tracks = build_tracks(roles, registry["projects"], lead_section)
     orders = {}
@@ -432,9 +461,17 @@ def build_profile(draft: dict, registry: dict, pack: Pack, revision: str) -> dic
         else:
             orders[track["code"]] = list(sections)
     mode = draft_authorization_mode(draft, pack.code)
-    markets = [m for m in draft.get("target_markets") or [pack.code] if m in {"ie", "us"}]
-    markets = list(dict.fromkeys(markets)) or [pack.code]
+    from backend.countries import is_enabled
+
+    markets = [m for m in draft.get("target_markets") or [pack.code] if is_enabled(m)]
+    if not markets:
+        raise ValueError("This profile was built for a market this copy no longer offers. Choose an enabled market explicitly before building.")
+    markets = list(dict.fromkeys(markets))
     by_market = {m: market_authorization(draft, m) for m in markets}
+    from backend.services.intake.authorization import validate_education, validate_job_search
+
+    education_for_permits = validate_education(draft.get("education_for_permits") or {})
+    preferences = validate_job_search(draft.get("job_search") or {})
     status = clean(auth.get("status"))
     valid = clean(auth.get("valid_until"))
     situation = (f"who holds {status}" + (f" (valid until {valid})" if valid else "") + f" and is looking for {pack.text('market')}"
@@ -448,17 +485,21 @@ def build_profile(draft: dict, registry: dict, pack: Pack, revision: str) -> dic
     doc_words = set(_terms(" ".join(str(v) for v in draft.values())))
     degrees = " ".join(c.get("degree_as_supplied", "") for c in registry["claims"] if c["category"] == "education").casefold()
     highest = "a PhD" if re.search(r"ph\.?d|doctor", degrees) else "a Master's" if re.search(r"master|m\.?sc|m\.?s\b|mba|m\.?tech", degrees) else "a Bachelor's" if re.search(r"bachelor|b\.?sc|b\.?tech|b\.?e\b", degrees) else "not stated"
-    header = ["full_name"] + [k for k in ("phone", "email", "linkedin", "github", "portfolio_url") if clean(contact.get(k))]
+    # An Irish CV's contact line starts with the city and country: it shows the person is here.
+    header = ["full_name"] + (["location"] if clean(contact.get("city")) else []) + \
+        [k for k in ("phone", "email", "linkedin", "github", "portfolio_url") if clean(contact.get(k))]
     exclusions = []
     if mode == "later":
         exclusions += ["Postings that explicitly refuse to support a work permit or sponsorship",
                        "Postings requiring " + pack.data.get("discovery", {}).get("cannot_hire", "citizenship or a clearance")]
-    return {
+    profile = {
         "schema_version": 2,
         "candidate_revision": revision,
         "country_pack": pack.code,
         "target_markets": markets,
         "work_authorization_by_market": by_market,
+        "education_for_permits": education_for_permits,
+        "job_search": preferences,
         "resume_contract_by_market": {m: {"paper": "a4" if m == "ie" else "letter", "required_pages": 1}
                                       for m in markets},
         "candidate": {k: v for k, v in {
@@ -495,9 +536,9 @@ def build_profile(draft: dict, registry: dict, pack: Pack, revision: str) -> dic
         "target_roles": {
             "primary": roles,
             "secondary": [],
-            "seniority": [],
+            "seniority": preferences["seniority"],
             "excluded": exclusions,
-            "max_years_required": None,
+            "max_years_required": preferences["max_years_required"],
         },
         "role_tracks": tracks,
         "narrative": {
@@ -566,7 +607,8 @@ def build_profile(draft: dict, registry: dict, pack: Pack, revision: str) -> dic
             "required_sections": sections,
             "section_order_by_track": orders,
             "header_fields": header,
-            "omitted_by_default": ["Summary or objective section", "City", "Work authorization line"],
+            "omitted_by_default": ["Summary or objective section"] + ([] if "location" in header else ["City"])
+                                  + ["Work authorization line"],
             "prohibited_filler": PROHIBITED_FILLER,
             "diagnostics": {"job_fit_score": "Opportunity decision only",
                             "supported_requirement_coverage": "Required/preferred JD requirements backed by evidence IDs",
@@ -590,9 +632,17 @@ def build_profile(draft: dict, registry: dict, pack: Pack, revision: str) -> dic
             "project_domains": [w for w in DOMAIN_WORDS if w in doc_words][:12] or ["research"],
             "highest_degree": highest,
             "role_blocker": "Role does not match the target roles (" + ", ".join(roles[:5] or ["the profile's target roles"]) + ").",
+            # A confirmed graduate search sets senior, lead and manager titles aside (job_quality.blockers).
+            "block_seniority": bool(preferences.get("graduate_search_confirmed")),
         },
         "persona": {"name": preferred or full_name, "situation": situation},
     }
+    if "salary_floor_eur" not in preferences:
+        from backend.permits.assessment import personal_floor
+
+        preferences["salary_floor_eur"] = personal_floor(profile)
+        preferences["salary_floor_source"] = "permit_rules"
+    return profile
 
 
 # ---- the gate and the search files ---------------------------------------------------

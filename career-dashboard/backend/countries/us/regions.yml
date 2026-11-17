@@ -128,11 +128,11 @@ regions:
       - city: "Boston, MA"
         notes: "Biotech/medtech cluster plus dense academic and research employers — many cap-exempt."
       - city: "Chicago, IL"
-        notes: "InsOps is here; insurance and logistics tech."
+        notes: "Finance, insurance, logistics and consulting employers."
       - city: "Raleigh-Durham, NC"
         notes: "Research Triangle — biotech, data infrastructure, three research universities."
       - city: "Minneapolis, MN"
-        notes: "Medical-device capital (Medtronic HQ). Direct match for her medical-device history."
+        notes: "Medical-device capital (Medtronic HQ); healthcare and retail analytics."
 
     salary_bands:
       junior: "USD 75k-105k (new grad / 0-2 yrs)"
@@ -146,10 +146,9 @@ regions:
       phone_format: "(XXX) XXX-XXXX"
       notes: >-
         US English spelling. No photo, no date of birth, no marital status, no nationality.
-        ONE PAGE — this is a hard requirement for this candidate, not a preference, and it holds
-        even with a master's plus research experience. Include a GitHub URL; her background is
-        project-heavy and it matters more than in most markets. Use full URLs rather than
-        hyperlinked words so ATS text extraction keeps them.
-        Work authorization is NOT stated by default (see Q10 in context/QUESTIONS-FOR-YOU.md).
+        One page is the usual US length for early-career candidates; the profile's resume
+        contract decides the page count. Include a GitHub or portfolio URL when the person's
+        work is project-heavy. Use full URLs rather than hyperlinked words so ATS text
+        extraction keeps them. State work authorization only as the profile records it.
 
     summary_file: "output/SUMMARY.md"

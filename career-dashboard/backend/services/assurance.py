@@ -60,10 +60,16 @@ def build_assurance(service, studio, job_id: str) -> dict[str, Any]:
     if draft is None:
         note = "No resume draft yet. Open Resume Studio for this job and the claim report appears here."
     else:
+        from validate_resume import normalize_latex_text
+
         source = draft["source"]
         macros = extract_zero_argument_macros(source)
         tex_path = service.w.root / "data/output" / draft["file_root"] / "resume.tex"
         report = build_report(service.w.db_path, tex_path, evidence=service.w.evidence(), source=source)
+        # Project bullets the tailor reworded for this job (services/rewrite_guard.py): line -> registered wording.
+        reworded = {normalize_latex_text(change["text"]): change["registered"]
+                    for row in rows if row["section"] == "projects" and isinstance(row["content"], dict)
+                    for change in row["content"].get("rewrites") or []}
         for claim in report["claims"]:
             text = _human_text(source, macros, claim["line"])
             if not text:
@@ -83,6 +89,7 @@ def build_assurance(service, studio, job_id: str) -> dict[str, Any]:
                     "evidence_ids": claim["evidence_ids"],
                     "line": claim["line"],
                     "note": claim["note"],
+                    "reworded_from": reworded.get(text),
                 }
             )
         match = draft.get("match") or {}

@@ -1,0 +1,32 @@
+# Curated public organisations whose names can resemble a person's name. Entries
+# are employers named in DETE's official company workbooks; no private persons.
+# Explicit brand aliases below must name legal employers that appear in that data.
+organisations:
+  - Deloitte
+  - Ernst & Young
+  - PricewaterhouseCoopers
+  - Grant Thornton
+  - BDO
+  - KPMG
+  - Mazars
+  - Health Service Executive
+
+aliases:
+  Toast: [Toasttab Ireland Limited]
+  Okta: [Okta Identity Ireland Limited]
+  Salesforce: [SFDC Ireland Limited]
+  Citi: [Citibank Europe PLC, Citibank Europe Public Limited Company]
+  BlackRock: [Blackrock Asset Management Ireland Limited]
+  Fidelity Investments: [Fidelity Strategic Advisers Ireland Limited]
+  PwC: [PricewaterhouseCoopers]
+
+# The employer's own legal/group disclosures verify each brand relationship.
+verified_at: "2026-10-03"
+sources:
+  Toast: https://pos.toasttab.com/legal/end-user-license-agreement
+  Okta: https://www.okta.com/en-se/legal/trustandcompliance/subprocessors/
+  Salesforce: https://www.salesforce.com/company/legal/program-agreement/
+  Citi: https://www.citi.com/icg/sa/emea/slovakia/english/data-privacy.html
+  BlackRock: https://www.blackrock.com/uk/solutions/insights/scam-notice
+  Fidelity Investments: https://www.fidelity.com/bin-public/060_www_fidelity_com/documents/SD-EQ-legal-booklet.pdf
+  PwC: https://www.strategyand.pwc.com/ie/en/disclaimer.html
