@@ -12,7 +12,13 @@ description: >-
 Goal: after one short conversation the person has a profile you can trust and knows what to ask
 next. Read `AGENTS.md` first for the two modes and the rules.
 
-Run `career doctor` before collecting facts. In App mode, zero profiles is the normal first
+Run `career doctor` before collecting facts. When it reports `install_app`, ask the person to
+double-click **Start Dashboard.cmd** (macOS: `bash "Start Dashboard.command"`) once and to say
+when the dashboard page opens, then run doctor again. When it reports `install_ai_cli`, give them
+its install command before the build: the app's AI steps need a command-line AI signed in on
+this computer, and the chat app's own sign-in (including Antigravity's) does not count. For an
+Antigravity user that is `agy`: they install it in a terminal and run `agy` once to sign in with
+Google. In App mode, zero profiles is the normal first
 run. If this person's profile already exists, use `--profile <id>` to resume or rebuild it;
 do not create another profile after a failed build. Resolve multiple profiles before reading
 sources. The shared `me/` inbox should contain only the selected person's files.
@@ -130,7 +136,11 @@ Updated: <date>
 
 ## 4. Finish
 
-Reply in a few lines: what is set up, anything still unknown, and three things they can say:
+When they asked for the whole automation ("fit this to my profile", "N jobs with resumes every
+morning"), go straight on to `morning-jobs`, section "When they ask to get this every morning",
+with the job count and time they gave.
+
+Otherwise reply in a few lines: what is set up, anything still unknown, and three things they can say:
 
 - "Give me 5 jobs with resumes"
 - "Set up my morning jobs" (a checked list every morning)

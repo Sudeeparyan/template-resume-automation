@@ -115,6 +115,7 @@ Installed provider executables are reported as available, never as authenticated
 | `career ws tailor --job-id <id>` | Resume Studio tailoring (AI when ready) and the fitted PDF |
 | `career ws run --kind research\|resume_match\|study_plan\|discovery … --job-id <id>` | one agent run |
 | `career ws sponsor-check`, `check-reapply`, `ai-status` | gates and AI readiness |
+| `career morning --profile <id> [--on\|--off] [--ready-by HH:MM] [--jobs N] [--min-fit N]` | the Morning jobs switch (`services/schedule_tasks.set_profile`, shared with Settings) and the overnight hunt's count and fit bar |
 | `career trace list`, `career trace show <run-id>` | agent run timelines from the profile's local trace file |
 | `career verify-url --url …`, `career check-resume …`, `career check` | link check, resume validator, workspace validator |
 
@@ -277,6 +278,9 @@ bash "Check Workspace.command"            macOS
 ```
 
 1. Launcher preflight (dependencies, tools), then `pip install -r backend/requirements-dev.txt`.
+   `--preflight-only` never offers to install Python or Node.js; only a launcher started by a
+   person (a console, no `CAREER_NO_INSTALL`) asks, through winget or Homebrew, and a Windows
+   question left unanswered for two minutes counts as No.
 2. `python -m pytest -q` in `career-dashboard/` (`pytest.ini` selects `tests/portable`).
 3. `scripts/check_profiles.py` (local profiles' database and PDFs; passes with none) and
    `backend/scripts/validate_workspace.py`.

@@ -22,13 +22,49 @@ NOTE = ("Runs through the Antigravity CLI on this machine, using its shared Goog
 TIMEOUT = {"web": 900, "text": 600}
 _PROBE = {"at": 0.0, "models": [], "signed_in": False}
 
+# The official installer's binary folders (antigravity.google/docs/getting-started, CLI tab):
+# %LOCALAPPDATA%\agy\bin on Windows, ~/.local/bin elsewhere. They are searched as well as PATH,
+# because a dashboard started before the install still has the PATH it started with. A plain
+# literal: `career doctor` reads it without importing the app.
+BUNDLED = (
+    "~/AppData/Local/agy/bin/agy.exe",
+    "~/AppData/Local/agy/bin/agy.cmd",
+    "~/.local/bin/agy.exe",
+    "~/.local/bin/agy",
+)
+INSTALL = {"windows": "irm https://antigravity.google/cli/install.ps1 | iex",
+           "other": "curl -fsSL https://antigravity.google/cli/install.sh | bash"}
+SIGN_IN = "Run `agy` once in a terminal and sign in with your Google account."
+# The desktop app alone does not include the `agy` command-line tool the dashboard runs.
+DESKTOP_APP = ("~/AppData/Local/Programs/Antigravity/Antigravity.exe", "/Applications/Antigravity.app",
+               "~/Applications/Antigravity.app")
+
+
+def install_command() -> str:
+    return INSTALL["windows" if os.name == "nt" else "other"]
+
+
+def desktop_only() -> bool:
+    """The Antigravity desktop app is here but its command-line tool is not."""
+    if find_cli() is not None:
+        return False
+    return any(os.path.exists(os.path.expanduser(place)) for place in DESKTOP_APP)
+
 
 def find_cli() -> Path | None:
     override = os.environ.get("AGY_CLI")
     if override and os.path.isfile(override):
         return Path(override)
     found = shutil.which("agy")
-    return Path(found) if found else None
+    if found:
+        return Path(found)
+    for place in BUNDLED:
+        # Windows can only start the .exe or .cmd; a bare `agy` there is a script for another system.
+        if os.name == "nt" and not place.endswith((".exe", ".cmd")):
+            continue
+        if os.path.isfile(os.path.expanduser(place)):
+            return Path(os.path.expanduser(place))
+    return None
 
 
 def launcher(cli: Path) -> list[str]:
@@ -46,8 +82,9 @@ def _model_probe() -> dict:
     if cli is None:
         return {"models": [], "signed_in": False}
     try:
+        # No console input: a check that needs a sign-in must fail fast, never wait on the dashboard's window.
         done = subprocess.run(
-            launcher(cli) + ["models"], capture_output=True, text=True,
+            launcher(cli) + ["models"], capture_output=True, text=True, stdin=subprocess.DEVNULL,
             encoding="utf-8", errors="replace", timeout=20,
         )
     except (OSError, subprocess.TimeoutExpired):
@@ -106,7 +143,7 @@ def describe_failure(text: str) -> str:
     if re.search(r"usage limit|quota|rate limit|\b429\b|credits?", folded):
         return limits.with_hint("Your Antigravity/Google plan's usage limit is reached. Wait for it to reset, then retry.", text)
     if re.search(r"authentication required|not (?:signed|logged) in|unauthori[sz]ed|\b401\b", folded):
-        return "Antigravity is not signed in. Open Antigravity or run `agy` once and sign in, then retry."
+        return "Antigravity is not signed in. " + SIGN_IN + " Then retry."
     detail = " ".join(text.split())[:260]
     return "Antigravity could not finish" + (f": {detail}" if detail else ". Check sign-in and usage, then retry.")
 
@@ -129,7 +166,8 @@ def run(prompt: str, schema: dict, *, model: str = MODELS[0], web: bool = False,
         system: str | None = None, timeout: int | None = None) -> tuple[dict, dict]:
     cli = find_cli()
     if cli is None:
-        raise ValueError("Antigravity CLI is not installed or is not on PATH. Install `agy`, sign in, then retry.")
+        raise ValueError("The Antigravity command-line tool (agy) is not installed. Install it in a terminal "
+                         f"with `{install_command()}`, then {SIGN_IN[0].lower() + SIGN_IN[1:]}")
     if web:
         raise ValueError("Antigravity web work needs scoped URL permissions. Use the MCP connector or another enabled plan for this step.")
     if model not in models():

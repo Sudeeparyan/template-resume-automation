@@ -35,11 +35,14 @@ OCR_PACKAGES = ("rapidocr-onnxruntime", "pypdfium2")
 PERMIT_RULES = APP / "backend/countries/ie/permit-rules.yml"
 RULES_WARN_DAYS = 30
 # The AI CLIs the app runs: the module that knows where each one's bundled copy lives (its
-# source is read, never imported) and the environment variable that overrides it.
-CLI_SOURCES = {"claude": (APP / "backend/ai/claude_code.py", "CLAUDE_CODE_CLI"),
-               "codex": (APP / "backend/ai/codex.py", "CODEX_CLI"),
-               "kimi": (APP / "backend/ai/kimi_cli.py", "KIMI_CLI"),
-               "antigravity": (APP / "backend/ai/antigravity.py", "AGY_CLI")}
+# source is read, never imported), the environment variable that overrides it and the command
+# the app starts. Antigravity's is `agy`: the editor's own `antigravity` launcher cannot answer.
+CLI_SOURCES = {"claude": (APP / "backend/ai/claude_code.py", "CLAUDE_CODE_CLI", "claude"),
+               "codex": (APP / "backend/ai/codex.py", "CODEX_CLI", "codex"),
+               "kimi": (APP / "backend/ai/kimi_cli.py", "KIMI_CLI", "kimi"),
+               "antigravity": (APP / "backend/ai/antigravity.py", "AGY_CLI", "agy")}
+# The ones a person can add with one official command (each module's INSTALL), in the order offered.
+INSTALLABLE = (("antigravity", "Antigravity (agy)", "agy"), ("claude", "Claude Code", "claude"))
 # Where Start Dashboard puts its pinned Tectonic download.
 TOOLS = APP / "backend/.tools"
 
@@ -122,27 +125,43 @@ def executable(name: str) -> bool:
     return shutil.which(name) is not None
 
 
-def bundled_locations(source: Path) -> list[str]:
-    """The app's own bundled-CLI locations (its BUNDLED constants), read from source without importing it."""
+def _literals(source: Path, prefix: str) -> list:
+    """The values of a module's top-level constants named ``prefix...``, read without importing it."""
     try:
         tree = ast.parse(source.read_text(encoding="utf-8"))
     except (OSError, SyntaxError, UnicodeError):
         return []
-    found: list[str] = []
+    found = []
     for node in tree.body:
-        if isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and t.id.startswith("BUNDLED") for t in node.targets):
+        if isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and t.id.startswith(prefix) for t in node.targets):
             try:
-                value = ast.literal_eval(node.value)
+                found.append(ast.literal_eval(node.value))
             except ValueError:
                 continue
-            found += [value] if isinstance(value, str) else [v for v in value if isinstance(v, str)]
     return found
+
+
+def bundled_locations(source: Path) -> list[str]:
+    """The app's own bundled-CLI locations (its BUNDLED constants), read from source without importing it."""
+    found: list[str] = []
+    for value in _literals(source, "BUNDLED"):
+        found += [value] if isinstance(value, str) else [v for v in value if isinstance(v, str)]
+    # Windows can only start an .exe or .cmd; a bare name there is another system's script.
+    return [p for p in found if os.name != "nt" or p.casefold().endswith((".exe", ".cmd"))]
+
+
+def install_command(name: str) -> str:
+    """The official one-line install for this system (the module's INSTALL), or ''."""
+    for value in _literals(CLI_SOURCES[name][0], "INSTALL"):
+        if isinstance(value, dict):
+            return str(value.get("windows" if os.name == "nt" else "other") or "")
+    return ""
 
 
 def cli_available(name: str) -> bool:
     """On PATH, named by its override variable, or in a location the app knows (a desktop app's bundled copy)."""
-    source, override = CLI_SOURCES[name]
-    if executable(name):
+    source, override, command = CLI_SOURCES[name]
+    if executable(command):
         return True
     named = os.environ.get(override)
     if named and os.path.isfile(named):
@@ -228,6 +247,12 @@ def report(profiles_dir: Path, requested: str | None = None) -> dict:
                f"permit-rules.yml (checked {rules.get('verified_at') or 'unknown'}) are due for review on "
                f"{rules.get('review_after') or 'an unknown date'}. Re-verify them against the official DETE pages; "
                "after that date salary-threshold checks show 'unknown'.")
+    if not any(tools["ai_cli"].values()):
+        offers = [f"{label}: {install_command(name)} then run `{command}` once and sign in"
+                  for name, label, command in INSTALLABLE if install_command(name)]
+        action("install_ai_cli", "No AI command-line tool was found, so the app cannot build a profile or tailor "
+               "resumes yet. The chat app's own sign-in does not count. Ask the person to install one in a terminal "
+               "(" + "; or ".join(offers) + "), or to paste an API key on the dashboard's first page.")
     action("verify_ai_provider", "Before AI work, verify a configured provider in the app; executable discovery does not prove sign-in or availability.")
     return {"schema_version": 1, "app_mode": app_mode, "python": python,
             "dependencies": dependencies, "ocr_packages": packages(OCR_PACKAGES),

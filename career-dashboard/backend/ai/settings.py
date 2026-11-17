@@ -7,6 +7,8 @@ values never appear in anything returned here.
 
 from __future__ import annotations
 
+import os
+
 from backend.ai import antigravity, catalog, claude_code, codex, keys, kimi_cli, models, router
 from backend.ai.agents.graph import AgentTeam, describe_provider_error
 from backend.ai.agents.specialists import REGISTRY
@@ -384,6 +386,17 @@ KEY_PAGES = {"openrouter": "https://openrouter.ai/keys", "openai": "https://plat
              "kimi": "https://platform.moonshot.ai/console/api-keys"}
 
 
+def _setup_hint(module, installed: bool) -> dict:
+    """How to install and sign in to one AI app on this computer: the exact command when there is one."""
+    install = getattr(module, "install_command", None)
+    if install:
+        command = install()
+    else:
+        command = kimi_cli.INSTALL_COMMAND if module is kimi_cli and os.name == "nt" else ""
+    app_only = not installed and bool(getattr(module, "desktop_only", lambda: False)())
+    return {"install": command, "sign_in": getattr(module, "SIGN_IN", ""), "app_only": app_only}
+
+
 def machine_status() -> dict:
     """The AI this computer can use before any profile exists. Never a key's value."""
     from backend.ai import claude_code, codex, kimi_cli, limits, provider_label, ready_providers
@@ -392,12 +405,13 @@ def machine_status() -> dict:
     ready = ready_providers(APP_ROOT)
     health = limits.HealthBook(APP_ROOT).status()
     clis = []
-    for module in (claude_code, codex, kimi_cli, antigravity):
+    for module in (claude_code, antigravity, codex, kimi_cli):
         installed = module.available()
         signed_in = bool(getattr(module, "signed_in", lambda: installed)()) if installed else False
         clis.append({"id": module.ID, "label": provider_label(module.ID), "kind": "cli",
                      "ready": bool(ready.get(module.ID)), "installed": installed, "signed_in": signed_in,
-                     "tested": bool((health.get(module.ID) or {}).get("last_ok"))})
+                     "tested": bool((health.get(module.ID) or {}).get("last_ok")),
+                     **_setup_hint(module, installed)})
     hosted = [{"id": pid, "label": spec["label"], "kind": "api_key", "ready": bool(ready.get(pid)),
                "key_name": spec["key"], "saved_in": keys.source(APP_ROOT, spec["key"]) or "",
                "get_key": KEY_PAGES.get(pid, "")}

@@ -40,9 +40,53 @@ TECTONIC_ASSETS = {
 }
 
 
+# Asked only on the launcher's own window (never in --preflight-only checks or without a console).
+OFFER_INSTALLS = True
+
+
 def run(args: list[str], *, cwd: Path | None = None) -> None:
     print("+ " + " ".join(str(a) for a in args), flush=True)
     subprocess.run(args, cwd=cwd, check=True)
+
+
+def ask(question: str) -> bool:
+    """A yes/no question on the launcher's window; False when nobody is there to answer it."""
+    if not OFFER_INSTALLS or os.environ.get("CAREER_NO_INSTALL") or not sys.stdin or not sys.stdin.isatty():
+        return False
+    try:
+        answer = input(question + " [Y/n] ").strip().casefold()
+    except (EOFError, KeyboardInterrupt):
+        return False
+    return answer in {"", "y", "yes"}
+
+
+def node_installer() -> tuple[list[str], list[str]] | None:
+    """The package-manager command that installs Node.js LTS here, and the folders it puts node in."""
+    if os.name == "nt" and shutil.which("winget"):
+        program_files = os.environ.get("ProgramFiles") or r"C:\Program Files"
+        return (["winget", "install", "--id", "OpenJS.NodeJS.LTS", "-e", "--source", "winget",
+                 "--accept-package-agreements", "--accept-source-agreements"], [os.path.join(program_files, "nodejs")])
+    if sys.platform == "darwin" and shutil.which("brew"):
+        return ["brew", "install", "node"], ["/opt/homebrew/bin", "/usr/local/bin"]
+    return None
+
+
+def install_node() -> bool:
+    """Offer to install Node.js; True when node can be found afterwards in this window."""
+    found = node_installer()
+    if not found:
+        return False
+    command, folders = found
+    tool = "winget" if command[0] == "winget" else "Homebrew"
+    if not ask(f"Node.js is needed to build the dashboard and is not installed. Install Node.js LTS now with {tool}?"):
+        return False
+    try:
+        run(command)
+    except (OSError, subprocess.CalledProcessError):
+        return False
+    # The install updates PATH for new windows only; this one needs the folder added by hand.
+    os.environ["PATH"] = os.pathsep.join([*folders, os.environ.get("PATH", "")])
+    return bool(shutil.which("node"))
 
 
 def digest(*paths: Path) -> str:
@@ -80,10 +124,13 @@ def setup_python() -> None:
 
 
 def setup_frontend() -> None:
+    if not shutil.which("node"):
+        install_node()
     node = shutil.which("node")
     npm = shutil.which("npm.cmd" if os.name == "nt" else "npm")
     if not node or not npm:
-        raise SystemExit("Node.js and npm are required. Install Node.js 20 or newer, then start again.")
+        raise SystemExit("Node.js and npm are required. Install Node.js 20 or newer from https://nodejs.org, "
+                         "then start again.")
     result = subprocess.run([node, "--version"], capture_output=True, text=True, check=True)
     major = int(result.stdout.strip().lstrip("v").split(".")[0])
     if major < 20:
@@ -163,7 +210,6 @@ def report_tools() -> None:
     from backend.pdf_compiler import tectonic_executable
 
     ready = ready_providers(APP_ROOT)
-    available = [name for name, ok in ready.items() if ok]
     print("\nLocal tool check:", flush=True)
     print("  Python: " + sys.version.split()[0], flush=True)
     print("  Node.js: " + subprocess.check_output(["node", "--version"], text=True).strip(), flush=True)
@@ -175,8 +221,32 @@ def report_tools() -> None:
                   "ready (Python OCR)" if python_ocr else
                   "missing; install the Python requirements or Poppler and Tesseract")
     print("  Scanned PDF OCR: " + ocr_status, flush=True)
-    print("  AI: " + (", ".join(available) if available else "no configured provider; add a key or sign in to a supported CLI"), flush=True)
+    report_ai(ready)
     print("  Setup: see README.md for installation links and provider setup.\n", flush=True)
+
+
+def report_ai(ready: dict) -> None:
+    """Which AI apps the dashboard found, and the one command that adds a recommended one."""
+    from backend.ai import antigravity, claude_code, codex, kimi_cli, provider_label
+
+    local = (claude_code, antigravity, codex, kimi_cli)
+    shell = "PowerShell" if os.name == "nt" else "Terminal"
+    print("  AI apps (no API key needed; the dashboard uses whichever one is signed in):", flush=True)
+    for module in local:
+        label = provider_label(module.ID)
+        if module.available():
+            print(f"    {label}: found", flush=True)
+        elif hasattr(module, "install_command"):
+            # Claude Code and Antigravity are the recommended ones, so their install line is always shown.
+            print(f"    {label}: not found. To add it, run in {shell}: {module.install_command()}", flush=True)
+            print(f"      then: {module.SIGN_IN}", flush=True)
+    skip = {module.ID for module in local} | {"auto", "demo"}
+    keyed = [provider_label(pid) for pid, ok in ready.items() if ok and pid not in skip]
+    if keyed:
+        print("  API keys: " + ", ".join(keyed), flush=True)
+    if not any(module.available() for module in local) and not keyed:
+        print("  No AI is ready yet. Add Claude Code or Antigravity with a command above and sign in once;"
+              " the dashboard's first page connects by itself.", flush=True)
 
 
 def main() -> int:
@@ -185,6 +255,8 @@ def main() -> int:
     parser.add_argument("--_report-only", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--_tectonic", action="store_true", help=argparse.SUPPRESS)
     args, server_args = parser.parse_known_args()
+    global OFFER_INSTALLS
+    OFFER_INSTALLS = not args.preflight_only
     try:
         if args._report_only:
             report_tools()

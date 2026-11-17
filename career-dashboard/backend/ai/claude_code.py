@@ -34,15 +34,34 @@ NOTE = ("Runs through the Claude Code CLI on this machine, signed in to your Cla
         "subscription. No API key; calls count against the plan's usage limits.")
 
 # Where the CLI lives when it is not on PATH. Each pattern may match several
-# versions; the newest wins.
+# versions; the newest wins. A plain literal: `career doctor` reads it without importing the app.
 BUNDLED = (
-    "~/.claude/local/claude",
-    "~/.vscode/extensions/anthropic.claude-code-*/resources/native-binary/claude",
-    # Windows: the VS Code extension's binary and the native installer's.
-    "~/.vscode/extensions/anthropic.claude-code-*/resources/native-binary/claude.exe",
+    # The native installer's binary (Windows, then macOS and Linux) and the older local install.
     "~/.local/bin/claude.exe",
+    "~/.local/bin/claude",
+    "~/.claude/local/claude",
+    # The Claude Code extension's own copy in VS Code and the editors built on it:
+    # claude on macOS and Linux, claude.exe on Windows.
+    "~/.vscode/extensions/anthropic.claude-code-*/resources/native-binary/claude",
+    "~/.vscode/extensions/anthropic.claude-code-*/resources/native-binary/claude.exe",
+    "~/.vscode-insiders/extensions/anthropic.claude-code-*/resources/native-binary/claude",
+    "~/.vscode-insiders/extensions/anthropic.claude-code-*/resources/native-binary/claude.exe",
+    "~/.cursor/extensions/anthropic.claude-code-*/resources/native-binary/claude",
+    "~/.cursor/extensions/anthropic.claude-code-*/resources/native-binary/claude.exe",
+    "~/.windsurf/extensions/anthropic.claude-code-*/resources/native-binary/claude",
+    "~/.windsurf/extensions/anthropic.claude-code-*/resources/native-binary/claude.exe",
+    "~/.antigravity/extensions/anthropic.claude-code-*/resources/native-binary/claude",
+    "~/.antigravity/extensions/anthropic.claude-code-*/resources/native-binary/claude.exe",
     "~/Library/Application Support/Claude/claude-code/*/claude.app/Contents/MacOS/claude",
 )
+# The official native installer (docs.claude.com, Claude Code setup).
+INSTALL = {"windows": "irm https://claude.ai/install.ps1 | iex",
+           "other": "curl -fsSL https://claude.ai/install.sh | bash"}
+SIGN_IN = "Run `claude` once in a terminal and sign in with your Claude account."
+
+
+def install_command() -> str:
+    return INSTALL["windows" if os.name == "nt" else "other"]
 
 # Seconds before a call is abandoned. Web research takes longer than a rewrite.
 TIMEOUT = {"web": 900, "text": 600}
@@ -68,7 +87,9 @@ def find_cli() -> Path | None:
     if on_path:
         return Path(on_path)
     for pattern in BUNDLED:
-        matches = [m for m in glob.glob(os.path.expanduser(pattern)) if os.access(m, os.X_OK)]
+        matches = [m for m in glob.glob(os.path.expanduser(pattern)) if os.access(m, os.X_OK)
+                   # Windows can only start the .exe; a bare `claude` there is a script for another system.
+                   and (os.name != "nt" or m.casefold().endswith(".exe"))]
         if matches:
             return Path(max(matches, key=_version))
     return None

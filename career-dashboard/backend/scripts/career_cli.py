@@ -19,6 +19,9 @@ AI app opened in this folder. Commands use the selected profile's private databa
   career trace list|show <run>   trace_cli.py: agent run timelines (steps, AI calls, web requests)
   career market status|refresh   market_cli.py: the Tracker's shared store of public postings; refresh reads
                                  the public sources for this computer's profiles (no AI)
+  career morning --profile <id> [--on|--off] [--ready-by 08:00] [--jobs 3] [--min-fit 70]
+                                 morning_cli.py: the dashboard's Morning jobs switch (the PC's task that
+                                 searches overnight) and the overnight hunt's job count, from chat
   career mcp --profile <id> [--host antigravity|claude|codex] [--serve]
                                  print an AI-host connector config, or run the optional local stdio server
   career add --url <link>        career.py: resolve a pasted link to the employer's own posting, then save it
@@ -49,6 +52,7 @@ TARGETS = {
     "trace": SCRIPTS / "trace_cli.py",
     "market": SCRIPTS / "market_cli.py",
     "mcp": SCRIPTS / "mcp_server.py",
+    "morning": SCRIPTS / "morning_cli.py",
 }
 DEFAULT = SCRIPTS / "career.py"
 

@@ -19,10 +19,13 @@ Developers can clone the repository. Keep one person's workspace in each copy to
 simple. A fresh clone contains no profiles or application history.
 
 Follow [Install the dashboard](README.md#install-the-dashboard). On Windows, double-click
-**Start Dashboard.cmd**; on macOS use **Start Dashboard.command**. The launcher installs the
-app's packages (and a pinned Tectonic for resume PDFs, when none is installed) and opens the
-dashboard. Keep the folder outside OneDrive or another sync folder. If no AI is set up yet, the
-first page lets you sign in to an AI app or paste an API key before your documents are read.
+**Start Dashboard.cmd**; on macOS use **Start Dashboard.command**. If Python 3.12 or Node.js is
+missing, the launcher offers to install it first (winget on Windows, Homebrew on macOS) and asks
+before installing anything. It then installs the app's packages (and a pinned Tectonic for resume
+PDFs, when none is installed) and opens the dashboard. Keep the folder outside OneDrive or another
+sync folder. If no AI is set up yet, the first page shows the one install command for Claude Code
+and for Antigravity's `agy` tool, with a Copy button; sign in once and the page connects by
+itself. You can also paste an API key there before your documents are read.
 You only need this setup once. You can then use chat for daily work; the existing dashboard is
 there whenever you want it.
 
@@ -30,9 +33,9 @@ there whenever you want it.
 
 | Your AI app | Connect this workspace |
 |---|---|
-| Google Antigravity | Open this folder with its agent, or use the optional MCP connector below. Its `agy` CLI supports the app's no-API-key provider path. |
+| Google Antigravity | Open this folder in Antigravity; its agent reads AGENTS.md and the skills in .agents/skills/ by itself. For the app's own AI steps, install the `agy` command-line tool (Windows PowerShell: `irm https://antigravity.google/cli/install.ps1 \| iex`; macOS/Linux: `curl -fsSL https://antigravity.google/cli/install.sh \| bash`) and run `agy` once to sign in. The desktop app alone does not include it. See [Google Antigravity, step by step](#google-antigravity-step-by-step). |
 | ChatGPT desktop with local project / Codex access | Add this folder to a local project and make it the primary folder. Its AGENTS.md and shared skills guide the work. |
-| Claude Code | Open this folder. CLAUDE.md loads the same instructions and .claude/skills/ points to the shared skills. |
+| Claude Code | Open this folder. CLAUDE.md loads the same instructions and .claude/skills/ points to the shared skills. The app finds the `claude` tool from the native installer or from the Claude Code extension in VS Code, Cursor, Windsurf or Antigravity. |
 | Claude desktop / Cowork | Give the task access to this folder and say “Follow AGENTS.md.” Check whether its environment can run the local app; folder access alone does not prove that. |
 | Kimi Code | Start in this folder and say “Follow AGENTS.md.” Its project skills use .agents/skills/. |
 
@@ -103,9 +106,11 @@ resumes. **my-jobs/** is only for the separate AI-only fallback.
 Say **“Set up my morning jobs: 5 jobs by 07:30 in my timezone.”** The assistant confirms the
 timezone and records the exact profile ID. There are two parts:
 
-1. **Prepare the jobs:** on Windows enable **Settings → This profile → Morning jobs** in the
-   dashboard. This runs the overnight search and writes the morning list. Keep the PC available.
-   Other systems can use an OS or AI-host scheduler with the commands in
+1. **Prepare the jobs:** on Windows the assistant runs
+   `career morning --profile <id> --on --ready-by 07:15 --jobs 5` after asking you (the same
+   switch as **Settings → This profile → Morning jobs** in the dashboard). The PC's task searches
+   overnight and writes the morning list, each job with its own tailored resume. Leave the PC on
+   or asleep, not shut down. Other systems can use an OS or AI-host scheduler with the commands in
    [AUTOPILOT.md](daily-job-search/AUTOPILOT.md).
 2. **Bring the result into chat:** create a daily scheduled task in your AI host, using this
    original local folder and the prompt below. Replace `<id>` with your saved profile ID.
@@ -117,6 +122,10 @@ up to 5 checked jobs with apply links and their current tailored resumes. State 
 ready count, pending work and blockers. Do not apply, contact anyone or change my profile.
 ```
 
+- **Google Antigravity:** the assistant creates a daily automation with Antigravity's built-in
+  `/automation` flow and offers a test run, which records the two commands the morning prompt
+  needs (scheduled runs refuse any other command). Then switch it on in Antigravity's
+  **Automations** dashboard. Keep the Antigravity app open at that time.
 - **ChatGPT desktop / Codex:** use **Scheduled** (older versions: Automations) and choose local
   execution in this project. An isolated Git worktree lacks your ignored profile and resumes.
   Keep the computer on and the app running. Web-only tasks cannot run this local folder.
@@ -129,6 +138,38 @@ ready count, pending work and blockers. Do not apply, contact anyone or change m
 
 Run the scheduled prompt once manually, then check that the task is saved and its first result
 arrives. The local app writes files; it does not by itself send a ChatGPT, Claude or Kimi message.
+
+## Google Antigravity, step by step
+
+Antigravity's agent reads this folder's AGENTS.md and the skills in `.agents/skills/` without any
+extra setup. Two things it does not do by itself: the app's own AI steps (reading your CV,
+tailoring resumes) need Antigravity's `agy` command-line tool, and a daily message needs an
+Antigravity automation that you switch on.
+
+1. Clone this repository into a new local folder (for example `C:\CareerWorkspace`, not inside
+   OneDrive) and open that folder in Antigravity. One person per copy.
+2. Double-click **Start Dashboard.cmd** once (macOS: `bash "Start Dashboard.command"`). It offers
+   to install Python 3.12 and Node.js if they are missing and installs the app's packages.
+3. In PowerShell run `irm https://antigravity.google/cli/install.ps1 | iex` (macOS/Linux:
+   `curl -fsSL https://antigravity.google/cli/install.sh | bash`), then run `agy` once and sign in
+   with Google. Your Antigravity editor sign-in does not sign in this tool. Steps that search the
+   web (company research, AI job searches) are skipped on `agy`; the job boards and employer
+   feeds still run. Claude Code, Codex or Kimi Code, if you have one, adds those web steps.
+4. Put your CV (PDF, DOCX, TXT or Markdown) in `me/`.
+5. In the Antigravity agent chat, paste:
+
+   ```text
+   Follow AGENTS.md. Fit this application automation to my profile.
+   1. Run the doctor, then set me up from my CV in me/. Ask me only what my documents do not say.
+   2. Then set up my mornings: by 08:00 Europe/Dublin every day, 3 new checked jobs, each with its
+      own tailored resume. Ask before you switch on the overnight search with career morning, then
+      create the 08:00 Antigravity automation and run its test once.
+   Never apply, email or contact anyone for me.
+   ```
+
+6. Answer its questions (permission to work, target roles). When it says the automation is
+   created, open Antigravity's **Automations** dashboard and switch it on. Leave the PC on or
+   asleep overnight and Antigravity open at 08:00.
 
 ## Optional: connect the app through MCP
 

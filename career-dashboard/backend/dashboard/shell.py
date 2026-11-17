@@ -318,31 +318,14 @@ def create_shell(profiles: ProfileStore | None = None, schedule: bool = False, f
     def get_schedule(profile_id: str):
         from backend.services import schedule_tasks
 
-        profile = profiles.get(profile_id)
-        saved = profile.get("schedule") or {}
-        ready_by = saved.get("ready_by") or schedule_tasks.READY_BY
-        task = schedule_tasks.morning_status()
-        note = schedule_tasks.unsupported_note() if task.get("supported") is False else saved.get("note", "")
-        return {"enabled": bool(saved.get("enabled")), "ready_by": ready_by,
-                "night_start": schedule_tasks.night_start(ready_by), "note": note,
-                "list": f"{profile_id}/daily-job-search/MORNING-JOBS.md", **task}
+        return schedule_tasks.profile_status(profiles, profile_id)
 
     @api.put("/api/profiles/{profile_id}/schedule")
     def set_schedule(profile_id: str, data: ScheduleToggle):
         from backend.services import schedule_tasks
 
-        profile = profiles.get(profile_id)
-        if profile["state"] != "ready":
-            raise ProfileError("Build this profile's workspace first; its morning jobs start after that.")
-        saved = profile.get("schedule") or {}
-        chosen = {"enabled": data.enabled, "ready_by": data.ready_by or saved.get("ready_by") or schedule_tasks.READY_BY}
-        profiles.update(profile_id, schedule=chosen)
-        result = schedule_tasks.sync(profiles)
-        note = "" if result.get("installed") or result.get("removed") else result.get("note", "")
-        if data.enabled and not result.get("installed"):
-            note = result.get("note") or "Task Scheduler did not take the task."
-        profiles.update(profile_id, schedule={**chosen, "note": note})
-        return get_schedule(profile_id)
+        # The same switch `career morning` turns from chat (backend/scripts/morning_cli.py).
+        return schedule_tasks.set_profile(profiles, profile_id, enabled=data.enabled, ready_by=data.ready_by)
 
     # ---- the intake for new profiles (backend/services/intake) ---------------
     from backend.services.intake.api import attach_intake

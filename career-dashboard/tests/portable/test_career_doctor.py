@@ -84,7 +84,7 @@ def test_multiple_profiles_require_selection_without_reading_candidate_files(tmp
 
     def guarded_read(target, *args, **kwargs):
         # The public permit-rules file and the app's own AI-client code are never candidate data.
-        allowed = {path, doctor.PERMIT_RULES, *(source for source, _ in doctor.CLI_SOURCES.values())}
+        allowed = {path, doctor.PERMIT_RULES, *(entry[0] for entry in doctor.CLI_SOURCES.values())}
         assert target in allowed, "Only registry metadata may be opened"
         return real_read(target, *args, **kwargs)
 
@@ -200,7 +200,7 @@ def test_sponsor_cli_uses_selected_profile_authorization(tmp_path, monkeypatch, 
 
 def test_bundled_ai_clis_are_found_where_the_app_looks(tmp_path, monkeypatch):
     monkeypatch.setattr(doctor, "executable", lambda name: False)
-    for _, variable in doctor.CLI_SOURCES.values():
+    for _, variable, _command in doctor.CLI_SOURCES.values():
         monkeypatch.delenv(variable, raising=False)
     monkeypatch.setattr(doctor, "bundled_locations", lambda source: [str(tmp_path / "bundle" / "*" / "claude.exe")]
                         if source.name == "claude_code.py" else [])
@@ -214,6 +214,29 @@ def test_bundled_ai_clis_are_found_where_the_app_looks(tmp_path, monkeypatch):
 def test_the_app_knows_bundled_locations_from_source():
     patterns = doctor.bundled_locations(doctor.CLI_SOURCES["claude"][0])
     assert patterns and all(isinstance(p, str) for p in patterns)
+
+
+def test_antigravity_counts_only_when_its_agy_tool_is_there(tmp_path, monkeypatch):
+    # The editor's own `antigravity` launcher cannot answer the app; only `agy` can.
+    monkeypatch.setattr(doctor, "bundled_locations", lambda source: [])
+    monkeypatch.delenv("AGY_CLI", raising=False)
+    monkeypatch.setattr(doctor, "executable", lambda name: name == "antigravity")
+    assert not doctor.cli_available("antigravity")
+    monkeypatch.setattr(doctor, "executable", lambda name: name == "agy")
+    assert doctor.cli_available("antigravity")
+
+
+def test_no_ai_tool_gives_the_official_install_commands(tmp_path, installed, monkeypatch):
+    from backend.ai import antigravity, claude_code
+
+    monkeypatch.setattr(doctor, "cli_available", lambda name: False)
+    assert doctor.install_command("antigravity") == antigravity.install_command()
+    assert doctor.install_command("claude") == claude_code.install_command()
+    result = doctor.report(tmp_path / "profiles")
+    hint = next(a["message"] for a in result["next_actions"] if a["code"] == "install_ai_cli")
+    assert antigravity.install_command() in hint and claude_code.install_command() in hint
+    monkeypatch.setattr(doctor, "cli_available", lambda name: name == "kimi")
+    assert "install_ai_cli" not in action_codes(doctor.report(tmp_path / "profiles"))
 
 
 def test_a_onedrive_workspace_is_flagged_without_printing_its_path(tmp_path, installed, monkeypatch):

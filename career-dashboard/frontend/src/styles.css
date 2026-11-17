@@ -7539,8 +7539,39 @@ nav button:disabled {
   min-width: 200px;
   flex: 1 1 200px;
 }
-.ai-setup .small.success {
+.ai-setup .small.success,
+.ai-setup.small.success {
   color: #1d6b45;
+}
+.ai-setup-steps {
+  margin: 4px 0 6px;
+}
+.ai-setup-command {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  vertical-align: middle;
+}
+/* One line, scrolled sideways on a phone, so the command reads exactly as it is pasted. */
+.ai-setup-command code {
+  min-width: 0;
+  overflow-x: auto;
+  white-space: nowrap;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(127, 127, 127, 0.12);
+  font-size: 0.85em;
+}
+.ai-setup-command .text-button {
+  flex: none;
+}
+.ai-setup-then {
+  display: block;
+  margin-top: 2px;
+}
+.ai-setup-list small code {
+  font-size: 0.95em;
 }
 .ai-setup .small.error {
   padding: 6px 8px;

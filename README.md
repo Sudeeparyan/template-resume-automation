@@ -29,7 +29,7 @@ There are two ways to use it, and they work together:
 | | Just an AI app | AI app + the dashboard |
 |---|---|---|
 | For | anyone, nothing to install | the strongest results, or developers |
-| You need | Claude (desktop app), ChatGPT (Codex app) or Kimi (Kimi Code) | the same, plus Python and Node.js on your computer (the launcher fetches Tectonic) |
+| You need | Claude (desktop app), ChatGPT (Codex app) or Kimi (Kimi Code) | the same, plus Python and Node.js on your computer (the launcher offers to install them and fetches Tectonic) |
 | Jobs come from | the AI's web search and job-board connectors | EURES / JobsIreland vacancies, Irish employers' own job feeds (a verified directory plus the boards of employers in DETE's permit statistics), Irish graduate boards, then focused AI searches, overnight |
 | Resumes | written and checked by the AI (PDF and Word) | the evidence registry, Resume Studio and a validated PDF at an exact page count, with a Word copy of the same checked revision and an evidence-checked cover letter (Markdown and Word) |
 | Start | fallback when the local app cannot run; separate files and tracker | [install the dashboard](#install-the-dashboard), then **[START-HERE.md](START-HERE.md)** |
@@ -42,10 +42,22 @@ AI-only output is not automatically imported into the dashboard.
 
 ## Quick start (Ireland)
 
-1. Install Python 3.12 and Node.js 20+ (below), keep this folder **outside OneDrive**, and
-   double-click **Start Dashboard.cmd** (macOS: `bash "Start Dashboard.command"`).
-2. On the first page, set up an AI if none is ready: sign in to Antigravity, Claude Code, Codex or Kimi Code
-   on this computer, or paste an API key (saved in `career-dashboard/.env`, tested on the spot).
+1. Keep this folder **outside OneDrive** and double-click **Start Dashboard.cmd** (macOS:
+   `bash "Start Dashboard.command"`). If Python 3.12 or Node.js is missing, the launcher offers to
+   install it (Windows: winget; macOS: Homebrew) and asks first.
+2. Connect an AI app you already pay for; no API key is needed. Install one in a terminal
+   (Windows: PowerShell; macOS: Terminal), then run it once and sign in:
+   - **Claude Code**: `irm https://claude.ai/install.ps1 | iex` on Windows,
+     `curl -fsSL https://claude.ai/install.sh | bash` on macOS/Linux; then run `claude`.
+   - **Antigravity**: `irm https://antigravity.google/cli/install.ps1 | iex` on Windows,
+     `curl -fsSL https://antigravity.google/cli/install.sh | bash` on macOS/Linux; then run `agy`
+     and sign in with Google. The Antigravity desktop app alone is not enough: the dashboard runs
+     this `agy` command-line tool. Antigravity covers the writing and reading steps; steps that
+     search the web (company research, AI job discovery) need Claude Code, Codex or Kimi Code.
+
+   The dashboard's first page finds the app by itself and shows these commands with a Copy
+   button. Codex and Kimi Code work too, or paste an API key under **Advanced** (saved in
+   `career-dashboard/.env`, tested on the spot).
 3. Add your CV, then in **Build settings** confirm your permission to work in Ireland (for
    example Stamp 1G and its exact expiry day), your degree's award date and NFQ level, and
    whether to search graduate and entry-level roles. Select **Build Agent for You**.
@@ -61,10 +73,12 @@ AI-only output is not automatically imported into the dashboard.
 
 ## Install the dashboard
 
-1. Install [Python 3.12](https://www.python.org/downloads/) and
-   [Node.js 20 or newer](https://nodejs.org/en/download). It must be 3.12, not the newest Python
-   that the download page offers first: the OCR packages need 3.12. On Windows, install Python
-   with its `py` launcher. On macOS, make sure `python3.12` is on `PATH`.
+1. The launcher needs [Python 3.12](https://www.python.org/downloads/) and
+   [Node.js 20 or newer](https://nodejs.org/en/download). When either is missing it offers to
+   install it (Windows: winget, built into Windows 10 and 11; macOS: Homebrew, when installed) and
+   installs nothing without your yes. To install them yourself: it must be 3.12, not the newest
+   Python that the download page offers first, because the OCR packages need 3.12. On Windows,
+   install Python with its `py` launcher. On macOS, make sure `python3.12` is on `PATH`.
 2. Resume PDFs need [Tectonic](https://tectonic-typesetting.github.io/book/latest/installation/).
    If none is installed, the launcher downloads a pinned release into `career-dashboard/backend/.tools`
    and checks it against its published SHA-256 first. Scanned PDF OCR is included in the Python
@@ -77,7 +91,8 @@ AI-only output is not automatically imported into the dashboard.
    AI providers are ready, builds the web client, then opens the app on `127.0.0.1:8000`.
 4. The app's AI steps use an AI app signed in on this computer (Antigravity, Claude Code, Codex or Kimi Code)
    or an API key. When none is ready, the new-profile page shows **First, an AI to read your
-   documents**: sign in to an app and press *Check again*, or paste a key, which is saved in
+   documents** with the install command for each app: install one, sign in, and the page
+   connects by itself (or press *Check again*). Or paste a key, which is saved in
    `career-dashboard/.env` and tested at once. API keys are under **Advanced** and are not required
    for a supported subscription CLI. New profiles have **Paid AI calls a day = 0** unless you opt in.
    (Copying `career-dashboard/.env.example` to `career-dashboard/.env` by hand also works.) The `.env` file and each profile folder stay on

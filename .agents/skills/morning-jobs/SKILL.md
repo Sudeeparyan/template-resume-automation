@@ -3,7 +3,8 @@ name: morning-jobs
 description: >-
   The person's morning list: new checked jobs with apply links and tailored resumes, jobs still to
   apply for, and anything they must do. Use for "today's jobs", "my morning list", a scheduled
-  morning run, and to set up "send me jobs every morning" in Claude, ChatGPT (Codex) or Kimi.
+  morning run, and to set up "send me jobs every morning" in Claude, ChatGPT (Codex), Antigravity
+  or Kimi.
 ---
 
 # Morning jobs
@@ -13,7 +14,7 @@ Read `AGENTS.md` first.
 ## When a scheduled task (or the person) asks for this morning's jobs
 
 **App mode.** The app searches overnight when Morning jobs is switched on (Settings → This
-profile) or when the AI app's evening task starts it.
+profile, or `career morning --profile <id> --on`) or when the AI app's evening task starts it.
 
 Read `career ws summary --profile <id>` each run for the current dashboard state. The morning
 list must be refreshed from that same profile's database before answering.
@@ -69,9 +70,27 @@ email anyone else and never attach anything but their own resume PDFs.
 1. Make sure setup is done (`career-setup`) and `me/about-me.md` has the number of jobs, the time
    and the email choice. Confirm the timezone and exact profile ID. Use the original local
    folder: an isolated Git worktree does not contain ignored profiles, resumes or history.
-2. Give them the task for their app, with the prompt below. Offer to create it when your app can
-   create scheduled tasks itself; otherwise walk them through it in three steps.
+2. **App mode: switch on the overnight search.** Ask before changing it, then run
+   `career morning --profile <id> --on --ready-by <HH:MM> --jobs <n>`, with the ready-by time 15
+   minutes before they want the message (a message at 08:00 needs `--ready-by 07:45`). This is the
+   dashboard's Settings → Morning jobs switch: one Windows task that searches overnight, prepares
+   `<n>` jobs end to end (each with its own tailored resume) and writes the list. Read the JSON:
+   success is `morning_jobs.enabled` and `morning_jobs.exists` both true; report `night_start`, and
+   tell them to leave the PC on or asleep (not shut down) and plugged in overnight. With
+   `supported: false` (macOS, Linux), the job count is still saved; add the evening task in step 5. Run
+   `career morning --profile <id>` at any time to show the current settings.
+3. **Bring the list into chat.** Give them the task for their app, with the prompt below. Offer to
+   create it when your app can create scheduled tasks itself; otherwise walk them through it.
 
+   - **Google Antigravity:** use its built-in scheduled automation (its `automation` skill or
+     the `/automation` command): daily at the message time, in their IANA timezone (Ireland:
+     `CRON_TZ=Europe/Dublin 0 8 * * *`), with the prompt below and read and write access to this
+     folder (`workspace_uris`: this folder's `file:///` address). Offer the test run Antigravity
+     suggests: scheduled runs auto-deny every command not recorded then, so the run must use
+     exactly `.\career.cmd ws summary --profile <id>` and
+     `daily-job-search\morning-jobs.cmd --list-only --profile <id>`. The person switches it on
+     in Antigravity's **Automations** dashboard; never enable it for them. The Antigravity app
+     must be open at that time.
    - **Claude desktop app (Cowork):** use Scheduled with this folder, the prompt and a daily
      time. Check that the scheduled environment can run `career doctor`; if it cannot, it
      cannot drive the installed app. See the official guide linked in `START-HERE.md`.
@@ -81,8 +100,8 @@ email anyone else and never attach anything but their own resume PDFs.
    - **Kimi Code:** use a scheduling facility only if the installed host exposes and confirms
      one. Otherwise use the app's Windows Morning jobs setting or an OS scheduler running
      the morning command. A natural-language request alone does not create a persistent task.
-   - **Windows with the dashboard installed:** Settings → This profile → **Morning jobs** also
-     searches overnight by itself; the AI app's task then only has to bring the list.
+   - **Windows with the dashboard installed:** step 2's switch (also Settings → This profile →
+     **Morning jobs**) searches overnight by itself; the AI app's task only brings the list.
 
    The computer must be on and the AI app open at that time for tasks that use this folder.
    The app's Windows task writes files; a host scheduled task produces the chat message.
@@ -90,16 +109,17 @@ email anyone else and never attach anything but their own resume PDFs.
    Test the prompt once and verify the saved task, schedule and result. If no scheduler tool
    is available, provide instructions and say it has not been created.
 
-3. The prompt to schedule (the same in every app):
+4. The prompt to schedule (the same in every app; put in their profile ID and job count):
 
    ```text
    Morning jobs for profile <id>. Use this original local project folder. Follow AGENTS.md and
    the morning-jobs skill. Refresh and read only this profile's saved morning list. Bring me
-   up to 5 checked jobs with apply links and their current tailored resumes. State the actual
-   ready count, pending work and blockers. Do not apply, contact anyone or change my profile.
+   up to <n> checked jobs, each with its company, apply link and its own tailored resume. State
+   the actual ready count, pending work and blockers. Do not apply, contact anyone or change my
+   profile.
    ```
 
-4. Optional, App mode without the Windows task (for example on macOS): add an evening task at
+5. Optional, App mode without the Windows task (for example on macOS): add an evening task at
    23:00 with this prompt, so the search runs overnight:
 
    ```text

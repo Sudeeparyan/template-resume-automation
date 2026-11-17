@@ -184,3 +184,32 @@ def sync(profiles) -> dict:
         return {"installed": False, **remove_morning()}
     ready_by = min((p.get("schedule") or {}).get("ready_by") or READY_BY for p in enabled)
     return install_morning(ready_by)
+
+
+def profile_status(profiles, profile_id: str) -> dict:
+    """One profile's Morning jobs switch, its ready-by time and the PC's task, as the dashboard shows them."""
+    profile = profiles.get(profile_id)
+    saved = profile.get("schedule") or {}
+    ready_by = saved.get("ready_by") or READY_BY
+    task = morning_status()
+    note = unsupported_note() if task.get("supported") is False else saved.get("note", "")
+    return {"enabled": bool(saved.get("enabled")), "ready_by": ready_by, "night_start": night_start(ready_by),
+            "note": note, "list": f"{profile_id}/daily-job-search/MORNING-JOBS.md", **task}
+
+
+def set_profile(profiles, profile_id: str, *, enabled: bool, ready_by: str | None = None) -> dict:
+    """Switch one profile's Morning jobs on or off (the dashboard's Settings and `career morning`)."""
+    from backend.profiles import ProfileError
+
+    profile = profiles.get(profile_id)
+    if profile["state"] != "ready":
+        raise ProfileError("Build this profile's workspace first; its morning jobs start after that.")
+    saved = profile.get("schedule") or {}
+    chosen = {"enabled": bool(enabled), "ready_by": valid_time(ready_by or saved.get("ready_by") or READY_BY)}
+    profiles.update(profile_id, schedule=chosen)
+    result = sync(profiles)
+    note = "" if result.get("installed") or result.get("removed") else result.get("note", "")
+    if enabled and not result.get("installed"):
+        note = result.get("note") or "Task Scheduler did not take the task."
+    profiles.update(profile_id, schedule={**chosen, "note": note})
+    return profile_status(profiles, profile_id)

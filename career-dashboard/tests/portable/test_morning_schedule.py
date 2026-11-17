@@ -71,3 +71,67 @@ def test_the_switch_in_settings_keeps_one_task_in_step_with_every_profile(tmp_pa
         assert "Unregister-ScheduledTask" in no_task_scheduler[-2] and "'Career Morning Jobs'" in no_task_scheduler[-2]
 
         assert client.put("/api/profiles/ana/schedule", json={"enabled": True, "ready_by": "25:00"}).status_code == 422
+
+
+def run_morning(store, capsys, *argv):
+    from backend.scripts import morning_cli
+
+    for profile in store.list():
+        # A built profile has its synthetic profile and evidence files.
+        root = store.root_for(profile["id"])
+        if not (root / "data/config/profile.yml").exists():
+            (root / "data/config").mkdir(parents=True, exist_ok=True)
+            (root / "data/context").mkdir(parents=True, exist_ok=True)
+            (root / "data/config/profile.yml").write_text(
+                "country_pack: ie\ntarget_markets: [ie]\ncandidate:\n  full_name: " + profile["name"] + "\n",
+                encoding="utf-8")
+            (root / "data/context/evidence.yml").write_text("claims: []\nprojects: []\n", encoding="utf-8")
+    code = morning_cli.main(list(argv), profiles=store)
+    return code, json.loads(capsys.readouterr().out)
+
+
+def test_career_morning_sets_the_same_switch_and_the_hunt_count_from_chat(tmp_path, monkeypatch, capsys,
+                                                                          no_task_scheduler):
+    monkeypatch.setattr(schedule_tasks, "supported", lambda: True)
+    store = two_ready_profiles(tmp_path)
+
+    code, shown = run_morning(store, capsys, "--profile", "ana")
+    assert code == 0 and shown["morning_jobs"]["enabled"] is False and shown["jobs_per_morning"] == 10
+    assert not [s for s in no_task_scheduler if "Register-ScheduledTask" in s]
+
+    code, on = run_morning(store, capsys, "--profile", "ana", "--on", "--ready-by", "8:00", "--jobs", "3")
+    assert code == 0 and on["morning_jobs"]["enabled"] and on["morning_jobs"]["ready_by"] == "08:00"
+    assert on["morning_jobs"]["night_start"] == "00:30" and on["jobs_per_morning"] == 3
+    assert "-At '08:00'" in [s for s in no_task_scheduler if "Register-ScheduledTask" in s][-1]
+    assert store.get("ana")["schedule"] == {"enabled": True, "ready_by": "08:00", "note": ""}
+
+    # The count is the overnight hunt's own saved setting, so the dashboard shows the same number.
+    from career import Workspace
+    from backend.services.workspace_v2 import CareerServices
+
+    saved = CareerServices(Workspace(store.root_for("ana"))).pref("hunt_preferences")
+    assert saved["target"] == 3
+
+    # A new time alone keeps the switch on; --off removes the PC's task when no profile wants it.
+    code, later = run_morning(store, capsys, "--profile", "ana", "--ready-by", "07:30")
+    assert later["morning_jobs"]["enabled"] and later["morning_jobs"]["ready_by"] == "07:30"
+    code, off = run_morning(store, capsys, "--profile", "ana", "--off")
+    assert code == 0 and off["morning_jobs"]["enabled"] is False
+    assert "Unregister-ScheduledTask" in no_task_scheduler[-2]
+    assert store.get("ben").get("schedule") is None
+
+
+def test_career_morning_refuses_an_unbuilt_or_unknown_profile_and_bad_values(tmp_path, monkeypatch, capsys,
+                                                                             no_task_scheduler):
+    import pytest
+
+    store = two_ready_profiles(tmp_path)
+    store.update("ben", state="onboarding")
+    code, refused = run_morning(store, capsys, "--profile", "ben", "--on")
+    assert code == 2 and "Build this profile first" in refused["error"]
+    code, unknown = run_morning(store, capsys, "--profile", "nobody")
+    assert code == 2 and unknown["ok"] is False
+    for bad in (["--jobs", "0"], ["--min-fit", "40"], ["--ready-by", "25:00"], ["--on", "--off"]):
+        with pytest.raises(SystemExit):
+            run_morning(store, capsys, "--profile", "ana", *bad)
+    assert not [s for s in no_task_scheduler if "Register-ScheduledTask" in s]

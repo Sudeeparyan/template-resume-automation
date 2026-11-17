@@ -1,8 +1,9 @@
 # Career workspace: instructions for every AI app
 
 This folder helps a person find real jobs and make an honest, tailored resume for each. Claude
-(Cowork or Claude Code), ChatGPT's Codex app, Kimi Code and any other AI app that reads this file
-follow the same rules and the same skills in `.agents/skills/`. Work only inside this folder.
+(Cowork or Claude Code), ChatGPT's Codex app, Google Antigravity, Kimi Code and any other AI app
+that reads this file follow the same rules and the same skills in `.agents/skills/`. Work only
+inside this folder.
 
 ## Start every conversation here
 
@@ -32,6 +33,7 @@ follow the same rules and the same skills in `.agents/skills/`. Work only inside
 | They say | Read |
 |---|---|
 | "set me up", "here is my resume", or a first message in a new copy | `.agents/skills/career-setup/SKILL.md` |
+| "fit this automation to my profile", "set everything up", "N jobs with resumes every morning by 8" | `career-setup`, then the "every morning" part of `morning-jobs`, in the same conversation |
 | "give me 5 jobs with resumes", "find jobs", "more jobs" | `.agents/skills/find-jobs/SKILL.md` |
 | "make a resume for this job", a pasted posting or link | `.agents/skills/tailor-resume/SKILL.md` |
 | "today's jobs", "my morning list", "send me jobs every morning", a scheduled run | `.agents/skills/morning-jobs/SKILL.md` |

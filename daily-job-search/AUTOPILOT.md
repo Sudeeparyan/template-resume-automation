@@ -7,7 +7,9 @@ even when something went wrong in the night.
 
 Open the dashboard, go to **Settings → This profile**, switch on **Morning jobs** and pick a
 **Ready by** time (09:00 by default). That creates one Windows scheduled task, *Career Morning
-Jobs*, for the whole PC. The task:
+Jobs*, for the whole PC. An AI app can flip the same switch from chat:
+`career morning --profile <id> --on --ready-by 08:00 --jobs 3` (`career morning --profile <id>`
+shows the settings; `--off` switches it off). The task:
 
 - starts the **overnight hunt** 7½ hours before the ready-by time (01:30 for 09:00). The hunt runs
   every enabled profile in turn and ends 15 minutes before the ready-by time;
@@ -89,7 +91,7 @@ Windows: `daily-job-search\morning-jobs.cmd`. macOS: `bash daily-job-search/morn
 
 Running it twice is safe. A second run while one is working only rewrites the list.
 
-## Using an AI app's scheduler (Claude Cowork, Codex, Kimi)
+## Using an AI app's scheduler (Antigravity, Claude Cowork, Codex, Kimi)
 
 Point the AI app at this folder and create scheduled tasks with these prompts (the steps for each
 app are in [START-HERE.md](../START-HERE.md)). With the Windows task switched on, you only need the
