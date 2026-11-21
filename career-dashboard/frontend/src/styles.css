@@ -8414,3 +8414,61 @@ nav button:disabled {
     align-items: stretch;
   }
 }
+
+/* ---- Requirement match: score breakdown and "I have this" -------------------------------- */
+.score-breakdown {
+  display: grid;
+  gap: 7px;
+  margin: 4px 0 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--border-soft);
+  border-radius: 10px;
+  background: var(--surface-2);
+}
+.score-row {
+  display: grid;
+  grid-template-columns: 150px 1fr 54px;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--text-2);
+}
+.score-row b {
+  text-align: right;
+  font-size: 13px;
+  color: var(--text);
+}
+.score-row b small {
+  font-weight: 400;
+  color: var(--text-subtle);
+}
+.score-track {
+  height: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--surface-4);
+}
+.score-track span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--success);
+}
+.fit-cap {
+  margin: 4px 0 0;
+  color: var(--warning-text);
+}
+.fit-item {
+  position: relative;
+}
+.fit-have {
+  margin-left: auto;
+  padding: 2px 6px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+@media (max-width: 640px) {
+  .score-row {
+    grid-template-columns: 110px 1fr 46px;
+  }
+}

@@ -7,6 +7,7 @@ import type { Summary, Job } from "../types";
 import { SalaryEvidence } from "./SalaryEvidence";
 import ApplicationPackage from "./ApplicationPackage";
 import { JobInterviews } from "./Interviews";
+import FitCheck from "../features/FitCheck";
 export default function JobDetail({
   job,
   data,
@@ -218,6 +219,7 @@ export default function JobDetail({
       <div className="segmented detail-tabs">
         {[
           ["progress", "Progress"],
+          ["match", "Requirement match"],
           ["interviews", "Interviews"],
           ["research", "Company & hiring review"],
           ["resume", "Original prepared pack"],
@@ -336,6 +338,9 @@ export default function JobDetail({
         </form>
       )}
       {section === "interviews" && <JobInterviews job={job} notify={notify} refresh={refresh} />}
+      {section === "match" && (job.record_source === "gmail"
+        ? <p className="callout">Add the full job posting first: the requirement check reads the posting's own words.</p>
+        : <FitCheck jobId={job.id} notify={notify} />)}
       {section === "description" && (
         <>
           <h3>Saved job description</h3>

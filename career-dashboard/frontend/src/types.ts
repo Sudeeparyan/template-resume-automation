@@ -576,6 +576,8 @@ export type JobFit = {
   provider_label: string;
   score: number;
   components: { requirements: number; role_seniority: number; location: number };
+  /** Met and partly met counts per group (fit.py score). */
+  parts?: Record<FitRequirement["category"], { total: number; met: number; partial: number }>;
   must_have_ok: boolean;
   rationale: string;
   ai_error: string;

@@ -19,6 +19,25 @@ const fit: JobFit = {
   rationale: "Fit 58/100. Meets 1 of 2 must-haves (Python). Missing: Kubernetes.", ai_error: "",
 };
 
+describe("The score breakdown and adding what you have", () => {
+  it("shows how the fit is made from its three parts", () => {
+    const html = renderToStaticMarkup(<FitList fit={fit} />);
+    expect(html).toContain("Requirements met");
+    expect(html).toContain("33<small>/75</small>");
+    expect(html).toContain("15<small>/15</small>");
+    expect(html).toContain("10<small>/10</small>");
+    expect(html).not.toContain("Fewer than half of the must-haves");
+    const low = renderToStaticMarkup(<FitList fit={{ ...fit, must_have_ok: false }} />);
+    expect(low).toContain("Fewer than half of the must-haves");
+  });
+  it("offers 'I have this' only on gaps and partial matches, and only when it can save", () => {
+    expect(renderToStaticMarkup(<FitList fit={fit} />)).not.toContain("I have this");
+    const html = renderToStaticMarkup(<FitList fit={fit} onHaveIt={() => {}} />);
+    // Kubernetes (gap) and the degree (partly), never Python (met).
+    expect(html.match(/I have this/g)?.length).toBe(2);
+  });
+});
+
 describe("The requirement check", () => {
   it("quotes each item from the posting, with the evidence that meets it and the gaps named", () => {
     const html = renderToStaticMarkup(<FitList fit={fit} />);
