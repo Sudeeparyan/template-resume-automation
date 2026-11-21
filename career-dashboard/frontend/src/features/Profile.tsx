@@ -23,6 +23,7 @@ import { api, safeUrl } from "../api";
 import { AskAssistant, Badge, Field, Loading, Modal, RichText } from "../components/UI";
 import type { ProfileData, ProfileEntry, ProfileFieldValue, ProfileSync } from "../types";
 import { DataView, Lines, ProfileEditor, Tags, Value } from "./ProfileParts";
+import ProfileStrength from "./ProfileStrength";
 import {
   asList,
   asText,
@@ -397,6 +398,8 @@ export default function Profile({
           </div>
         </dl>
       </section>
+
+      {data.strength && <ProfileStrength strength={data.strength} onAdd={openAdd} />}
 
       {data.pending.length > 0 && (
         <section className="card spaced profile-pending" role="status">

@@ -378,7 +378,11 @@ export type ProfileData = {
   pending: { id: string; kind: string; title: string; label: string; deleted: boolean; source: string }[];
   revision: number;
   skills: { name: string; purpose: string; path: string }[];
+  /** How ready the profile is for resumes (services/profile_strength.py). */
+  strength?: ProfileStrength;
 };
+export type StrengthCheck = { id: string; label: string; why: string; where: string; done?: boolean; weight?: number };
+export type ProfileStrength = { score: number; checks: StrengthCheck[]; next: StrengthCheck[]; tips: StrengthCheck[] };
 export type AssistantStep = {
   at: string;
   label: string;

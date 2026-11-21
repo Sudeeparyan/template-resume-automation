@@ -314,6 +314,10 @@ def attach(app, workspace, schedule: bool = False):
                        "context": (data.get("resume_content") or {}).get("context") or ", ".join(data.get("technologies") or [])}
             return resume_gap(content, label) or "Not on resumes yet."
 
+        from backend.services import profile_strength
+
+        pending = service.pending_knowledge()
+        strength = profile_strength.score(registry, workspace.profile(), len(pending))
         sources = {}
         # Every readable file in data/context is a source: the profile's 01-09 files, the
         # readable profile, the questions ledger, pending updates and sources/*.md.
@@ -335,8 +339,9 @@ def attach(app, workspace, schedule: bool = False):
             "profile_dirty": service.profile_dirty(),
             "pending": [
                 {**entry, "label": labels.get(entry["id"], entry["title"])}
-                for entry in service.pending_knowledge()
+                for entry in pending
             ],
+            "strength": strength,
             "revision": service.profile_revision(),
             "skills": [
                 {
