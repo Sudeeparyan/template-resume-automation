@@ -23,7 +23,6 @@ import PracticeGuide from "./features/PracticeGuide";
 import { AskContext, Field, Loading, Modal, NoticeContext } from "./components/UI";
 import type { Notify, Toast } from "./components/UI";
 import JobDetail from "./components/JobDetail";
-import { ThemeSwitch } from "./components/ThemeSwitch";
 import { AGENT_LABEL } from "./features/agentWords";
 import Assistant from "./features/Assistant";
 import { PHONE_SHORT, PhoneMore } from "./components/PhoneNav";
@@ -352,7 +351,6 @@ export default function App() {
               Every single day.
             </p>
             <small>Saved locally{current?.market ? ` · ${timeLabel(current.market.timezone)}` : ""}</small>
-            <ThemeSwitch />
           </div>
         </aside>
         <PhoneMore
