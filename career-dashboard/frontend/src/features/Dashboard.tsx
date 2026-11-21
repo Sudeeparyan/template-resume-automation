@@ -12,6 +12,7 @@ import {
   RotateCcw,
   Columns3,
   List,
+  Download,
 } from "lucide-react";
 import { api, fileUrl, safeUrl } from "../api";
 import { AskAssistant, Badge, Empty, Modal, Field, Running } from "../components/UI";
@@ -20,6 +21,7 @@ import { JobFilters, JobList, useJobFilters } from "../components/JobList";
 import ApplicationBoard from "./ApplicationBoard";
 import { InterviewDialog, UpcomingInterviews, nextInterviewByJob } from "../components/Interviews";
 import { FollowUpsCard } from "../components/FollowUps";
+import { documentsUrl } from "../components/YourData";
 import { PlanEditor, WeekCard } from "../components/WeekPlan";
 import { RemoveJobDialog } from "./RemoveJob";
 import { TrackerAlertsNotice } from "./Tracker";
@@ -531,10 +533,17 @@ export default function Dashboard({
           </>
         ) : section === "documents" ? (
           <>
-            <p className="muted">
-              Every company’s latest resume and cover letter is collected here.
-              Drafts still need your review before sending.
-            </p>
+            <div className="documents-head">
+              <p className="muted">
+                Every company’s latest resume and cover letter is collected here.
+                Drafts still need your review before sending.
+              </p>
+              {!!data.documents.length && (
+                <a className="secondary" href={documentsUrl()} download>
+                  <Download size={15} /> Download all (ZIP)
+                </a>
+              )}
+            </div>
             {data.documents.length ? (
               <div className="document-list">
                 {data.documents.map((item) => (

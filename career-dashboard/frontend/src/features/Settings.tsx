@@ -16,6 +16,7 @@ import { PROVIDER_LABEL } from "./agentWords";
 import AutoRoute from "./AutoRoute";
 import JobSources from "./JobSources";
 import { ProfileSettings } from "../profiles";
+import { YourDataCard } from "../components/YourData";
 import type { RouteEndpoint, RoutePolicy } from "../types";
 
 type Provider = {
@@ -833,6 +834,7 @@ export default function Settings({
         {mailConnection.email && <p className="small muted">Last verified account: {mailConnection.email}</p>}
         {mailConnection.last_error && <div className="callout warning">{mailConnection.last_error}</div>}
       </section>
+      <YourDataCard />
       <ProfileSettings notify={notify} />
     </>
   );

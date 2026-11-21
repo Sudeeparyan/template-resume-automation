@@ -8584,3 +8584,17 @@ nav button:disabled {
     grid-template-columns: 1fr;
   }
 }
+.documents-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.documents-head p {
+  flex: 1 1 320px;
+}
+.your-data .actions a,
+.documents-head a {
+  text-decoration: none;
+}

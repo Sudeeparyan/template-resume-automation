@@ -564,6 +564,27 @@ def attach(app, workspace, schedule: bool = False):
     def follow_up_sent(follow_up_id: int):
         return follow_ups.mark_sent(follow_up_id)
 
+    # ---- your data (services/export.py): downloads to the person's browser only ----------
+    @router.get("/export/backup.json")
+    def export_backup():
+        from backend.services import export
+
+        stamp = datetime_today()
+        return Response(json.dumps(export.backup(service), ensure_ascii=False, indent=1, default=str),
+                        media_type="application/json",
+                        headers={"Content-Disposition": f'attachment; filename="career-backup-{stamp}.json"'})
+
+    @router.get("/export/documents.zip")
+    def export_documents():
+        from backend.services import export
+
+        data, _count = export.documents_zip(service)
+        return Response(data, media_type="application/zip",
+                        headers={"Content-Disposition": f'attachment; filename="career-documents-{datetime_today()}.zip"'})
+
+    def datetime_today():
+        return workspace.today()
+
     @router.post("/jobs/verify-due")
     def verify_due_jobs():
         return quality.verify_due()
