@@ -10,7 +10,7 @@ import subprocess
 import sys
 import tempfile
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
 from zoneinfo import ZoneInfo
@@ -32,8 +32,17 @@ STATUSES = {
     "offer",
     "rejected",
     "withdrawn",
-    "ghosted",   # applied, then 21 days of silence (reapply.age flips it)
+    "ghosted",   # set only by the person: silence never changes a status on its own
 }
+# A recorded application stays in the history: these never move back to saved or prepared
+# except by undoing the move that just happened (Workspace.revert_progress).
+APPLIED_STATUSES = {"applied", "interview", "offer", "rejected", "withdrawn", "ghosted"}
+# How long after a move its Undo is honoured.
+UNDO_WINDOW_MINUTES = 15
+
+
+class StatusConflict(ValueError):
+    """The stored status is not the one the caller saw: someone else changed it first."""
 
 
 PROJECT_DOMAINS = ("medical", "healthcare", "clinical", "device", "streaming", "real-time", "vision", "insurance", "research", "embedded")
@@ -336,14 +345,10 @@ class Workspace(Tracking):
         self.export_tracking()
         return self.get_job(job_id)
 
-    def update_job(self, job_id, status, notes=None, application_date=None):
-        old = self.get_job(job_id)
-        if old.get("deleted_at"):
-            raise ValueError("Restore this removed role before updating it")
-        if status not in STATUSES:
-            raise ValueError("Unknown application status")
+    def has_application_evidence(self, job_id):
+        """Whether a confirmed email (or other record) already shows this application."""
         with self.connect() as db:
-            has_evidence = bool(
+            return bool(
                 db.execute(
                     "SELECT 1 FROM sqlite_master WHERE name='application_evidence'"
                 ).fetchone()
@@ -352,8 +357,100 @@ class Workspace(Tracking):
                     "SELECT 1 FROM application_evidence WHERE job_id=?", (job_id,)
                 ).fetchone()
             )
+
+    def update_job(self, job_id, status, notes=None, application_date=None):
+        return self._write_progress(job_id, status, notes, application_date)[0]
+
+    def move_status(self, job_id, status, application_date=None, expected_status=None):
+        """A move on the application board: the update_job rules, plus the history rules.
+
+        A recorded application never moves back to saved or prepared (only Undo of the move
+        that just happened does that), and "prepared" needs a prepared application package.
+        `expected_status` is the status the board showed; when the stored one differs, someone
+        else (the Assistant, another tab, an email) changed it first and nothing is written.
+        Returns the job and the id of the recorded move, which Undo names.
+        """
+        old = self.get_job(job_id)
+        if expected_status and old["status"] != expected_status:
+            raise StatusConflict(
+                f"This role is now '{old['status']}', changed elsewhere since the board loaded. "
+                "The board has been refreshed; move it again if you still want to."
+            )
+        if status == old["status"] and not application_date:
+            return old, None
+        if status in {"saved", "prepared"} and (
+            old["status"] in APPLIED_STATUSES or old["application_date"] or self.has_application_evidence(job_id)
+        ):
+            raise ValueError(
+                "This application is already recorded, so it stays in your history. "
+                "Use Withdrawn if you pulled out, or Undo straight after a move."
+            )
+        if status == "prepared" and not old.get("folder"):
+            raise ValueError(
+                "Prepare the application first: Tailored means a resume package exists for this role."
+            )
+        return self._write_progress(job_id, status, None, application_date, expected_status)
+
+    def revert_progress(self, job_id, event_id):
+        """Undo one status move: restore the status and application date it replaced.
+
+        Only the job's latest move can be undone, only within UNDO_WINDOW_MINUTES, and only
+        while the job still looks the way that move left it. This is the one path that can
+        clear an application date, because it puts back exactly what was there before.
+        """
+        with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            event = db.execute(
+                "SELECT * FROM activity WHERE id=? AND job_id=? AND action='progress_updated'",
+                (event_id, job_id),
+            ).fetchone()
+            if event is None:
+                raise ValueError("That move is not in this role's history")
+            later = db.execute(
+                "SELECT 1 FROM activity WHERE job_id=? AND id>? AND action IN "
+                "('progress_updated','progress_reverted','email_status_confirmed') LIMIT 1",
+                (job_id, event_id),
+            ).fetchone()
+            details = json.loads(event["details"])
+            before, after = details.get("before") or {}, details.get("after") or {}
+            current = db.execute("SELECT * FROM jobs WHERE id=?", (job_id,)).fetchone()
+            moved_at = datetime.fromisoformat(event["occurred_at"])
+            if moved_at.tzinfo is None:
+                moved_at = moved_at.replace(tzinfo=timezone.utc)
+            stale = datetime.now(timezone.utc) - moved_at > timedelta(minutes=UNDO_WINDOW_MINUTES)
+            if (
+                later
+                or stale
+                or current is None
+                or current["status"] != after.get("status")
+                or current["application_date"] != after.get("application_date")
+            ):
+                raise ValueError(
+                    "This move can no longer be undone: the role has changed since. Move it again instead."
+                )
+            db.execute(
+                "UPDATE jobs SET status=?,application_date=?,updated_at=? WHERE id=?",
+                (before.get("status"), before.get("application_date"), now(), job_id),
+            )
+            revert_id = self.record_event(
+                db,
+                "progress_reverted",
+                job_id,
+                revert_of=event_id,
+                before=dict(current),
+                after=dict(db.execute("SELECT * FROM jobs WHERE id=?", (job_id,)).fetchone()),
+            )
+        self.export_tracking()
+        return self.get_job(job_id), revert_id
+
+    def _write_progress(self, job_id, status, notes=None, application_date=None, expected_status=None):
+        old = self.get_job(job_id)
+        if old.get("deleted_at"):
+            raise ValueError("Restore this removed role before updating it")
+        if status not in STATUSES:
+            raise ValueError("Unknown application status")
         if status == "applied" and not (
-            application_date or old["application_date"] or has_evidence
+            application_date or old["application_date"] or self.has_application_evidence(job_id)
         ):
             raise ValueError(
                 "Record the actual application date; preparing a resume is not an application"
@@ -367,6 +464,14 @@ class Workspace(Tracking):
             if date > datetime.now().date():
                 raise ValueError("Application date cannot be in the future")
         with self.connect() as db:
+            if expected_status:
+                db.execute("BEGIN IMMEDIATE")
+                stored = db.execute("SELECT status FROM jobs WHERE id=?", (job_id,)).fetchone()
+                if stored is None or stored["status"] != expected_status:
+                    raise StatusConflict(
+                        "This role was changed elsewhere since the board loaded. "
+                        "The board has been refreshed; move it again if you still want to."
+                    )
             db.execute(
                 "UPDATE jobs SET status=?,notes=?,application_date=?,updated_at=? WHERE id=?",
                 (
@@ -377,7 +482,7 @@ class Workspace(Tracking):
                     job_id,
                 ),
             )
-            self.record_event(
+            event_id = self.record_event(
                 db,
                 "progress_updated",
                 job_id,
@@ -387,7 +492,7 @@ class Workspace(Tracking):
                 ),
             )
         self.export_tracking()
-        return self.get_job(job_id)
+        return self.get_job(job_id), event_id
 
     def remove_job(self, job_id, reason="Not suitable"):
         old = self.get_job(job_id)

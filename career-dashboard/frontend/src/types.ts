@@ -11,6 +11,7 @@ export type Job = {
   application_date: string | null;
   folder: string | null;
   created_at: string;
+  updated_at?: string;
   selected_project_id: string | null;
   record_source: "posting" | "gmail" | "posting+gmail";
   deleted_at: string | null;
@@ -26,6 +27,20 @@ export type Job = {
   fit_rationale?: string | null;
   closed_at?: string | null;
   opportunity?: Opportunity | null;
+};
+/** One recorded interview (services/interviews.py). starts_at keeps the local offset. */
+export type Interview = {
+  id: string;
+  job_id: string;
+  company: string;
+  title: string;
+  stage: "screen" | "technical" | "onsite" | "final" | "other";
+  stage_label: string;
+  starts_at: string;
+  starts_utc: string;
+  duration_min: number;
+  where_text: string;
+  notes: string;
 };
 export type SalarySource = {
   url: string;
@@ -275,6 +290,8 @@ export type Summary = {
   };
   /** Workspace-wide notices, for example Irish permit thresholds that are due for review. */
   notices?: { id: string; level: "warning" | "info"; text: string }[];
+  /** Recorded interviews in the next two weeks, soonest first (services/interviews.py). */
+  interviews_upcoming?: Interview[];
   /** What only the person can do now (backend/services/needs_you.py), most urgent first. */
   needs_you?: NeedsYouItem[];
 };

@@ -6,6 +6,7 @@ import { statuses, statusLabel, TierBadge, FitBadge } from "./JobList";
 import type { Summary, Job } from "../types";
 import { SalaryEvidence } from "./SalaryEvidence";
 import ApplicationPackage from "./ApplicationPackage";
+import { JobInterviews } from "./Interviews";
 export default function JobDetail({
   job,
   data,
@@ -217,6 +218,7 @@ export default function JobDetail({
       <div className="segmented detail-tabs">
         {[
           ["progress", "Progress"],
+          ["interviews", "Interviews"],
           ["research", "Company & hiring review"],
           ["resume", "Original prepared pack"],
           ["description", "Job description"],
@@ -333,6 +335,7 @@ export default function JobDetail({
             ))}
         </form>
       )}
+      {section === "interviews" && <JobInterviews job={job} notify={notify} refresh={refresh} />}
       {section === "description" && (
         <>
           <h3>Saved job description</h3>

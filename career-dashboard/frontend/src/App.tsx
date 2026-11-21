@@ -1,4 +1,4 @@
-import { Component, useCallback, useEffect, useRef, useState } from "react";
+import { Component, Suspense, lazy, useCallback, useEffect, useRef, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
 import {
   LayoutDashboard,
@@ -21,18 +21,23 @@ import { ProfileContext, ProfileMenu, firstName, openProfile, timeLabel, useProf
 import OnboardingWorkspace from "./features/OnboardingWorkspace";
 import PracticeGuide from "./features/PracticeGuide";
 import { AskContext, Field, Loading, Modal, NoticeContext } from "./components/UI";
+import type { Notify, Toast } from "./components/UI";
 import JobDetail from "./components/JobDetail";
-import Dashboard from "./features/Dashboard";
-import DailySearch from "./features/DailySearch";
-import Tracker from "./features/Tracker";
-import ResumeStudio from "./features/ResumeStudio";
-import Assurance from "./features/Assurance";
-import Profile from "./features/Profile";
-import Settings from "./features/Settings";
-import Agents, { AGENT_LABEL } from "./features/Agents";
+import { ThemeSwitch } from "./components/ThemeSwitch";
+import { AGENT_LABEL } from "./features/agentWords";
 import Assistant from "./features/Assistant";
 import { PHONE_SHORT, PhoneMore } from "./components/PhoneNav";
 import type { Summary } from "./types";
+// The Assistant is the front door and loads with the app; every other page is fetched the
+// first time it opens, so the first screen parses a fraction of the code.
+const Dashboard = lazy(() => import("./features/Dashboard"));
+const DailySearch = lazy(() => import("./features/DailySearch"));
+const Tracker = lazy(() => import("./features/Tracker"));
+const ResumeStudio = lazy(() => import("./features/ResumeStudio"));
+const Assurance = lazy(() => import("./features/Assurance"));
+const Profile = lazy(() => import("./features/Profile"));
+const Settings = lazy(() => import("./features/Settings"));
+const Agents = lazy(() => import("./features/Agents"));
 const tabs = [
   ["assistant", "Assistant", MessageSquareText, "Your search"],
   ["dashboard", "Dashboard", LayoutDashboard, "Your search"],
@@ -151,10 +156,11 @@ export default function App() {
   }, [current]);
   const [route, setRoute] = useState(routeFromHash);
   const [data, setData] = useState<Summary>();
+  // The summary is re-read every 8 s. An identical snapshot is not applied, so an idle
+  // Dashboard does not re-render every card, chart and list each time.
+  const lastSummary = useRef("");
   const [error, setError] = useState("");
-  const [toast, setToast] = useState<{ text: string; error: boolean } | null>(
-    null,
-  );
+  const [toast, setToast] = useState<Toast | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [studioJob, setStudioJob] = useState<string | null>(() =>
     location.hash.startsWith("#resumes/")
@@ -164,6 +170,7 @@ export default function App() {
   const [add, setAdd] = useState(false);
   useEffect(() => {
     if (!listing || current) return;
+    lastSummary.current = "";
     setData(undefined);
     setError("");
     setSelected(null);
@@ -197,8 +204,8 @@ export default function App() {
     location.hash = "assistant";
     setRoute("assistant");
   }, []);
-  const notify = useCallback(
-    (text: string, error = false) => setToast({ text, error }),
+  const notify: Notify = useCallback(
+    (text, error = false, action) => setToast({ text, error, action }),
     [],
   );
   const refresh = useCallback(async () => {
@@ -206,7 +213,11 @@ export default function App() {
     try {
       await summaryReads.run(() => api<Summary>("/v2/summary"), (value) => {
         if (!readyRef.current) return;
-        setData(value);
+        const snapshot = JSON.stringify(value);
+        if (snapshot !== lastSummary.current) {
+          lastSummary.current = snapshot;
+          setData(value);
+        }
         setError("");
       });
     } catch (e) {
@@ -341,6 +352,7 @@ export default function App() {
               Every single day.
             </p>
             <small>Saved locally{current?.market ? ` · ${timeLabel(current.market.timezone)}` : ""}</small>
+            <ThemeSwitch />
           </div>
         </aside>
         <PhoneMore
@@ -418,6 +430,7 @@ export default function App() {
             ) : (
               // Keyed by tab: a page that failed must not keep its message on the next tab.
               <ErrorBoundary key={route}>
+                <Suspense fallback={<Loading label="Opening" />}>
                 {route === "assistant" && (
                   <Assistant
                     data={data}
@@ -434,6 +447,7 @@ export default function App() {
                     refresh={refresh}
                     notify={notify}
                     onJob={openStudio}
+                    onDetails={setSelected}
                     onDaily={() => navigate("daily")}
                     onAdd={() => setAdd(true)}
                     onGo={navigate}
@@ -479,6 +493,7 @@ export default function App() {
                 {route === "profile" && (
                   <Profile refresh={refresh} notify={notify} />
                 )}
+                </Suspense>
               </ErrorBoundary>
             )}
             </>
@@ -492,6 +507,19 @@ export default function App() {
           >
             <CheckCircle2 size={20} />
             <span>{toast.text}</span>
+            {toast.action && (
+              <button
+                type="button"
+                className="toast-action"
+                onClick={() => {
+                  const run = toast.action!.run;
+                  setToast(null);
+                  run();
+                }}
+              >
+                {toast.action.label}
+              </button>
+            )}
             <button
               aria-label="Dismiss notification"
               onClick={() => setToast(null)}

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import {
   Mail as MailIcon,
   RefreshCw,
@@ -10,10 +10,15 @@ import {
   Settings2,
   FileText,
   RotateCcw,
+  Columns3,
+  List,
 } from "lucide-react";
 import { api, fileUrl, safeUrl } from "../api";
 import { AskAssistant, Badge, Empty, Modal, Field, Running } from "../components/UI";
-import { JobList } from "../components/JobList";
+import type { Notify } from "../components/UI";
+import { JobFilters, JobList, useJobFilters } from "../components/JobList";
+import ApplicationBoard from "./ApplicationBoard";
+import { InterviewDialog, UpcomingInterviews, nextInterviewByJob } from "../components/Interviews";
 import { PlanEditor, WeekCard } from "../components/WeekPlan";
 import { RemoveJobDialog } from "./RemoveJob";
 import { TrackerAlertsNotice } from "./Tracker";
@@ -23,12 +28,24 @@ import type { Summary, Mail, Job, CoverLetter, ExcludedJob, NeedsYouItem } from 
 type Props = {
   data: Summary;
   refresh: () => Promise<void>;
-  notify: (text: string, error?: boolean) => void;
+  notify: Notify;
   onJob: (id: string) => void;
+  onDetails?: (id: string) => void;
   onDaily: () => void;
   onAdd: () => void;
   onGo?: (route: string) => void;
 };
+
+const VIEW_KEY = "applications-view";
+
+/** Board or list, remembered in this browser; the board is the default. */
+function readView(): "board" | "list" {
+  try {
+    return localStorage.getItem(VIEW_KEY) === "list" ? "list" : "board";
+  } catch {
+    return "board";
+  }
+}
 
 const NEEDS_YOU_PAGES: Record<NeedsYouItem["where"], string> = { profile: "Profile", settings: "Settings", daily: "Daily Search" };
 
@@ -56,12 +73,30 @@ export default function Dashboard({
   refresh,
   notify,
   onJob,
+  onDetails,
   onDaily,
   onAdd,
   onGo,
 }: Props) {
   const [mail, setMail] = useState<Mail | null>(null);
   const [section, setSection] = useState("applications");
+  const [view, setView] = useState<"board" | "list">(readView);
+  const chooseView = (next: "board" | "list") => {
+    setView(next);
+    try {
+      localStorage.setItem(VIEW_KEY, next);
+    } catch {
+      /* not remembered in a private window */
+    }
+  };
+  const filters = useJobFilters(data.jobs);
+  const [interviewFor, setInterviewFor] = useState<Job | null>(null);
+  const upcoming = data.interviews_upcoming || [];
+  const nextInterview = useMemo(() => nextInterviewByJob(upcoming), [upcoming]);
+  const evidence = useMemo(
+    () => new Set(data.mail.messages.filter((m) => m.state === "confirmed" && m.job_id).map((m) => m.job_id as string)),
+    [data.mail.messages],
+  );
   const [busy, setBusy] = useState(false);
   const [schedule, setSchedule] = useState<any>(null);
   const [coverLetter, setCoverLetter] = useState<CoverLetter | null>(null);
@@ -291,6 +326,12 @@ export default function Dashboard({
         </section>
         )}
       </div>
+      <div className="dashboard-agenda">
+        <UpcomingInterviews items={upcoming} today={data.goals.date} onOpen={onDetails || onJob} />
+      </div>
+      {interviewFor && (
+        <InterviewDialog job={interviewFor} notify={notify} onClose={() => setInterviewFor(null)} onSaved={() => void refresh()} />
+      )}
       <WeekCard goals={data.goals} />
       {data.funnel && <ApplicationFunnel funnel={data.funnel} onJob={onJob} />}
       {editingPlan && (
@@ -345,12 +386,43 @@ export default function Dashboard({
         </div>
         {section === "applications" ? (
           <>
-            <JobList
-              jobs={data.jobs}
-              onSelect={onJob}
-              onCoverLetter={generateCoverLetter}
-              onRemove={removeJob}
-            />
+            <JobFilters filters={filters} showStatus={view === "list"}>
+              <div className="segmented view-toggle" role="radiogroup" aria-label="Show applications as">
+                <button type="button" role="radio" aria-checked={view === "board"} className={view === "board" ? "selected" : ""}
+                  onClick={() => chooseView("board")}>
+                  <Columns3 size={15} /> Board
+                </button>
+                <button type="button" role="radio" aria-checked={view === "list"} className={view === "list" ? "selected" : ""}
+                  onClick={() => chooseView("list")}>
+                  <List size={15} /> List
+                </button>
+              </div>
+            </JobFilters>
+            {view === "board" ? (
+              <ApplicationBoard
+                jobs={filters.shown}
+                evidence={evidence}
+                today={data.goals.date}
+                notify={notify}
+                refresh={refresh}
+                onOpen={onJob}
+                onDetails={onDetails}
+                onCoverLetter={generateCoverLetter}
+                onRemove={removeJob}
+                nextInterview={nextInterview}
+                onInterviewAdded={(job) => {
+                  if (!nextInterview[job.id]) setInterviewFor(job);
+                }}
+              />
+            ) : (
+              <JobList
+                jobs={filters.shown}
+                onSelect={onJob}
+                onCoverLetter={generateCoverLetter}
+                onRemove={removeJob}
+                filters={false}
+              />
+            )}
             {removing && (
               <RemoveJobDialog
                 job={removing}

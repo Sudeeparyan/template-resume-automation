@@ -210,6 +210,50 @@ MIGRATIONS: tuple[tuple[int, str, str], ...] = (
         """,
     ),
     (9, "ireland_opportunity_evidence", "ALTER TABLE jobs ADD COLUMN posting_metadata TEXT NOT NULL DEFAULT '{}';"),
+    (
+        10,
+        "follow_up_drafts",
+        # Follow-up and thank-you notes the person asked for (services/follow_ups.py). Drafts
+        # only: the app never sends them. marked_sent_at is the person's own record that they
+        # sent it, which is what limits follow-ups to two per application.
+        """
+        CREATE TABLE IF NOT EXISTS follow_ups(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            job_id TEXT NOT NULL REFERENCES jobs(id),
+            kind TEXT NOT NULL CHECK(kind IN ('follow_up','thank_you')),
+            text TEXT NOT NULL,
+            method TEXT NOT NULL DEFAULT 'template' CHECK(method IN ('ai','template')),
+            drafted_at TEXT NOT NULL,
+            marked_sent_at TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_follow_ups_job ON follow_ups(job_id, kind)
+        """,
+    ),
+    (
+        11,
+        "interviews",
+        # Interviews the person recorded (services/interviews.py): the local time with its UTC
+        # offset as they entered it, and the same instant in UTC for ordering and .ics files,
+        # so the calendar stays right across daylight-saving changes.
+        """
+        CREATE TABLE IF NOT EXISTS interviews(
+            id TEXT PRIMARY KEY,
+            job_id TEXT NOT NULL REFERENCES jobs(id),
+            stage TEXT NOT NULL DEFAULT 'other'
+                CHECK(stage IN ('screen','technical','onsite','final','other')),
+            starts_at TEXT NOT NULL,
+            starts_utc TEXT NOT NULL,
+            duration_min INTEGER NOT NULL DEFAULT 45 CHECK(duration_min BETWEEN 5 AND 600),
+            where_text TEXT NOT NULL DEFAULT '',
+            notes TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            deleted_at TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_interviews_time ON interviews(deleted_at, starts_utc);
+        CREATE INDEX IF NOT EXISTS idx_interviews_job ON interviews(job_id)
+        """,
+    ),
 )
 
 

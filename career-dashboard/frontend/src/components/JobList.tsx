@@ -1,5 +1,6 @@
 import { ArrowUpRight, FileText, Search, Trash2 } from "lucide-react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
+import type { ReactNode } from "react";
 import { Badge, Empty } from "./UI";
 import { useMarket } from "../profiles";
 import type { Job } from "../types";
@@ -65,6 +66,84 @@ export function TierBadge({ job, long = false }: { job: Job; long?: boolean }) {
     </Badge>
   );
 }
+export type JobFilterState = ReturnType<typeof useJobFilters>;
+
+/** Search, status and tier filters, shared by the list and the board. */
+export function useJobFilters(jobs: Job[]) {
+  const [q, setQ] = useState("");
+  const [status, setStatus] = useState("all");
+  const [tier, setTier] = useState("all");
+  const shown = useMemo(() => {
+    const words = q.toLowerCase();
+    return jobs
+      .filter(
+        (j) =>
+          (status === "all" || j.status === status) &&
+          (tier === "all" || (j.sponsor_tier || "C") === tier) &&
+          `${j.company} ${j.title} ${j.location}`.toLowerCase().includes(words),
+      )
+      // Best sponsorship odds first (S cap-exempt → A says yes → B history → C silent), newest inside a tier.
+      .sort(
+        (a, b) =>
+          (tierRank[a.sponsor_tier || "C"] ?? 4) - (tierRank[b.sponsor_tier || "C"] ?? 4) ||
+          b.created_at.localeCompare(a.created_at),
+      );
+  }, [jobs, q, status, tier]);
+  return { q, setQ, status, setStatus, tier, setTier, shown };
+}
+
+export function JobFilters({
+  filters,
+  showStatus = true,
+  children,
+}: {
+  filters: JobFilterState;
+  showStatus?: boolean;
+  children?: ReactNode;
+}) {
+  const { q, setQ, status, setStatus, tier, setTier, shown } = filters;
+  return (
+    <div className="list-toolbar">
+      <div className="search-input">
+        <Search size={18} />
+        <input
+          aria-label="Search companies and roles"
+          placeholder="Search companies or roles…"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+        />
+      </div>
+      {showStatus && (
+        <select
+          aria-label="Filter application status"
+          value={status}
+          onChange={(e) => setStatus(e.target.value)}
+        >
+          <option value="all">All statuses</option>
+          {statuses.map((s) => (
+            <option key={s} value={s}>
+              {statusLabel[s] || s}
+            </option>
+          ))}
+        </select>
+      )}
+      <select
+        aria-label="Filter sponsorship tier"
+        value={tier}
+        onChange={(e) => setTier(e.target.value)}
+      >
+        <option value="all">All tiers</option>
+        <option value="S">S · cap-exempt</option>
+        <option value="A">A · says it sponsors</option>
+        <option value="B">B · proven sponsor</option>
+        <option value="C">C · silent</option>
+      </select>
+      <span className="muted">{shown.length} jobs</span>
+      {children}
+    </div>
+  );
+}
+
 export function JobList({
   jobs,
   onSelect,
@@ -80,61 +159,11 @@ export function JobList({
   compact?: boolean;
   filters?: boolean;
 }) {
-  const [q, setQ] = useState("");
-  const [status, setStatus] = useState("all");
-  const [tier, setTier] = useState("all");
-  const shown = jobs
-    .filter(
-      (j) =>
-        (status === "all" || j.status === status) &&
-        (tier === "all" || (j.sponsor_tier || "C") === tier) &&
-        `${j.company} ${j.title} ${j.location}`
-          .toLowerCase()
-          .includes(q.toLowerCase()),
-    )
-    // Best sponsorship odds first (S cap-exempt → A says yes → B history → C silent), newest inside a tier.
-    .sort(
-      (a, b) =>
-        (tierRank[a.sponsor_tier || "C"] ?? 4) - (tierRank[b.sponsor_tier || "C"] ?? 4) ||
-        b.created_at.localeCompare(a.created_at),
-    );
+  const filterState = useJobFilters(jobs);
+  const shown = filterState.shown;
   return (
     <>
-      {filters && <div className="list-toolbar">
-        <div className="search-input">
-          <Search size={18} />
-          <input
-            aria-label="Search companies and roles"
-            placeholder="Search companies or roles…"
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-          />
-        </div>
-        <select
-          aria-label="Filter application status"
-          value={status}
-          onChange={(e) => setStatus(e.target.value)}
-        >
-          <option value="all">All statuses</option>
-          {statuses.map((s) => (
-            <option key={s} value={s}>
-              {statusLabel[s] || s}
-            </option>
-          ))}
-        </select>
-        <select
-          aria-label="Filter sponsorship tier"
-          value={tier}
-          onChange={(e) => setTier(e.target.value)}
-        >
-          <option value="all">All tiers</option>
-          <option value="S">S · cap-exempt</option>
-          <option value="A">A · says it sponsors</option>
-          <option value="B">B · proven sponsor</option>
-          <option value="C">C · silent</option>
-        </select>
-        <span className="muted">{shown.length} jobs</span>
-      </div>}
+      {filters && <JobFilters filters={filterState} />}
       {!shown.length ? (
         <Empty title="No jobs in this view">
           Try another filter or save a new opportunity.
@@ -157,30 +186,32 @@ export function JobList({
                     {j.company}{" "}
                     <span className="job-location">· {j.location}</span>
                   </span>
+                  <span className="job-chips">
+                    <Badge
+                      tone={
+                        ["applied", "offer", "interview"].includes(j.status)
+                          ? "green"
+                          : j.status === "rejected"
+                            ? "red"
+                            : "neutral"
+                      }
+                    >
+                      {statusLabel[j.status] || j.status}
+                    </Badge>
+                    <FitBadge job={j} />
+                    <TierBadge job={j} />
+                    <SalaryBadge job={j} />
+                    <PermitBadge job={j} />
+                    {j.posting_state === "expired" && (
+                      <Badge tone="red">posting closed</Badge>
+                    )}
+                    {j.posting_state === "needs_review" && (
+                      <Badge tone="amber">check posting</Badge>
+                    )}
+                  </span>
                 </span>
-                <span className="job-meta">
-                  <Badge
-                    tone={
-                      ["applied", "offer", "interview"].includes(j.status)
-                        ? "green"
-                        : j.status === "rejected"
-                          ? "red"
-                          : "neutral"
-                    }
-                  >
-                    {statusLabel[j.status] || j.status}
-                  </Badge>
-                  <TierBadge job={j} />
-                  <FitBadge job={j} />
-                  <SalaryBadge job={j} />
-                  <PermitBadge job={j} />
-                  {j.posting_state === "expired" && (
-                    <Badge tone="red">posting closed</Badge>
-                  )}
-                  {j.posting_state === "needs_review" && (
-                    <Badge tone="amber">check posting</Badge>
-                  )}
-                  {!compact && (
+                {!compact && (
+                  <span className="job-meta">
                     <small>
                       {j.record_source === "gmail"
                         ? "Tracked from Gmail · add the posting to create documents"
@@ -188,8 +219,8 @@ export function JobList({
                           ? "Applied " + j.application_date
                           : "Date not recorded"}
                     </small>
-                  )}
-                </span>
+                  </span>
+                )}
                 <ArrowUpRight size={18} />
               </button>
               {(onCoverLetter ||

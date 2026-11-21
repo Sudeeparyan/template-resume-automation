@@ -1490,6 +1490,17 @@ class CareerServices:
         self.export_state()
         return result
 
+    def move_status(self, job_id, status, application_date=None, expected_status=None):
+        """A board move (career.py move_status), mirrored to the chat's state files."""
+        job, event_id = self.w.move_status(job_id, status, application_date, expected_status)
+        self.export_state()
+        return {"job": job, "event_id": event_id}
+
+    def undo_status(self, job_id, event_id):
+        job, revert_id = self.w.revert_progress(job_id, event_id)
+        self.export_state()
+        return {"job": job, "event_id": revert_id}
+
     def restore_job(self, job_id):
         result = self.w.restore_job(job_id)
         self.export_state()
@@ -1628,9 +1639,18 @@ class CareerServices:
         def on_or_after(value, cutoff):
             return bool(value) and str(value)[:10] >= cutoff
 
+        # A move that was undone never happened: its stage does not count. Events are grouped
+        # by job once, so each job reads only its own history.
+        undone = {(event.get("details") or {}).get("revert_of")
+                  for event in activity if event.get("action") == "progress_reverted"}
+        by_job: dict = {}
+        for event in activity:
+            if event.get("job_id") and event.get("id") not in undone:
+                by_job.setdefault(event["job_id"], []).append(event)
+
         def stage_events(job_id, statuses):
-            return [event for event in activity if event.get("job_id") == job_id
-                    and str(((event.get("details") or {}).get("after") or {}).get("status") or "") in statuses]
+            return [event for event in by_job.get(job_id, ())
+                    if str(((event.get("details") or {}).get("after") or {}).get("status") or "") in statuses]
 
         def current(job, statuses):
             return job.get("status") in statuses
@@ -1669,6 +1689,9 @@ class CareerServices:
 
     def summary(self):
         jobs = self.w.jobs()
+        # Each list is read once per poll: every job including removed ones, and the excluded roles.
+        every_job = self.w.jobs(include_deleted=True)
+        excluded = self.excluded()
         with self.w.connect() as db:
             confirmed = {
                 r[0]
@@ -1679,13 +1702,13 @@ class CareerServices:
         return {
             "jobs": jobs,
             "expired_jobs": [
-                j for j in self.w.jobs(include_deleted=True)
+                j for j in every_job
                 if not j.get("deleted_at") and j.get("posting_state") == "expired" and j["status"] in {"saved", "prepared"}
             ],
             "removed_jobs": [
-                j for j in self.w.jobs(include_deleted=True) if j.get("deleted_at")
+                j for j in every_job if j.get("deleted_at")
             ],
-            "excluded_jobs": self.excluded(),
+            "excluded_jobs": excluded,
             "documents": self.documents(),
             "goals": self.goals(),
             "mail": self.mail(),
@@ -1702,14 +1725,28 @@ class CareerServices:
                 ),
                 "interviews": sum(j["status"] == "interview" for j in jobs),
                 "offers": sum(j["status"] == "offer" for j in jobs),
-                "excluded": len(self.excluded()),
+                "excluded": len(excluded),
                 "ghosted": sum(j["status"] == "ghosted" for j in jobs),
             },
             "funnel": self.funnel(),
             "activity": self.w.activity(15),
             "notices": self.notices(),
             "needs_you": self.needs_you(),
+            "interviews_upcoming": self.interviews_upcoming(),
+            "follow_ups": self.follow_ups_due(jobs),
         }
+
+    def follow_ups_due(self, jobs=None):
+        """Follow-ups and thank-you notes due now (drafts only; never sent by the app)."""
+        from backend.services.follow_ups import FollowUps
+
+        return FollowUps(self).due(jobs)
+
+    def interviews_upcoming(self):
+        """The next two weeks of recorded interviews (one indexed query)."""
+        from backend.services.interviews import Interviews
+
+        return Interviews(self).upcoming(days=14)
 
     def needs_you(self):
         """What only the person can do now (services/needs_you.py); never stops the Dashboard loading."""

@@ -3,10 +3,11 @@ import type { ReactNode } from "react";
 import { X, LoaderCircle, ExternalLink, CheckCircle2, Sparkles } from "lucide-react";
 import { safeUrl } from "../api";
 import type { Report, Run } from "../types";
-export const NoticeContext = createContext<{
-  text: string;
-  error: boolean;
-} | null>(null);
+/** A toast's optional button, such as Undo after a status move. */
+export type ToastAction = { label: string; run: () => void };
+export type Toast = { text: string; error: boolean; action?: ToastAction };
+export type Notify = (text: string, error?: boolean, action?: ToastAction) => void;
+export const NoticeContext = createContext<Toast | null>(null);
 /** Opens the Assistant tab with a question about what is on screen. `send` false puts the
  *  text in the chat box for her to finish or confirm with Enter. */
 export type AskAssistantFn = (text: string, send?: boolean) => void;

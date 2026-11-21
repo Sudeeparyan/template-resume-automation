@@ -40,9 +40,11 @@ class Tracking:
         ''')
 
     def record_event(self, db, action, job_id=None, **details):
-        db.execute('INSERT INTO activity(occurred_at,action,job_id,details) VALUES(?,?,?,?)',
-                   (datetime.now(timezone.utc).isoformat(timespec='seconds'), action,
-                    job_id, json.dumps(details, ensure_ascii=False)))
+        """Append one activity row and return its id (the Undo of a status move names it)."""
+        cursor = db.execute('INSERT INTO activity(occurred_at,action,job_id,details) VALUES(?,?,?,?)',
+                            (datetime.now(timezone.utc).isoformat(timespec='seconds'), action,
+                             job_id, json.dumps(details, ensure_ascii=False)))
+        return cursor.lastrowid
 
     def activity(self, limit=200):
         with self.connect() as db:

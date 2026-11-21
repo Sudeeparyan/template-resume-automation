@@ -12,7 +12,7 @@ import {
 } from "lucide-react";
 import { api } from "../api";
 import { Badge, Field } from "../components/UI";
-import { PROVIDER_LABEL } from "./Agents";
+import { PROVIDER_LABEL } from "./agentWords";
 import AutoRoute from "./AutoRoute";
 import JobSources from "./JobSources";
 import { ProfileSettings } from "../profiles";

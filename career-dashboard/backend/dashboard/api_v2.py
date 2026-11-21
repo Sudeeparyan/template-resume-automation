@@ -220,6 +220,33 @@ class ItemDecision(BaseModel):
     decision: str = Field(min_length=1, max_length=20)
 
 
+class StatusMove(BaseModel):
+    """A card moved on the application board."""
+    status: str = Field(min_length=1, max_length=20)
+    application_date: Optional[str] = Field(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$")
+    # The status the board showed; a different stored status means a 409 and a refresh.
+    expected_status: Optional[str] = Field(default=None, max_length=20)
+
+
+class StatusUndo(BaseModel):
+    event_id: int = Field(ge=1)
+
+
+class FollowUpInput(BaseModel):
+    kind: str = Field(default="follow_up", pattern="^(follow_up|thank_you)$")
+
+
+class InterviewInput(BaseModel):
+    stage: str = Field(default="other", max_length=20)
+    # "2026-11-25T14:00" in the profile's time zone, or ISO 8601 with an offset.
+    starts_at: str = Field(min_length=10, max_length=40)
+    duration_min: int = Field(default=45, ge=5, le=600)
+    where_text: str = Field(default="", max_length=500)
+    notes: str = Field(default="", max_length=5000)
+    # Also move the job to the Interview stage (only when it is not there or later already).
+    move_to_interview: bool = False
+
+
 def attach(app, workspace, schedule: bool = False):
     service = CareerServices(workspace)
     runner = AgentRunner(service)
@@ -462,6 +489,75 @@ def attach(app, workspace, schedule: bool = False):
     @router.post("/jobs/{job_id}/restore")
     def restore_job(job_id: str):
         return service.restore_job(job_id)
+
+    @router.post("/jobs/{job_id}/status")
+    def move_status(job_id: str, data: StatusMove):
+        from fastapi import HTTPException
+        from career import StatusConflict
+
+        try:
+            return service.move_status(job_id, data.status, data.application_date, data.expected_status)
+        except StatusConflict as conflict:
+            raise HTTPException(409, str(conflict)) from None
+
+    @router.post("/jobs/{job_id}/status/undo")
+    def undo_status(job_id: str, data: StatusUndo):
+        return service.undo_status(job_id, data.event_id)
+
+    # ---- interviews (services/interviews.py) -------------------------------------------
+    from backend.services.interviews import Interviews
+    from fastapi.responses import Response
+
+    interviews = Interviews(service)
+
+    def calendar_file(items, name):
+        return Response(interviews.ics(items), media_type="text/calendar; charset=utf-8",
+                        headers={"Content-Disposition": f'attachment; filename="{name}"'})
+
+    @router.get("/interviews")
+    def list_interviews(job_id: Optional[str] = None, start: Optional[str] = None, end: Optional[str] = None):
+        return {"interviews": interviews.list(job_id, start, end)}
+
+    @router.get("/interviews/calendar.ics")
+    def upcoming_calendar():
+        return calendar_file(interviews.upcoming(days=120), "interviews.ics")
+
+    @router.post("/jobs/{job_id}/interviews", status_code=201)
+    def add_interview(job_id: str, data: InterviewInput):
+        added = interviews.add(job_id, data.model_dump())
+        job = workspace.get_job(job_id)
+        if data.move_to_interview and job["status"] in {"saved", "prepared", "applied"}:
+            service.move_status(job_id, "interview", None, job["status"])
+        return added
+
+    @router.put("/interviews/{interview_id}")
+    def update_interview(interview_id: str, data: InterviewInput):
+        return interviews.update(interview_id, data.model_dump())
+
+    @router.delete("/interviews/{interview_id}")
+    def delete_interview(interview_id: str):
+        return interviews.delete(interview_id)
+
+    @router.get("/interviews/{interview_id}/calendar.ics")
+    def interview_calendar(interview_id: str):
+        return calendar_file([interviews.get(interview_id)], "interview.ics")
+
+    # ---- follow-up and thank-you drafts (services/follow_ups.py): never sent by the app --
+    from backend.services.follow_ups import FollowUps
+
+    follow_ups = FollowUps(service)
+
+    @router.get("/follow-ups")
+    def due_follow_ups():
+        return {"due": follow_ups.due()}
+
+    @router.post("/jobs/{job_id}/follow-up", status_code=201)
+    def draft_follow_up(job_id: str, data: FollowUpInput):
+        return follow_ups.draft(job_id, data.kind)
+
+    @router.post("/follow-ups/{follow_up_id}/sent")
+    def follow_up_sent(follow_up_id: int):
+        return follow_ups.mark_sent(follow_up_id)
 
     @router.post("/jobs/verify-due")
     def verify_due_jobs():
