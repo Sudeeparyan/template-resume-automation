@@ -9,6 +9,7 @@ import {
   UserRound,
   SlidersHorizontal,
   Workflow,
+  AlertCircle,
   CheckCircle2,
   LoaderCircle,
   Menu,
@@ -503,7 +504,7 @@ export default function App() {
             role={toast.error ? "alert" : "status"}
             className={"toast " + (toast.error ? "error" : "")}
           >
-            <CheckCircle2 size={20} />
+            {toast.error ? <AlertCircle size={20} /> : <CheckCircle2 size={20} />}
             <span>{toast.text}</span>
             {toast.action && (
               <button

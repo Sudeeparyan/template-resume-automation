@@ -1528,7 +1528,7 @@ class CareerServices:
             team = cover_letters.writer_team(self)
         return cover_letters.generate(self, job_id, team=team)
 
-    def documents(self):
+    def documents(self, jobs=None):
         documents = []
         with self.w.connect() as db:
             has_studio = bool(
@@ -1547,7 +1547,7 @@ class CareerServices:
                 if has_studio
                 else {}
             )
-        for job in self.w.jobs():
+        for job in (self.w.jobs() if jobs is None else jobs):
             resumes = []
             if job.get("folder"):
                 root = self.w.root / job["folder"]
@@ -1625,11 +1625,11 @@ class CareerServices:
             for r in rows
         ]
 
-    def funnel(self):
+    def funnel(self, jobs=None):
         """Application activity over common windows, using saved jobs and recorded transitions."""
         from datetime import date, timedelta
 
-        jobs = self.w.jobs()
+        jobs = self.w.jobs() if jobs is None else jobs
         activity = self.w.activity(limit=-1)
         with self.w.connect() as db:
             confirmed = {row[0] for row in db.execute(
@@ -1688,9 +1688,10 @@ class CareerServices:
         return {"periods": {"30": result(30), "90": result(90), "all": result()}, "next_actions": next_actions[:4]}
 
     def summary(self):
-        jobs = self.w.jobs()
-        # Each list is read once per poll: every job including removed ones, and the excluded roles.
+        # Each list is read once per poll and shared by every section: every job (removed ones
+        # too), the listed jobs derived from it with jobs()'s own rule, and the excluded roles.
         every_job = self.w.jobs(include_deleted=True)
+        jobs = [job for job in every_job if self.w.is_listed(job)]
         excluded = self.excluded()
         with self.w.connect() as db:
             confirmed = {
@@ -1709,7 +1710,7 @@ class CareerServices:
                 j for j in every_job if j.get("deleted_at")
             ],
             "excluded_jobs": excluded,
-            "documents": self.documents(),
+            "documents": self.documents(jobs),
             "goals": self.goals(),
             "mail": self.mail(),
             "runs": self.runs(),
@@ -1728,10 +1729,10 @@ class CareerServices:
                 "excluded": len(excluded),
                 "ghosted": sum(j["status"] == "ghosted" for j in jobs),
             },
-            "funnel": self.funnel(),
+            "funnel": self.funnel(jobs),
             "activity": self.w.activity(15),
             "notices": self.notices(),
-            "needs_you": self.needs_you(),
+            "needs_you": self.needs_you(jobs),
             "interviews_upcoming": self.interviews_upcoming(),
             "follow_ups": self.follow_ups_due(jobs),
         }
@@ -1748,12 +1749,12 @@ class CareerServices:
 
         return Interviews(self).upcoming(days=14)
 
-    def needs_you(self):
+    def needs_you(self, jobs=None):
         """What only the person can do now (services/needs_you.py); never stops the Dashboard loading."""
         from backend.services import needs_you
 
         try:
-            return needs_you.items(self)
+            return needs_you.items(self, jobs)
         except Exception:  # noqa: BLE001 - a convenience list; the rest of the summary still loads
             return []
 

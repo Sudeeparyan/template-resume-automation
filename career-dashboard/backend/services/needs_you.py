@@ -19,8 +19,10 @@ import json
 SOON_DAYS = 60
 
 
-def items(services) -> list[dict]:
-    """[{id, text, where, url?}], most urgent first; ``where`` is the dashboard page that resolves it."""
+def items(services, jobs: list[dict] | None = None) -> list[dict]:
+    """[{id, text, where, url?}], most urgent first; ``where`` is the dashboard page that resolves it.
+
+    ``jobs`` lets the Dashboard summary reuse the job list it already read."""
     root = services.w.root
     out: list[dict] = []
     from backend.countries import require_known_authorization, target_markets_for
@@ -50,7 +52,7 @@ def items(services) -> list[dict]:
         out.append({"id": "ai_setup", "where": "settings",
                     "text": "Set up an AI app (Kimi Code, Codex or Claude Code) or a key in Settings; finding jobs "
                             "and tailoring resumes need one."})
-    waiting = [job for job in services.w.jobs() if job["status"] == "saved"
+    waiting = [job for job in (services.w.jobs() if jobs is None else jobs) if job["status"] == "saved"
                and (job.get("opportunity") or {}).get("section") == "needs_research"]
     if waiting:
         names = "; ".join(f"{job['title']} at {job['company']}" for job in waiting[:3])

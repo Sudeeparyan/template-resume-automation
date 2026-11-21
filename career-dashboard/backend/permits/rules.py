@@ -1,4 +1,5 @@
 """Dated public Irish permit facts and their freshness boundary."""
+import copy
 from datetime import date, datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -6,6 +7,9 @@ import yaml
 
 RULES = Path(__file__).resolve().parents[1] / "countries/ie/permit-rules.yml"
 WARN_DAYS = 30
+# Parsed rules per file, kept while the file is unchanged (same mtime and size). Every job row
+# reads the rules several times, so parsing the YAML each time made the job list slow.
+_PARSED: dict[str, tuple[tuple[int, int], dict]] = {}
 
 
 def today():
@@ -13,10 +17,22 @@ def today():
 
 
 def load_rules(path=None):
-    rules = yaml.safe_load(Path(path or RULES).read_text(encoding="utf-8"))
+    """The rules as a fresh dict (callers may change their copy); re-read when the file changes."""
+    target = Path(path or RULES)
+    try:
+        stat = target.stat()
+        stamp = (stat.st_mtime_ns, stat.st_size)
+    except OSError:
+        stamp = None
+    cached = _PARSED.get(str(target))
+    if stamp is not None and cached and cached[0] == stamp:
+        return copy.deepcopy(cached[1])
+    rules = yaml.safe_load(target.read_text(encoding="utf-8"))
     if not isinstance(rules, dict):
         raise ValueError("Irish permit rules must be a YAML mapping.")
-    return rules
+    if stamp is not None:
+        _PARSED[str(target)] = (stamp, rules)
+    return copy.deepcopy(rules)
 
 
 def freshness(*, on=None, rules=None):

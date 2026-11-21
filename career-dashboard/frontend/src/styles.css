@@ -7860,7 +7860,8 @@ nav button:disabled {
 }
 .board {
   display: grid;
-  grid-template-columns: repeat(5, minmax(220px, 1fr)) minmax(170px, 0.8fr);
+  /* Five stages share the width; Closed is a narrow drop column until it is opened. */
+  grid-template-columns: repeat(5, minmax(146px, 1fr)) 112px;
   gap: 12px;
   overflow-x: auto;
   padding: 2px 2px 14px;
@@ -7878,8 +7879,14 @@ nav button:disabled {
   scroll-snap-align: start;
   transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
 }
+.board.closed-open {
+  grid-template-columns: repeat(6, minmax(146px, 1fr));
+}
 .board-column.collapsed {
-  min-height: 0;
+  min-height: 260px;
+}
+.board-column.collapsed .board-hint {
+  display: none;
 }
 .board-column.can-drop {
   border-style: dashed;
@@ -8073,14 +8080,36 @@ nav button:disabled {
   padding: 0 6px 6px 8px;
 }
 .board-move {
-  flex: 1;
-  min-width: 0;
-  padding: 4px 6px;
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-right: auto;
+  padding: 4px 8px;
   border: 1px solid var(--border-soft);
   border-radius: 6px;
   font-size: 11px;
+  font-weight: 600;
   color: var(--text-muted);
   background: var(--surface);
+  cursor: pointer;
+}
+.board-move:hover {
+  border-color: var(--border-green);
+  color: var(--text);
+}
+.board-move:focus-within {
+  outline: 3px solid var(--focus);
+  outline-offset: 1px;
+}
+/* The real select covers the button, invisible, so a click or tap opens the native menu. */
+.board-move select {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  opacity: 0;
+  cursor: pointer;
+  font-size: 16px;
 }
 .board-card-actions .icon-button {
   padding: 5px;
@@ -8100,9 +8129,13 @@ nav button:disabled {
   color: var(--text-subtle);
 }
 @media (max-width: 760px) {
-  .board {
-    grid-template-columns: repeat(6, minmax(78vw, 1fr));
+  .board,
+  .board.closed-open {
+    grid-template-columns: repeat(5, minmax(78vw, 1fr)) minmax(40vw, 1fr);
     scroll-snap-type: x mandatory;
+  }
+  .board.closed-open {
+    grid-template-columns: repeat(6, minmax(78vw, 1fr));
   }
   .view-toggle {
     margin-left: 0;
@@ -8479,4 +8512,28 @@ nav button:disabled {
 .your-data .actions a,
 .documents-head a {
   text-decoration: none;
+}
+/* Board cards are narrow: the title gets the room the initials take in the list. */
+.board-card .company-avatar {
+  display: none;
+}
+/* Let narrow columns shrink their cards instead of spilling past the column edge. */
+.board-column,
+.board-card,
+.board-open {
+  min-width: 0;
+}
+.board-cards {
+  grid-template-columns: minmax(0, 1fr);
+}
+@container (max-width: 150px) {
+  .board-move-word {
+    display: none;
+  }
+}
+.board-card {
+  container-type: inline-size;
+}
+.board-card .badge {
+  padding: 3px 7px;
 }

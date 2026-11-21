@@ -197,8 +197,9 @@ def create_app(root=ROOT, schedule: bool = False):
     def job(job_id: str):
         value = workspace.get_job(job_id)
         artifacts = []
-        if value["folder"]:
-            folder = safe_child(root, value["folder"])
+        # A folder removed from disk leaves the job readable, just without files to list.
+        folder = safe_child(root, value["folder"]) if value["folder"] else None
+        if folder is not None and folder.is_dir():
             artifacts = [
                 str(p.relative_to(root / "data/output"))
                 for p in folder.iterdir()

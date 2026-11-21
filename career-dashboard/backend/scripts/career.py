@@ -262,8 +262,10 @@ class Workspace(Tracking):
         "LEFT JOIN companies ON companies.id = jobs.company_id "
     )
 
-    def _job_row(self, row):
-        """Decode the JSON sponsorship evidence so callers and the UI get a dict."""
+    def _job_row(self, row, profile=None):
+        """Decode the JSON sponsorship evidence so callers and the UI get a dict.
+
+        `profile` lets a list read profile.yml once for every row instead of once per row."""
         job = dict(row)
         raw = job.get("sponsor_evidence")
         if isinstance(raw, str):
@@ -276,13 +278,20 @@ class Workspace(Tracking):
         except (ValueError, TypeError):
             job["posting_metadata"] = {}
         from backend.services.opportunities import evaluate
-        job["opportunity"] = evaluate(job, self.profile())
+        job["opportunity"] = evaluate(job, self.profile() if profile is None else profile)
         return job
 
+    @staticmethod
+    def is_listed(job):
+        """The jobs() filter in Python: not removed, and not an expired posting never applied to."""
+        return not job.get("deleted_at") and (
+            job.get("posting_state") != "expired" or job.get("status") not in ("saved", "prepared"))
+
     def jobs(self, include_deleted=False):
+        profile = self.profile()
         with self.connect() as db:
             return [
-                self._job_row(r)
+                self._job_row(r, profile)
                 for r in db.execute(
                     self.JOB_SELECT
                     + (

@@ -111,3 +111,13 @@ def test_undo_names_only_this_jobs_moves(tmp_path, monkeypatch):
         events = Workspace(root).activity()
         move = next(e for e in events if e["id"] == moved["event_id"])
         assert json.dumps(move["details"]["after"]["status"]) == '"withdrawn"'
+
+
+def test_job_details_still_open_when_the_output_folder_is_gone(tmp_path, monkeypatch):
+    with profile_app(tmp_path, monkeypatch) as (client, base, root):
+        job = add_job(root)
+        with Workspace(root).connect() as db:
+            db.execute("UPDATE jobs SET folder='data/output/deleted-by-hand' WHERE id=?", (job["id"],))
+        response = client.get(base + f"/jobs/{job['id']}")
+        assert response.status_code == 200, response.text
+        assert response.json()["artifacts"] == []

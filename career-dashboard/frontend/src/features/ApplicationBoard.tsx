@@ -14,7 +14,7 @@ import {
   useSensors,
 } from "@dnd-kit/core";
 import type { Announcements, DragEndEvent, DragStartEvent } from "@dnd-kit/core";
-import { CalendarClock, ChevronDown, ChevronRight, FileText, GripVertical, Info, MailQuestion, Trash2 } from "lucide-react";
+import { ArrowLeftRight, CalendarClock, ChevronDown, ChevronRight, FileText, GripVertical, Info, MailQuestion, Trash2 } from "lucide-react";
 import { api } from "../api";
 import { Badge, Field, Modal } from "../components/UI";
 import type { Notify } from "../components/UI";
@@ -100,7 +100,8 @@ export default function ApplicationBoard(props: Props) {
           application_date: applicationDate || null,
           expected_status: before,
         });
-        await refresh();
+        // The move is recorded: say so (with Undo) at once; the card already shows it, and the
+        // fresh summary below only confirms it.
         const label = CLOSED_LABEL[status] || columnLabel(columnFor(status));
         if (result.event_id) {
           const eventId = result.event_id;
@@ -110,8 +111,8 @@ export default function ApplicationBoard(props: Props) {
               void (async () => {
                 try {
                   await api(`/v2/jobs/${encodeURIComponent(job.id)}/status/undo`, "POST", { event_id: eventId });
-                  await refresh();
                   notify(`Move undone: ${job.company} is back where it was.`);
+                  await refresh().catch(() => {});
                 } catch (e) {
                   notify((e as Error).message, true);
                 }
@@ -120,6 +121,7 @@ export default function ApplicationBoard(props: Props) {
           });
         }
         if (status === "interview") latest.current.onInterviewAdded?.(result.job);
+        await refresh().catch(() => {});
       } catch (e) {
         notify((e as Error).message, true);
         await refresh().catch(() => {});
@@ -180,10 +182,11 @@ export default function ApplicationBoard(props: Props) {
           },
         }}
       >
-        <div className="board" aria-label="Applications by stage">
+        <div className={"board" + (openClosed ? " closed-open" : "")} aria-label="Applications by stage">
           {COLUMNS.map((column) => {
             const items = groups[column.id];
-            const collapsed = column.id === "closed" && !openClosed && !active;
+            // Closed stays folded while dragging (no layout jump); the folded column still takes a drop.
+            const collapsed = column.id === "closed" && !openClosed;
             const verdict = active ? checkMove(active, column.id, evidence.has(active.id)).kind : null;
             return (
               <BoardColumn key={column.id} id={column.id} label={column.label} hint={column.hint} count={items.length}
@@ -286,15 +289,20 @@ const BoardCard = memo(function BoardCard({ job, today, nextInterview, followUp,
         <CardBody job={job} today={today} nextInterview={nextInterview} followUp={followUp} />
       </button>
       <footer className="board-card-actions">
-        <select aria-label={`Move ${job.company} ${job.title} to`} value="" className="board-move"
-          onChange={(event) => {
-            const value = event.target.value;
-            if (!value) return;
-            onMove(job, value as ColumnId);
-          }}>
-          <option value="">Move to…</option>
-          {COLUMNS.filter((c) => c.id !== column).map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
-        </select>
+        {/* The native menu, shown as an icon: keyboard and phone pickers keep working. */}
+        <label className="board-move" title="Move to another stage">
+          <ArrowLeftRight size={15} aria-hidden="true" />
+          <span className="board-move-word">Move</span>
+          <select aria-label={`Move ${job.company} ${job.title} to`} value=""
+            onChange={(event) => {
+              const value = event.target.value;
+              if (!value) return;
+              onMove(job, value as ColumnId);
+            }}>
+            <option value="">Move to…</option>
+            {COLUMNS.filter((c) => c.id !== column).map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
+          </select>
+        </label>
         {onDetails && (
           <button type="button" className="icon-button" aria-label={`Details and progress for ${job.company}`} title="Details, notes and interviews"
             onClick={() => onDetails(job.id)}>

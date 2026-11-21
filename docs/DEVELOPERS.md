@@ -56,6 +56,11 @@ Claude Code discovers `.claude/skills/`, whose pointer files must keep the same 
 | Agents and runs (research, tailoring, study plan) | `services/agents.py` (`AgentRunner`), `services/pipeline.py` |
 | Ready-to-submit check (verdict and readiness score) | `services/readiness.py`, `GET /studio/<job>/readiness` |
 | What only the person can do now (Dashboard and morning list) | `services/needs_you.py`, `summary.needs_you` |
+| Application board moves and Undo (same rules as every status change) | `scripts/career.py` (`move_status`, `revert_progress`), `POST /v2/jobs/<id>/status`, `/status/undo`; board rules in `frontend/src/features/boardModel.ts` |
+| Interviews and calendar files (.ics) | `services/interviews.py`, `/v2/interviews`, `summary.interviews_upcoming` |
+| Follow-up and thank-you drafts (never sent) | `services/follow_ups.py`, `/v2/follow-ups`, `summary.follow_ups` |
+| Profile strength meter | `services/profile_strength.py`, `GET /v2/profile` (`strength`) |
+| Your data: JSON backup and documents zip (no credentials) | `services/export.py`, `GET /v2/export/backup.json`, `/v2/export/documents.zip` |
 | Resume Studio, page contract, PDF | `services/resume_studio.py`, `resume_contract.py`, `pdf_compiler.py` (Tectonic), `ai_marks.py` |
 | Assistant (one chat, every feature as a tool) | `services/assistant.py`, `services/assistant_tools.py` (`Toolbox`) |
 | Optional local MCP connector | `services/mcp_connector.py`, `scripts/mcp_server.py`, `requirements-mcp.txt` |

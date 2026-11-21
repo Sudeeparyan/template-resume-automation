@@ -33,8 +33,17 @@ def _load(path: Path) -> dict:
     return _read(str(path), stat.st_mtime_ns, stat.st_size)
 
 
+# The file stamp whose lists were last checked: the check walks every entry, and job rows
+# ask for the lists many times a second, so it runs once per change of the file.
+_CHECKED: dict[str, tuple[int, int]] = {}
+
+
 def load_lists() -> dict:
-    data = _load(LISTS_FILE)
+    stat = LISTS_FILE.stat()
+    stamp = (stat.st_mtime_ns, stat.st_size)
+    data = _read(str(LISTS_FILE), *stamp)
+    if _CHECKED.get(str(LISTS_FILE)) == stamp:
+        return data
     if not isinstance(data.get("entries"), list) or not data["entries"]:
         raise ValueError("Occupation data has no entries.")
     seen = set()
@@ -46,6 +55,7 @@ def load_lists() -> dict:
                 or not re.fullmatch(r"[a-f0-9]{64}", entry["source_sha256"]):
             raise ValueError("Occupation entries have invalid identities or source hashes.")
         seen.add(entry["id"])
+    _CHECKED[str(LISTS_FILE)] = stamp
     return data
 
 
