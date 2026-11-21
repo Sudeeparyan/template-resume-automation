@@ -42,6 +42,27 @@ export type Interview = {
   where_text: string;
   notes: string;
 };
+/** A follow-up or thank-you draft (services/follow_ups.py). The app never sends it. */
+export type FollowUpDraft = {
+  id: number;
+  job_id: string;
+  kind: "follow_up" | "thank_you";
+  text: string;
+  method: "ai" | "template";
+  drafted_at: string;
+  marked_sent_at: string | null;
+};
+export type FollowUpItem = {
+  job_id: string;
+  company: string;
+  title: string;
+  kind: "follow_up" | "thank_you";
+  days_quiet: number;
+  sent: number;
+  reason: string;
+  draft: FollowUpDraft | null;
+  interview_id?: string;
+};
 export type SalarySource = {
   url: string;
   title: string;
@@ -292,6 +313,8 @@ export type Summary = {
   notices?: { id: string; level: "warning" | "info"; text: string }[];
   /** Recorded interviews in the next two weeks, soonest first (services/interviews.py). */
   interviews_upcoming?: Interview[];
+  /** Follow-ups and thank-you notes due now (services/follow_ups.py); drafts only. */
+  follow_ups?: FollowUpItem[];
   /** What only the person can do now (backend/services/needs_you.py), most urgent first. */
   needs_you?: NeedsYouItem[];
 };

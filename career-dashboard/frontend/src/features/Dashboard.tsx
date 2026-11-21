@@ -19,6 +19,7 @@ import type { Notify } from "../components/UI";
 import { JobFilters, JobList, useJobFilters } from "../components/JobList";
 import ApplicationBoard from "./ApplicationBoard";
 import { InterviewDialog, UpcomingInterviews, nextInterviewByJob } from "../components/Interviews";
+import { FollowUpsCard } from "../components/FollowUps";
 import { PlanEditor, WeekCard } from "../components/WeekPlan";
 import { RemoveJobDialog } from "./RemoveJob";
 import { TrackerAlertsNotice } from "./Tracker";
@@ -93,6 +94,8 @@ export default function Dashboard({
   const [interviewFor, setInterviewFor] = useState<Job | null>(null);
   const upcoming = data.interviews_upcoming || [];
   const nextInterview = useMemo(() => nextInterviewByJob(upcoming), [upcoming]);
+  const followUps = data.follow_ups || [];
+  const followUpDue = useMemo(() => new Set(followUps.map((item) => item.job_id)), [followUps]);
   const evidence = useMemo(
     () => new Set(data.mail.messages.filter((m) => m.state === "confirmed" && m.job_id).map((m) => m.job_id as string)),
     [data.mail.messages],
@@ -328,6 +331,7 @@ export default function Dashboard({
       </div>
       <div className="dashboard-agenda">
         <UpcomingInterviews items={upcoming} today={data.goals.date} onOpen={onDetails || onJob} />
+        <FollowUpsCard items={followUps} notify={notify} refresh={refresh} onOpen={onDetails || onJob} />
       </div>
       {interviewFor && (
         <InterviewDialog job={interviewFor} notify={notify} onClose={() => setInterviewFor(null)} onSaved={() => void refresh()} />
@@ -410,6 +414,7 @@ export default function Dashboard({
                 onCoverLetter={generateCoverLetter}
                 onRemove={removeJob}
                 nextInterview={nextInterview}
+                followUpDue={followUpDue}
                 onInterviewAdded={(job) => {
                   if (!nextInterview[job.id]) setInterviewFor(job);
                 }}

@@ -8351,3 +8351,66 @@ nav button:disabled {
 .interview-form {
   margin-top: 6px;
 }
+
+/* ---- Follow-ups ------------------------------------------------------------------------- */
+.follow-up-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.follow-up-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 9px 10px;
+  border: 1px solid var(--border-soft);
+  border-left: 3px solid var(--warning);
+  border-radius: 9px;
+  background: var(--surface);
+}
+.follow-up-open {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  text-align: left;
+  color: var(--text);
+  text-decoration: none;
+}
+.follow-up-open b {
+  font-size: 13px;
+}
+.follow-up-open span {
+  font-size: 12px;
+  color: var(--text-2);
+}
+.follow-up-open small {
+  font-size: 11px;
+  color: var(--text-subtle);
+}
+.follow-up-list .secondary {
+  flex-shrink: 0;
+  padding: 7px 10px;
+  font-size: 12px;
+}
+.follow-up-text {
+  width: 100%;
+  margin: 6px 0 12px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  font-size: 13px;
+  line-height: 1.55;
+  resize: vertical;
+}
+@media (max-width: 640px) {
+  .follow-up-list li {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}
